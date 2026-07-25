@@ -3,21 +3,34 @@
 Taeglich automatisch laufender Decision-Support-Agent fuer Kickbase.
 
 Sammelt Kader-, Liga-, Transfermarkt- und Punktedaten ueber die inoffizielle
-Kickbase-API, ergaenzt Verletzungs-/Sperrdaten von kicker.de und baut daraus
-einen fertigen Analyse-Prompt (Aufstellung, Kauf-/Verkaufsempfehlungen pro
-Spieler, Liga-Konkurrenzanalyse). Der Prompt wird per Discord-Webhook
-zugestellt und manuell ins Claude-WebUI eingefuegt (MVP-Phase: keine
-Anthropic-API-Kosten).
+Kickbase-API (inkl. eingebautem Verletzt-/Gesperrt-Status je Spieler) und
+baut daraus einen fertigen Analyse-Prompt (Aufstellung, Kauf-/Verkaufs-
+empfehlungen pro Spieler, Liga-Konkurrenzanalyse). Der Prompt wird per
+Discord-Webhook zugestellt und manuell ins Claude-WebUI eingefuegt
+(MVP-Phase: keine Anthropic-API-Kosten).
 
 Details siehe Plan-Dokument (Projektverlauf).
 
 ## Setup
+
+**macOS/Linux (bash):**
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env  # Secrets lokal eintragen, .env nie committen
+```
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+# Falls Skript-Ausfuehrung blockiert ist:
+#   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+pip install -r requirements.txt
+copy .env.example .env  # Secrets lokal eintragen, .env nie committen
 ```
 
 ## Secrets (lokal in `.env`, in GitHub Actions als Repo-Secrets)
