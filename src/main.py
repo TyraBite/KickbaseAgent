@@ -24,7 +24,7 @@ def run() -> None:
     if not webhook_url:
         raise RuntimeError("DISCORD_WEBHOOK_URL fehlt (lokal: .env, GitHub Actions: Secret)")
 
-    send_prompt(webhook_url, prompt_text)
+    send_prompt(webhook_url, prompt_text, fetched_at)
     print(f"Prompt fuer {fetched_at} an Discord gesendet.")
 
 
