@@ -8,15 +8,23 @@ gegen die aktuelle v4-API, basierend auf github.com/kevinskyba/kickbase-api-doc
 (Postman-Collection mit echten Beispiel-Responses).
 
 WICHTIG - unbestaetigter Teil: Die Kickbase-API nutzt durchgehend sehr kurze,
-kryptische Feldnamen (z.B. "st" fuer Status, "oui" fuer Owner-User-Id, "prc"
-fuer Preis). Fuer Kader/Liga-Tabelle/Budget sind diese Felder anhand echter
-Beispiel-Responses in der Doku bestaetigt. Fuer den Transfermarkt (/market)
-enthielt die Doku nur ein Beispiel mit LEERER Spielerliste (kein Spieler aktuell
-gelistet) - die Feldnamen fuer Preis/Anbieter dort sind aus verwandten
-Endpunkten (players/{id}/transfers) abgeleitet, aber NICHT an einem echten
-populierten Marktangebot verifiziert. Beim ersten echten Lauf unbedingt
-pruefen (z.B. rohes JSON von get_market() ausgeben lassen) ob die Zuordnung
-stimmt.
+kryptische Feldnamen (z.B. "st" fuer Status, "oui"/"u" fuer Owner-User-Id,
+"prc" fuer Preis). Fuer Kader/Liga-Tabelle/Budget/Teams sind diese Felder
+anhand echter Beispiel-Responses in der Doku (kevinskyba/kickbase-api-doc,
+Postman-Collection) bestaetigt. Fuer den Transfermarkt (/market) enthielt
+die Doku nur ein Beispiel mit LEERER Spielerliste (kein Spieler aktuell
+gelistet) - die Top-Level-Felder der Response (it/nps/tv/mvud/dt/day) sind
+dadurch bestaetigt, die Feldnamen einzelner Markt-Items (Preis/Anbieter/
+Punkte) aber NICHT an einem echten populierten Marktangebot verifiziert.
+Vor dem naechsten echten Lauf unbedingt pruefen (z.B. rohes JSON eines
+get_market()-Items ausgeben lassen), ob die Zuordnung in _market_item_to_row
+(src/fetcher.py) stimmt.
+
+Ausserdem bestaetigt durch echte Beispiele: "st" (Status) zeigt in einem
+Fall den Wert 128 bei einem sichtlich fitten/aktiven Spieler - eher eine
+Bitmaske als der einfache Enum (1/2/4) des alten, verworfenen Clients.
+status_label() gibt deshalb bewusst weiterhin nur die rohe Zahl aus, bis
+das im echten Kickbase-Client gegengecheckt wurde.
 """
 
 import requests
@@ -79,19 +87,28 @@ def get_squad(token: str, league_id: str) -> list[dict]:
     return response.json().get("it", [])
 
 
-def get_market(token: str, league_id: str) -> list[dict]:
+def get_market(token: str, league_id: str) -> dict:
+    """Gibt das komplette Response-Dict zurueck (nicht nur 'it'!), da die
+    Top-Level-Felder day/dt/mvud fuer die Saisonphase gebraucht werden
+    (siehe Modul-Docstring)."""
     response = requests.get(
         f"{BASE_URL}/v4/leagues/{league_id}/market", headers=_headers(token), timeout=TIMEOUT
     )
     _raise_for_status(response)
-    return response.json().get("it", [])
+    return response.json()
 
 
-def get_ranking(token: str, league_id: str) -> dict:
-    """Liga-Tabelle inkl. aller Manager (Name, Punkte, Teamwert, Platzierung,
-    letzte Spieltagspunkte). Enthaelt auch die eigenen Werte."""
+def get_ranking(token: str, league_id: str, day_number: int | None = None) -> dict:
+    """Liga-Tabelle inkl. aller Manager (Name, Punkte, Teamwert, Platzierung).
+    Enthaelt auch die eigenen Werte sowie Top-Level-Felder zur Saisonphase
+    (day, sn). Mit day_number kann die Tabelle fuer einen einzelnen
+    Spieltag abgefragt werden (fuer die Formkurve der Konkurrenz)."""
+    params = {"dayNumber": day_number} if day_number is not None else None
     response = requests.get(
-        f"{BASE_URL}/v4/leagues/{league_id}/ranking", headers=_headers(token), timeout=TIMEOUT
+        f"{BASE_URL}/v4/leagues/{league_id}/ranking",
+        headers=_headers(token),
+        params=params,
+        timeout=TIMEOUT,
     )
     _raise_for_status(response)
     return response.json()
@@ -99,9 +116,39 @@ def get_ranking(token: str, league_id: str) -> dict:
 
 def get_me(token: str, league_id: str) -> dict:
     """Eigener Kontostand etc. (Budget ist ueber die Liga-Tabelle nicht
-    einsehbar, nur hier)."""
+    einsehbar, nur hier). Enthaelt auch 'cpi' (competitionId, z.B. "1" fuer
+    Bundesliga), das fuer get_teams() gebraucht wird."""
     response = requests.get(
         f"{BASE_URL}/v4/leagues/{league_id}/me", headers=_headers(token), timeout=TIMEOUT
+    )
+    _raise_for_status(response)
+    return response.json()
+
+
+def get_teams(token: str, competition_id: str) -> dict[str, str]:
+    """Gibt {team_id: team_name} zurueck, z.B. {"5": "Freiburg"}. Bestaetigt
+    durch echtes Beispiel unter /v4/base/predictions/teams/{competitionId}
+    (Feld 'tms', je Eintrag 'tid'/'tn')."""
+    response = requests.get(
+        f"{BASE_URL}/v4/base/predictions/teams/{competition_id}",
+        headers=_headers(token),
+        timeout=TIMEOUT,
+    )
+    _raise_for_status(response)
+    teams = response.json().get("tms", [])
+    return {t["tid"]: t["tn"] for t in teams if t.get("tid") and t.get("tn")}
+
+
+def get_market_value_history(
+    token: str, league_id: str, player_id: str, timeframe: int = 92
+) -> dict:
+    """Echte Marktwert-Zeitreihe eines Spielers (bestaetigt durch echtes
+    Beispiel: {"it": [{"dt": ..., "mv": ...}, ...], "lmv", "hmv", "trp",
+    "idp"}). timeframe ist 92 (~3 Monate) oder 365 (1 Jahr) Tage."""
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/players/{player_id}/marketValue/{timeframe}",
+        headers=_headers(token),
+        timeout=TIMEOUT,
     )
     _raise_for_status(response)
     return response.json()

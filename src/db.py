@@ -26,9 +26,14 @@ CREATE TABLE IF NOT EXISTS own_squad (
     status_label TEXT,
     market_value INTEGER,
     market_value_trend INTEGER,
+    market_value_change_7d INTEGER,
+    market_value_low_92d INTEGER,
+    market_value_high_92d INTEGER,
+    market_value_in_drop_phase INTEGER,
     average_points INTEGER,
     total_points INTEGER,
     team_id TEXT,
+    team_name TEXT,
     PRIMARY KEY (fetched_at, player_id)
 );
 
@@ -40,8 +45,16 @@ CREATE TABLE IF NOT EXISTS market_listings (
     status_code INTEGER,
     status_label TEXT,
     market_value INTEGER,
+    market_value_change_7d INTEGER,
+    market_value_low_92d INTEGER,
+    market_value_high_92d INTEGER,
+    market_value_in_drop_phase INTEGER,
     price INTEGER,
+    price_delta_pct REAL,
     average_points INTEGER,
+    total_points INTEGER,
+    team_id TEXT,
+    team_name TEXT,
     offering_user_id TEXT,
     offering_username TEXT,
     is_system_offer INTEGER,
@@ -58,7 +71,8 @@ CREATE TABLE IF NOT EXISTS league_ranking (
     team_value INTEGER,
     season_placement INTEGER,
     matchday_placement INTEGER,
-    recent_points TEXT,
+    current_lineup_player_ids TEXT,
+    recent_matchday_points TEXT,
     PRIMARY KEY (fetched_at, user_id)
 );
 
@@ -66,6 +80,15 @@ CREATE TABLE IF NOT EXISTS own_budget_history (
     fetched_at TEXT PRIMARY KEY,
     user_id TEXT,
     budget REAL
+);
+
+CREATE TABLE IF NOT EXISTS season_context (
+    fetched_at TEXT PRIMARY KEY,
+    season_name TEXT,
+    current_matchday INTEGER,
+    next_deadline_at TEXT,
+    days_until_next_deadline INTEGER,
+    market_value_updated_at TEXT
 );
 """
 
@@ -93,10 +116,14 @@ def replace_own_squad(conn: sqlite3.Connection, fetched_at: str, players: list[d
         """
         INSERT INTO own_squad (
             fetched_at, player_id, name, position, status_code, status_label,
-            market_value, market_value_trend, average_points, total_points, team_id
+            market_value, market_value_trend, market_value_change_7d,
+            market_value_low_92d, market_value_high_92d, market_value_in_drop_phase,
+            average_points, total_points, team_id, team_name
         ) VALUES (
             :fetched_at, :player_id, :name, :position, :status_code, :status_label,
-            :market_value, :market_value_trend, :average_points, :total_points, :team_id
+            :market_value, :market_value_trend, :market_value_change_7d,
+            :market_value_low_92d, :market_value_high_92d, :market_value_in_drop_phase,
+            :average_points, :total_points, :team_id, :team_name
         )
         """,
         [{**p, "fetched_at": fetched_at} for p in players],
@@ -110,11 +137,15 @@ def replace_market_listings(conn: sqlite3.Connection, fetched_at: str, listings:
         """
         INSERT INTO market_listings (
             fetched_at, player_id, name, position, status_code, status_label,
-            market_value, price, average_points,
+            market_value, market_value_change_7d, market_value_low_92d,
+            market_value_high_92d, market_value_in_drop_phase,
+            price, price_delta_pct, average_points, total_points, team_id, team_name,
             offering_user_id, offering_username, is_system_offer, pending_offers_count
         ) VALUES (
             :fetched_at, :player_id, :name, :position, :status_code, :status_label,
-            :market_value, :price, :average_points,
+            :market_value, :market_value_change_7d, :market_value_low_92d,
+            :market_value_high_92d, :market_value_in_drop_phase,
+            :price, :price_delta_pct, :average_points, :total_points, :team_id, :team_name,
             :offering_user_id, :offering_username, :is_system_offer, :pending_offers_count
         )
         """,
@@ -129,10 +160,12 @@ def replace_league_ranking(conn: sqlite3.Connection, fetched_at: str, rows: list
         """
         INSERT INTO league_ranking (
             fetched_at, user_id, name, season_points, matchday_points,
-            team_value, season_placement, matchday_placement, recent_points
+            team_value, season_placement, matchday_placement,
+            current_lineup_player_ids, recent_matchday_points
         ) VALUES (
             :fetched_at, :user_id, :name, :season_points, :matchday_points,
-            :team_value, :season_placement, :matchday_placement, :recent_points
+            :team_value, :season_placement, :matchday_placement,
+            :current_lineup_player_ids, :recent_matchday_points
         )
         """,
         [{**r, "fetched_at": fetched_at} for r in rows],
@@ -146,5 +179,21 @@ def upsert_own_budget(
     conn.execute(
         "INSERT OR REPLACE INTO own_budget_history (fetched_at, user_id, budget) VALUES (?, ?, ?)",
         (fetched_at, user_id, budget),
+    )
+    conn.commit()
+
+
+def upsert_season_context(conn: sqlite3.Connection, fetched_at: str, context: dict) -> None:
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO season_context (
+            fetched_at, season_name, current_matchday, next_deadline_at,
+            days_until_next_deadline, market_value_updated_at
+        ) VALUES (
+            :fetched_at, :season_name, :current_matchday, :next_deadline_at,
+            :days_until_next_deadline, :market_value_updated_at
+        )
+        """,
+        {**context, "fetched_at": fetched_at},
     )
     conn.commit()

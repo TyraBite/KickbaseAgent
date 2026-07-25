@@ -15,32 +15,101 @@ def _status_hint(status_label: str | None) -> str:
     return f" [{status_label}]" if status_label else ""
 
 
-def _player_line(p: sqlite3.Row) -> str:
+def _fmt_points(value) -> str:
+    """Unterscheidet 'noch keine Saisondaten' (None) von einer echten 0,
+    statt der nackten Python-Repraesentation 'None' im Prompt."""
+    return "noch keine Saisondaten" if value is None else str(value)
+
+
+def _appearances(total_points, average_points) -> str:
+    """Geschaetzte Einsatzzahl aus Gesamt-/Schnittpunkten - kein direktes
+    API-Feld, deshalb klar als Schaetzung gekennzeichnet."""
+    if not average_points or total_points is None:
+        return "unbekannt"
+    return f"~{round(total_points / average_points)} (geschaetzt)"
+
+
+def _appearance_rate(total_points, average_points, current_matchday) -> str:
+    if not average_points or total_points is None or not current_matchday or current_matchday <= 0:
+        return "unbekannt"
+    appearances = total_points / average_points
+    return f"~{round(appearances / current_matchday * 100)}% (geschaetzt)"
+
+
+def _cost_per_point(value, total_points) -> str:
+    if value is None or not total_points:
+        return "unbekannt"
+    return str(round(value / total_points))
+
+
+def _market_value_trend(p: sqlite3.Row) -> str:
+    change_7d = p["market_value_change_7d"]
+    low_92d = p["market_value_low_92d"]
+    high_92d = p["market_value_high_92d"]
+    if change_7d is None and low_92d is None and high_92d is None:
+        raw_trend = p["market_value_trend"] if "market_value_trend" in p.keys() else None
+        if raw_trend is not None:
+            return f"Trend nicht verfuegbar (roher Kickbase-Code: {raw_trend}, Bedeutung unbestaetigt)"
+        return "Trend nicht verfuegbar"
+    parts = []
+    if change_7d is not None:
+        sign = "+" if change_7d >= 0 else ""
+        parts.append(f"{sign}{change_7d} (7 Tage)")
+    if low_92d is not None and high_92d is not None:
+        parts.append(f"Tiefst/Hoechst 92 Tage: {low_92d}/{high_92d}")
+    if p["market_value_in_drop_phase"]:
+        parts.append("im Preisverfall")
+    return ", ".join(parts) or "Trend nicht verfuegbar"
+
+
+def _player_line(p: sqlite3.Row, current_matchday) -> str:
+    verein = f", {p['team_name']}" if p["team_name"] else ""
     return (
-        f"- {p['name']} ({p['position']}){_status_hint(p['status_label'])} | "
-        f"Marktwert: {p['market_value']} (Trend: {p['market_value_trend']}) | "
-        f"Punkteschnitt: {p['average_points']} | Punkte gesamt: {p['total_points']}"
+        f"- {p['name']} ({p['position']}{verein}){_status_hint(p['status_label'])} | "
+        f"Marktwert: {p['market_value']} ({_market_value_trend(p)}) | "
+        f"Punkteschnitt: {_fmt_points(p['average_points'])} | "
+        f"Punkte gesamt: {_fmt_points(p['total_points'])} | "
+        f"Einsatzzahl: {_appearances(p['total_points'], p['average_points'])} | "
+        f"Einsatzquote: {_appearance_rate(p['total_points'], p['average_points'], current_matchday)} | "
+        f"Kosten/Punkt: {_cost_per_point(p['market_value'], p['total_points'])}"
     )
 
 
-def _market_line(p: sqlite3.Row) -> str:
+def _market_line(p: sqlite3.Row, current_matchday) -> str:
     if p["is_system_offer"]:
         anbieter = "Kickbase (kein Anbieter-User erkannt, evtl. Systemangebot)"
     else:
         anbieter = p["offering_username"] or f"Manager {p['offering_user_id']}"
     extra = f" | Laufende Gebote: {p['pending_offers_count']}" if p["pending_offers_count"] else ""
+    delta = p["price_delta_pct"]
+    delta_hint = ""
+    if delta is not None and delta != 0:
+        delta_hint = (
+            f" | Preis-Delta: {'+' if delta > 0 else ''}{delta}% ggue. Marktwert"
+            " -> vermutlich Mitspieler-Angebot mit Verhandlungsspielraum"
+        )
+    verein = f", {p['team_name']}" if p["team_name"] else ""
     return (
-        f"- {p['name']} ({p['position']}){_status_hint(p['status_label'])} | Preis: {p['price']} | "
-        f"Marktwert: {p['market_value']} | Punkteschnitt: {p['average_points']} | "
-        f"Angeboten von: {anbieter}{extra}"
+        f"- {p['name']} ({p['position']}{verein}){_status_hint(p['status_label'])} | "
+        f"Preis: {p['price']} | Marktwert: {p['market_value']} ({_market_value_trend(p)}) | "
+        f"Punkteschnitt: {_fmt_points(p['average_points'])} | "
+        f"Punkte gesamt: {_fmt_points(p['total_points'])} | "
+        f"Kosten/Punkt: {_cost_per_point(p['price'], p['total_points'])} | "
+        f"Angeboten von: {anbieter}{delta_hint}{extra}"
     )
+
+
+def _form_curve(recent_matchday_points: str | None) -> str:
+    if not recent_matchday_points:
+        return "noch keine Spieltage in dieser Saison"
+    return recent_matchday_points.replace(",", ", ")
 
 
 def _league_table(conn: sqlite3.Connection, fetched_at: str) -> list[str]:
     rows = conn.execute(
         """
         SELECT user_id, name, season_points, season_placement, team_value,
-               matchday_points, recent_points
+               matchday_points, recent_matchday_points
         FROM league_ranking
         WHERE fetched_at = ?
         ORDER BY season_placement ASC
@@ -52,11 +121,34 @@ def _league_table(conn: sqlite3.Connection, fetched_at: str) -> list[str]:
     for r in rows:
         name = r["name"] or r["user_id"]
         lines.append(
-            f"{r['season_placement']}. {name} - Punkte: {r['season_points']} | "
-            f"Teamwert: {r['team_value']} | Spieltagspunkte: {r['matchday_points']} | "
-            f"Letzte Spieltage: {r['recent_points']}"
+            f"{r['season_placement']}. {name} - Punkte: {_fmt_points(r['season_points'])} | "
+            f"Teamwert: {_fmt_points(r['team_value'])} | "
+            f"Spieltagspunkte: {_fmt_points(r['matchday_points'])} | "
+            f"Formkurve (letzte Spieltage): {_form_curve(r['recent_matchday_points'])}"
         )
     return lines or ["(keine Liga-Tabellendaten vorhanden)"]
+
+
+def _season_context_block(conn: sqlite3.Connection, fetched_at: str) -> str:
+    row = conn.execute(
+        "SELECT * FROM season_context WHERE fetched_at = ?", (fetched_at,)
+    ).fetchone()
+    if not row:
+        return "(keine Saisonphasen-Daten vorhanden)"
+
+    parts = []
+    if row["season_name"]:
+        parts.append(f"Saison {row['season_name']}")
+    if row["current_matchday"] is not None:
+        parts.append(f"aktueller Spieltag: {row['current_matchday']}")
+    if row["days_until_next_deadline"] is not None:
+        parts.append(f"naechster Termin in {row['days_until_next_deadline']} Tagen")
+    text = ", ".join(parts) if parts else "(unbekannt)"
+    return (
+        f"{text}\n"
+        "(Hinweis: die genaue Bedeutung von Spieltag-Index/Termin-Datum ist noch nicht "
+        "im echten Kickbase-Client gegengecheckt - bei Unsicherheit vorsichtig interpretieren.)"
+    )
 
 
 def build_prompt(fetched_at: str | None = None) -> str:
@@ -67,6 +159,12 @@ def build_prompt(fetched_at: str | None = None) -> str:
             fetched_at = _latest_fetched_at(conn)
         if fetched_at is None:
             raise RuntimeError("Kein Snapshot in der Datenbank - erst den Fetcher laufen lassen")
+
+        season_context_row = conn.execute(
+            "SELECT current_matchday FROM season_context WHERE fetched_at = ?",
+            (fetched_at,),
+        ).fetchone()
+        current_matchday = season_context_row["current_matchday"] if season_context_row else None
 
         own_squad = conn.execute(
             "SELECT * FROM own_squad WHERE fetched_at = ? ORDER BY position, name",
@@ -87,19 +185,30 @@ def build_prompt(fetched_at: str | None = None) -> str:
                 (fetched_at, own_budget_row["user_id"]),
             ).fetchone()
         league_table_lines = _league_table(conn, fetched_at)
+        season_block = _season_context_block(conn, fetched_at)
     finally:
         conn.close()
 
-    squad_lines = "\n".join(_player_line(p) for p in own_squad) or "(keine Spieler im Kader gefunden)"
-    market_lines = "\n".join(_market_line(p) for p in market_listings) or "(kein Spieler aktuell auf dem Markt)"
+    squad_lines = (
+        "\n".join(_player_line(p, current_matchday) for p in own_squad)
+        or "(keine Spieler im Kader gefunden)"
+    )
+    market_lines = (
+        "\n".join(_market_line(p, current_matchday) for p in market_listings)
+        or "(kein Spieler aktuell auf dem Markt)"
+    )
     table_lines = "\n".join(league_table_lines)
 
     if own_budget_row:
         status_parts = [f"Budget: {own_budget_row['budget']}"]
         if own_ranking_row:
-            status_parts.append(f"Teamwert: {own_ranking_row['team_value']}")
-            status_parts.append(f"Platzierung: {own_ranking_row['season_placement']}")
-            status_parts.append(f"Punkte gesamt: {own_ranking_row['season_points']}")
+            status_parts.append(f"Teamwert: {_fmt_points(own_ranking_row['team_value'])}")
+            status_parts.append(f"Platzierung: {_fmt_points(own_ranking_row['season_placement'])}")
+            status_parts.append(f"Punkte gesamt: {_fmt_points(own_ranking_row['season_points'])}")
+        else:
+            status_parts.append(
+                "(eigener Liga-Ranking-Eintrag nicht gefunden - Teamwert/Platzierung/Punkte fehlen)"
+            )
         status_block = "\n".join(status_parts)
     else:
         status_block = "(keine eigenen Statusdaten gefunden)"
@@ -107,23 +216,38 @@ def build_prompt(fetched_at: str | None = None) -> str:
     return f"""Du bist mein Kickbase-Berater. Hier sind meine aktuellen Daten vom {fetched_at}. \
 Analysiere sie und gib mir:
 
+0. Beruecksichtige zuerst die Saisonphase unten (Spieltag/naechster Termin): wenn der naechste \
+Spieltag noch weit entfernt ist, ist keine akute Aufstellungsempfehlung noetig - schaetze das \
+selbst anhand der Angabe ein.
 1. Eine Aufstellungsempfehlung fuer den naechsten Spieltag (Formation, wer spielt, \
-wer pausiert - beruecksichtige auffaellige Status-Codes, siehe Kader unten).
-2. Fuer JEDEN einzelnen Spieler in meinem Kader unten: Verkaufen oder Halten, \
-mit einer kurzen Begruendung (1-2 Saetze).
-3. Fuer JEDEN einzelnen Spieler auf dem Transfermarkt unten: Kaufen oder Nicht kaufen, \
-mit einer kurzen Begruendung. Beruecksichtige dabei explizit, ob der Spieler von einem \
-Mitspieler (dann ggf. Verhandlungsspielraum) oder von Kickbase selbst (Systemangebot, \
-Festpreis) angeboten wird.
-4. Eine Einschaetzung meiner Position in der Liga im Vergleich zu den anderen Managern \
-(wer ist gefaehrlich, worauf sollte ich achten).
+wer pausiert - beruecksichtige auffaellige Status-Codes, siehe Kader unten), falls laut \
+Saisonphase ueberhaupt relevant.
+2. Fuer JEDEN einzelnen Spieler in meinem Kader unten: Verkaufen oder Halten, mit einer kurzen \
+Begruendung (1-2 Saetze). Beruecksichtige dabei explizit die Marktwertentwicklung (Trend/Tiefst-\
+Hoechstwert/Preisverfall) und Kosten pro Punkt als eigene Kriterien, nicht nur nebenbei. \
+Achte bei Verkaufsempfehlungen darauf, dass keine Position in meinem Kader komplett leerlaeuft.
+3. Fuer JEDEN einzelnen Spieler auf dem Transfermarkt unten: Kaufen oder Nicht kaufen, mit einer \
+kurzen Begruendung. Beruecksichtige dabei explizit: ob der Spieler von einem Mitspieler (dann ggf. \
+Verhandlungsspielraum, siehe Preis-Delta) oder von Kickbase selbst (Systemangebot, Festpreis) \
+angeboten wird, sowie mein verfuegbares Budget (siehe MEIN STATUS) - priorisiere bei mehreren \
+Kaufempfehlungen danach, was ich mir tatsaechlich leisten kann.
+4. Eine Einschaetzung meiner Position in der Liga im Vergleich zu den anderen Managern - nutze dafuer \
+nicht nur die aktuelle Platzierung, sondern auch die Formkurve (letzte Spieltage) je Manager: wer ist \
+im Aufwind, wer im Abwind, wer ist deshalb besonders gefaehrlich oder gerade verwundbar.
 
 Bitte gehe wirklich JEDEN Spieler aus beiden Listen einzeln durch, ueberspringe keinen.
 
 Hinweis zu "Status-Code X" bei einzelnen Spielern: die genaue Bedeutung jenseits von \
-"kein Code = unauffaellig" ist mir nicht zweifelsfrei bekannt (haeufig verletzt/gesperrt/ \
-nicht nominiert) - wenn relevant, weise in deiner Antwort darauf hin, dass ich das im \
+"kein Code = unauffaellig" ist mir nicht zweifelsfrei bekannt (moeglicherweise eine Bitmaske, \
+nicht ein einfacher Enum) - wenn relevant, weise in deiner Antwort darauf hin, dass ich das im \
 Kickbase-Client selbst gegenchecken sollte.
+
+Hinweis zu "Einsatzzahl"/"Einsatzquote"/"Kosten pro Punkt": das sind von mir aus Gesamt-/ \
+Schnittpunkten abgeleitete Schaetzungen, keine direkten Kickbase-Felder - bei der Interpretation \
+entsprechend vorsichtig sein.
+
+=== SAISONPHASE ===
+{season_block}
 
 === MEIN STATUS ===
 {status_block}

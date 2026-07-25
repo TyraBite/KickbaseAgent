@@ -8,14 +8,26 @@ from dotenv import load_dotenv
 
 from src import db
 from src.kickbase_client import (
+    KickbaseError,
     get_market,
+    get_market_value_history,
     get_me,
     get_ranking,
     get_squad,
+    get_teams,
     login,
     position_label,
     status_label,
 )
+
+# Wie viele vergangene Spieltage fuer die Formkurve der Liga-Konkurrenz
+# zusaetzlich abgefragt werden (siehe _fetch_recent_matchday_points).
+FORM_CURVE_MATCHDAYS = 5
+
+# Grenzwert fuer die Plausibilitaetspruefung der Spieltagspunkte - grosszuegig
+# gewaehlt, soll nur eindeutig kaputte Werte abfangen (z.B. Verwechslung mit
+# Spieler-IDs), keine echten Grenzfaelle.
+IMPLAUSIBLE_MATCHDAY_POINTS = 5000
 
 
 def _select_league(leagues: list[dict]) -> dict:
@@ -36,8 +48,9 @@ def _select_league(leagues: list[dict]) -> dict:
     return leagues[0]
 
 
-def _squad_item_to_row(item: dict) -> dict:
+def _squad_item_to_row(item: dict, team_names_by_id: dict) -> dict:
     status_code = item.get("st") or 0
+    team_id = item.get("tid")
     return {
         "player_id": item.get("i"),
         "name": item.get("n"),
@@ -46,30 +59,124 @@ def _squad_item_to_row(item: dict) -> dict:
         "status_label": status_label(status_code),
         "market_value": item.get("mv"),
         "market_value_trend": item.get("mvt"),
+        "market_value_change_7d": None,
+        "market_value_low_92d": None,
+        "market_value_high_92d": None,
+        "market_value_in_drop_phase": None,
         "average_points": item.get("ap"),
         "total_points": item.get("p"),
-        "team_id": item.get("tid"),
+        "team_id": team_id,
+        "team_name": team_names_by_id.get(team_id),
     }
 
 
-def _market_item_to_row(item: dict, names_by_user_id: dict) -> dict:
+def _market_item_to_row(item: dict, names_by_user_id: dict, team_names_by_id: dict) -> dict:
     status_code = item.get("st") or 0
-    offering_user_id = item.get("oui") or None
-    offering_username = names_by_user_id.get(offering_user_id) if offering_user_id else None
+    # "u"/"unm" sind fuer /managers/{id}/squad an einem echten Beispiel
+    # bestaetigt, fuer /market selbst (noch) nicht - siehe Modul-Docstring
+    # in kickbase_client.py. "oui"/"un" bleiben als Fallback fuer den Fall,
+    # dass /market doch die anderen Kuerzel nutzt.
+    offering_user_id = item.get("u") or item.get("oui") or None
+    offering_username = (
+        item.get("unm") or item.get("un") or names_by_user_id.get(offering_user_id)
+        if offering_user_id
+        else None
+    )
+    market_value = item.get("mv")
+    price = item.get("prc")
+    price_delta_pct = None
+    if market_value and price is not None:
+        price_delta_pct = round((price - market_value) / market_value * 100, 1)
+    team_id = item.get("tid")
     return {
         "player_id": item.get("i") or item.get("pi"),
         "name": item.get("n") or item.get("pn"),
         "position": position_label(item.get("pos")),
         "status_code": status_code,
         "status_label": status_label(status_code),
-        "market_value": item.get("mv"),
-        "price": item.get("prc"),
+        "market_value": market_value,
+        "market_value_change_7d": None,
+        "market_value_low_92d": None,
+        "market_value_high_92d": None,
+        "market_value_in_drop_phase": None,
+        "price": price,
+        "price_delta_pct": price_delta_pct,
         "average_points": item.get("ap"),
+        "total_points": item.get("p"),
+        "team_id": team_id,
+        "team_name": team_names_by_id.get(team_id),
         "offering_user_id": offering_user_id,
         "offering_username": offering_username,
         "is_system_offer": 1 if not offering_user_id else 0,
         "pending_offers_count": len(item.get("ofs") or []),
     }
+
+
+def _apply_market_value_history(token: str, league_id: str, row: dict) -> None:
+    """Ergaenzt eine Kader-/Markt-Row um die echte Marktwert-Historie.
+    Ein einzelner fehlgeschlagener Call darf den ganzen Lauf nicht abbrechen
+    (~80 Requests/Tag ueber Kader+Markt), daher try/except pro Spieler."""
+    player_id = row.get("player_id")
+    if not player_id:
+        return
+    try:
+        history = get_market_value_history(token, league_id, player_id)
+    except KickbaseError as exc:
+        print(
+            f"Warnung: Marktwert-Historie fuer Spieler {player_id} ({row.get('name')}) "
+            f"fehlgeschlagen: {exc}",
+            file=sys.stderr,
+        )
+        return
+
+    entries = history.get("it") or []
+    if len(entries) >= 8:
+        row["market_value_change_7d"] = entries[-1].get("mv") - entries[-8].get("mv")
+    row["market_value_low_92d"] = history.get("lmv")
+    row["market_value_high_92d"] = history.get("hmv")
+    row["market_value_in_drop_phase"] = 1 if history.get("idp") else 0
+
+
+def _fetch_recent_matchday_points(
+    token: str, league_id: str, current_matchday: int | None, known_user_ids: set
+) -> dict[str, list]:
+    """Baut je Manager eine Punkte-Liste der letzten FORM_CURVE_MATCHDAYS
+    Spieltage (echte Formkurve statt des fuer diesen Zweck ungeeigneten
+    'lp'-Felds, das tatsaechlich Spieler-IDs der Aufstellung enthaelt, siehe
+    Modul-Docstring in kickbase_client.py)."""
+    points_by_user: dict[str, list] = {uid: [] for uid in known_user_ids}
+    if not current_matchday or current_matchday <= 0:
+        return points_by_user
+
+    start_day = max(1, current_matchday - (FORM_CURVE_MATCHDAYS - 1))
+    for day in range(start_day, current_matchday + 1):
+        try:
+            day_ranking = get_ranking(token, league_id, day_number=day)
+        except KickbaseError as exc:
+            print(f"Warnung: Formkurve Spieltag {day} nicht ladbar: {exc}", file=sys.stderr)
+            continue
+        for u in day_ranking.get("us", []):
+            uid = u.get("i")
+            if uid in points_by_user:
+                points_by_user[uid].append(u.get("mdp"))
+    return points_by_user
+
+
+def _match_own_ranking_user(
+    ranking_users: list[dict], own_user_id: str | None, own_name: str | None
+) -> dict | None:
+    """Login liefert die eigene ID unter 'id', die Ranking-Response listet
+    Manager unter 'i' - beide sollten denselben Wert tragen, muessen es aber
+    nicht zwingend (unterschiedliche ID-Raeume moeglich). Fallback per Name,
+    damit Teamwert/Platzierung nicht lautlos None bleiben."""
+    for u in ranking_users:
+        if u.get("i") == own_user_id:
+            return u
+    if own_name:
+        for u in ranking_users:
+            if u.get("n") == own_name:
+                return u
+    return None
 
 
 def run() -> str:
@@ -89,17 +196,54 @@ def run() -> str:
     league = _select_league(leagues)
     league_id = league["id"]
 
+    me = get_me(token, league_id)
+    budget = me.get("b")
+    competition_id = me.get("cpi") or "1"
+
+    team_names_by_id: dict[str, str] = {}
+    try:
+        team_names_by_id = get_teams(token, competition_id)
+    except KickbaseError as exc:
+        print(f"Warnung: Vereinsnamen konnten nicht geladen werden: {exc}", file=sys.stderr)
+
     ranking = get_ranking(token, league_id)
     ranking_users = ranking.get("us", [])
     names_by_user_id = {u.get("i"): u.get("n") for u in ranking_users if u.get("i")}
+    current_matchday = ranking.get("day")
+    season_name = ranking.get("sn")
+
+    own_user_id = user.get("id")
+    own_name = user.get("name")
+    matched_ranking_user = _match_own_ranking_user(ranking_users, own_user_id, own_name)
+    if matched_ranking_user is not None:
+        # Ranking-'i' als kanonische ID uebernehmen, damit der DB-Join in
+        # prompt_builder.py auch greift, falls Login-'id' und Ranking-'i'
+        # unterschiedliche ID-Raeume sind.
+        own_user_id = matched_ranking_user.get("i")
+    else:
+        print(
+            f"Warnung: Eigener Ranking-Eintrag nicht gefunden (user_id={own_user_id!r}, "
+            f"name={own_name!r}) - Teamwert/Platzierung bleiben leer",
+            file=sys.stderr,
+        )
 
     fetched_at = datetime.date.today().isoformat()
 
     squad_items = get_squad(token, league_id)
-    own_squad_rows = [_squad_item_to_row(item) for item in squad_items]
+    own_squad_rows = [_squad_item_to_row(item, team_names_by_id) for item in squad_items]
 
-    market_items = get_market(token, league_id)
-    market_rows = [_market_item_to_row(item, names_by_user_id) for item in market_items]
+    market_response = get_market(token, league_id)
+    market_items = market_response.get("it", [])
+    market_rows = [
+        _market_item_to_row(item, names_by_user_id, team_names_by_id) for item in market_items
+    ]
+
+    for row in own_squad_rows + market_rows:
+        _apply_market_value_history(token, league_id, row)
+
+    recent_matchday_points = _fetch_recent_matchday_points(
+        token, league_id, current_matchday, set(names_by_user_id)
+    )
 
     ranking_rows = [
         {
@@ -110,14 +254,24 @@ def run() -> str:
             "team_value": u.get("tv"),
             "season_placement": u.get("spl"),
             "matchday_placement": u.get("mdpl"),
-            "recent_points": ",".join(str(p) for p in (u.get("lp") or [])),
+            "current_lineup_player_ids": ",".join(str(p) for p in (u.get("lp") or []) if p is not None),
+            "recent_matchday_points": ",".join(
+                str(p) for p in recent_matchday_points.get(u.get("i"), []) if p is not None
+            ),
         }
         for u in ranking_users
     ]
 
-    me = get_me(token, league_id)
-    budget = me.get("b")
-    own_user_id = user.get("id")
+    next_deadline_at = market_response.get("dt")
+    season_context = {
+        "season_name": season_name,
+        "current_matchday": current_matchday,
+        "next_deadline_at": next_deadline_at,
+        "days_until_next_deadline": _days_until(next_deadline_at),
+        "market_value_updated_at": market_response.get("mvud"),
+    }
+
+    _sanity_check(own_squad_rows, ranking_rows, matched_ranking_user)
 
     conn = db.connect()
     try:
@@ -128,6 +282,7 @@ def run() -> str:
         db.replace_market_listings(conn, fetched_at, market_rows)
         db.replace_league_ranking(conn, fetched_at, ranking_rows)
         db.upsert_own_budget(conn, fetched_at, own_user_id, budget)
+        db.upsert_season_context(conn, fetched_at, season_context)
     finally:
         conn.close()
 
@@ -136,6 +291,46 @@ def run() -> str:
         f"{len(market_rows)} Marktangebote, {len(ranking_rows)} Liga-Manager"
     )
     return fetched_at
+
+
+def _days_until(iso_timestamp: str | None) -> int | None:
+    if not iso_timestamp:
+        return None
+    try:
+        target = datetime.datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return (target - now).days
+
+
+def _sanity_check(
+    own_squad_rows: list[dict], ranking_rows: list[dict], matched_ranking_user: dict | None
+) -> None:
+    """Nicht blockierende Plausibilitaetspruefung - soll verhindern, dass ein
+    erneuter Feldnamen-Bug (wie die Spieler-IDs im 'lp'-Feld, die als
+    Spieltagspunkte bis 13.479 im Prompt auftauchten) unbemerkt durchlaeuft."""
+    if own_squad_rows and matched_ranking_user is not None and matched_ranking_user.get("tv") is None:
+        print(
+            "Warnung: Teamwert ist None trotz vorhandenem Kader - Feldnamen in "
+            "get_ranking()/_match_own_ranking_user pruefen",
+            file=sys.stderr,
+        )
+
+    for row in ranking_rows:
+        matchday_points = row.get("matchday_points")
+        if isinstance(matchday_points, (int, float)) and matchday_points > IMPLAUSIBLE_MATCHDAY_POINTS:
+            print(
+                f"Warnung: unplausibel hohe Spieltagspunkte ({matchday_points}) fuer "
+                f"{row.get('name')} - Feldnamen pruefen",
+                file=sys.stderr,
+            )
+        season_points = row.get("season_points")
+        if isinstance(season_points, (int, float)) and season_points < 0:
+            print(
+                f"Warnung: negative Saisonpunkte ({season_points}) fuer {row.get('name')}",
+                file=sys.stderr,
+            )
 
 
 if __name__ == "__main__":
