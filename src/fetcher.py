@@ -238,6 +238,14 @@ def run() -> str:
         _market_item_to_row(item, names_by_user_id, team_names_by_id) for item in market_items
     ]
 
+    # /market lieferte im ersten echten Testlauf offenbar eine Spieler-
+    # Referenzliste statt ausschliesslich echter Angebote - alle 15 eigenen
+    # Kaderspieler tauchten dort identisch (Preis == Marktwert) nochmal auf.
+    # Sicherheitsnetz: eigene Kaderspieler aus der Marktliste ausschliessen,
+    # unabhaengig davon ob die genaue Endpoint-Semantik je geklaert wird.
+    own_player_ids = {row["player_id"] for row in own_squad_rows}
+    market_rows = [row for row in market_rows if row["player_id"] not in own_player_ids]
+
     for row in own_squad_rows + market_rows:
         _apply_market_value_history(token, league_id, row)
 
