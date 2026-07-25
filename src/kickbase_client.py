@@ -1,135 +1,120 @@
-"""Duenner Wrapper um das kickbase_api-Paket.
+"""Duenner Client fuer die echte Kickbase v4 API (direkt per requests).
 
-Reduziert auf die Daten, die fuer den taeglichen Report gebraucht werden.
-Macht bewusst wenige Requests pro Lauf (sparsame Nutzung der inoffiziellen API):
-login, league_users, league_me, league_user_players (eigener Kader),
-market, league_stats.
+Das Paket `kickbase_api` (PyPI) spricht noch die alte, nicht mehr existierende
+API ohne /v4-Prefix und mit anderen Feldnamen (z.B. Login-Body
+{"email","password"} statt {"em","pass"}) - Login schlaegt damit fehl
+(404/blanke KickbaseException). Deshalb hier ein direkter, minimaler Client
+gegen die aktuelle v4-API, basierend auf github.com/kevinskyba/kickbase-api-doc
+(Postman-Collection mit echten Beispiel-Responses).
+
+WICHTIG - unbestaetigter Teil: Die Kickbase-API nutzt durchgehend sehr kurze,
+kryptische Feldnamen (z.B. "st" fuer Status, "oui" fuer Owner-User-Id, "prc"
+fuer Preis). Fuer Kader/Liga-Tabelle/Budget sind diese Felder anhand echter
+Beispiel-Responses in der Doku bestaetigt. Fuer den Transfermarkt (/market)
+enthielt die Doku nur ein Beispiel mit LEERER Spielerliste (kein Spieler aktuell
+gelistet) - die Feldnamen fuer Preis/Anbieter dort sind aus verwandten
+Endpunkten (players/{id}/transfers) abgeleitet, aber NICHT an einem echten
+populierten Marktangebot verifiziert. Beim ersten echten Lauf unbedingt
+pruefen (z.B. rohes JSON von get_market() ausgeben lassen) ob die Zuordnung
+stimmt.
 """
 
-import os
+import requests
 
-from kickbase_api.kickbase import Kickbase
-from kickbase_api.models.league_data import LeagueData
-from kickbase_api.models.market_player import MarketPlayer
-from kickbase_api.models.player import Player
+BASE_URL = "https://api.kickbase.com"
+TIMEOUT = 15
 
-
-def _position_name(position) -> str:
-    return getattr(position, "name", "UNKNOWN")
-
-
-def _status_name(status) -> str:
-    return getattr(status, "name", "UNKNOWN")
+POSITION_LABELS = {
+    1: "Torwart",
+    2: "Abwehr",
+    3: "Mittelfeld",
+    4: "Sturm",
+}
 
 
-def _player_to_dict(player: Player) -> dict:
-    return {
-        "player_id": player.id,
-        "first_name": player.first_name,
-        "last_name": player.last_name,
-        "position": _position_name(player.position),
-        "status": _status_name(player.status),
-        "market_value": player.market_value,
-        "market_value_trend": player.market_value_trend,
-        "average_points": player.average_points,
-        "total_points": getattr(player, "totalPoints", None),
-        "team_id": player.team_id,
-    }
+class KickbaseError(Exception):
+    pass
 
 
-def _market_player_to_dict(mp: MarketPlayer) -> dict:
-    offering_user_id = mp.user_id or None
-    offering_username = mp.username or None
-    return {
-        "player_id": mp.id,
-        "first_name": mp.first_name,
-        "last_name": mp.last_name,
-        "position": _position_name(mp.position),
-        "status": _status_name(mp.status),
-        "market_value": mp.market_value,
-        "price": mp.price,
-        "expiry": mp.expiry,
-        "average_points": mp.average_points,
-        "total_points": getattr(mp, "totalPoints", None),
-        "offering_user_id": offering_user_id,
-        "offering_username": offering_username,
-        # kein user_id/username auf dem Angebot => Kickbase-Systemangebot,
-        # kein anderer Manager bietet den Spieler an.
-        "is_system_offer": 1 if not offering_user_id else 0,
-    }
+class KickbaseAuthError(KickbaseError):
+    pass
 
 
-class KickbaseData:
-    """Ergebnis eines kompletten Fetch-Laufs, bereit fuer die DB."""
-
-    def __init__(self):
-        self.league_users: list[dict] = []
-        self.own_squad: list[dict] = []
-        self.market_listings: list[dict] = []
-        self.matchday_stats: list[dict] = []
-        self.own_status: dict = {}
+def _headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
-def _select_league(leagues: list[LeagueData]) -> LeagueData:
-    league_id_override = os.environ.get("KICKBASE_LEAGUE_ID")
-    if league_id_override:
-        for league in leagues:
-            if league.id == league_id_override:
-                return league
-        raise RuntimeError(
-            f"KICKBASE_LEAGUE_ID={league_id_override} nicht unter den Ligen des Accounts gefunden"
-        )
-    if len(leagues) > 1:
-        print(
-            f"Warnung: Account ist in {len(leagues)} Ligen, nehme die erste "
-            f"({leagues[0].name}). Setze KICKBASE_LEAGUE_ID um eine andere zu waehlen."
-        )
-    return leagues[0]
+def _raise_for_status(response: requests.Response) -> None:
+    if response.status_code == 401:
+        raise KickbaseAuthError("Nicht autorisiert (401) - Token abgelaufen oder Login falsch?")
+    if response.status_code >= 300:
+        raise KickbaseError(f"HTTP {response.status_code} bei {response.url}: {response.text[:300]}")
 
 
-def fetch_all(email: str, password: str) -> KickbaseData:
-    kb = Kickbase()
-    user, leagues = kb.login(email, password)
-    if not leagues:
-        raise RuntimeError("Account ist in keiner Liga Mitglied")
-    league = _select_league(leagues)
+def login(email: str, password: str) -> tuple[str, dict, list[dict]]:
+    """Gibt (token, user_dict, leagues_list) zurueck. leagues_list-Eintraege
+    haben u.a. 'id' und 'name'."""
+    response = requests.post(
+        f"{BASE_URL}/v4/user/login",
+        json={"em": email, "pass": password},
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        timeout=TIMEOUT,
+    )
+    if response.status_code == 401:
+        raise KickbaseAuthError("Login fehlgeschlagen - E-Mail/Passwort falsch?")
+    _raise_for_status(response)
 
-    data = KickbaseData()
+    data = response.json()
+    token = data["tkn"]
+    user = data.get("u", {})
+    leagues = data.get("srvl", [])
+    return token, user, leagues
 
-    league_users = kb.league_users(league)
-    data.league_users = [{"user_id": u.id, "name": u.name} for u in league_users]
 
-    own_players = kb.league_user_players(league, user)
-    data.own_squad = [_player_to_dict(p) for p in own_players]
+def get_squad(token: str, league_id: str) -> list[dict]:
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/squad", headers=_headers(token), timeout=TIMEOUT
+    )
+    _raise_for_status(response)
+    return response.json().get("it", [])
 
-    market = kb.market(league)
-    data.market_listings = [_market_player_to_dict(mp) for mp in market.players]
 
-    # Hinweis: Kontostaende anderer Manager sind ueber die API nicht einsehbar
-    # (nur der eigene Kontostand via league_me). league_stats liefert dafuer
-    # Teamwert/Punkte/Platzierung aller Manager je Spieltag - das reicht fuer
-    # die Liga-Konkurrenzeinschaetzung.
-    league_stats = kb.league_stats(league)
-    for day, day_users in league_stats.match_days.items():
-        for day_stats in day_users:
-            data.matchday_stats.append(
-                {
-                    "day": day,
-                    "user_id": day_stats.user_id,
-                    "day_points": day_stats.day_points,
-                    "day_placement": day_stats.day_placement,
-                    "team_value": day_stats.team_value,
-                    "points": day_stats.points,
-                    "placement": day_stats.placement,
-                }
-            )
+def get_market(token: str, league_id: str) -> list[dict]:
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/market", headers=_headers(token), timeout=TIMEOUT
+    )
+    _raise_for_status(response)
+    return response.json().get("it", [])
 
-    me = kb.league_me(league)
-    data.own_status = {
-        "budget": me.budget,
-        "team_value": me.team_value,
-        "placement": me.placement,
-        "points": me.points,
-    }
 
-    return data
+def get_ranking(token: str, league_id: str) -> dict:
+    """Liga-Tabelle inkl. aller Manager (Name, Punkte, Teamwert, Platzierung,
+    letzte Spieltagspunkte). Enthaelt auch die eigenen Werte."""
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/ranking", headers=_headers(token), timeout=TIMEOUT
+    )
+    _raise_for_status(response)
+    return response.json()
+
+
+def get_me(token: str, league_id: str) -> dict:
+    """Eigener Kontostand etc. (Budget ist ueber die Liga-Tabelle nicht
+    einsehbar, nur hier)."""
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/me", headers=_headers(token), timeout=TIMEOUT
+    )
+    _raise_for_status(response)
+    return response.json()
+
+
+def position_label(pos: int) -> str:
+    return POSITION_LABELS.get(pos, f"Position {pos}")
+
+
+def status_label(status_code: int) -> str | None:
+    """Nur der Fall 0 (fit/unauffaellig) ist aus den Beispiel-Responses
+    zweifelsfrei bestaetigt. Alles andere wird als rohe Nummer durchgereicht,
+    statt einen (moeglicherweise falschen) Klartext-Status zu erfinden."""
+    if status_code == 0:
+        return None
+    return f"Status-Code {status_code} (Bedeutung in v4-API nicht zweifelsfrei bestaetigt)"

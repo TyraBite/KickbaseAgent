@@ -1,3 +1,2 @@
-kickbase_api
 requests
 python-dotenv

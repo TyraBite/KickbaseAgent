@@ -2,8 +2,8 @@
 
 Jeder Fetch-Lauf schreibt einen Tages-Snapshot (Datum als Primary-Key-Teil).
 Mehrfache Laeufe am selben Tag ueberschreiben den Snapshot des Tages
-(INSERT OR REPLACE) - so bleibt die Historie sauber bei einem Lauf/Tag,
-ist aber idempotent beim Testen.
+(DELETE+INSERT bzw. INSERT OR REPLACE) - so bleibt die Historie sauber bei
+einem Lauf/Tag, ist aber idempotent beim Testen.
 """
 
 import sqlite3
@@ -20,10 +20,10 @@ CREATE TABLE IF NOT EXISTS league_users (
 CREATE TABLE IF NOT EXISTS own_squad (
     fetched_at TEXT NOT NULL,
     player_id TEXT NOT NULL,
-    first_name TEXT,
-    last_name TEXT,
+    name TEXT,
     position TEXT,
-    status TEXT,
+    status_code INTEGER,
+    status_label TEXT,
     market_value INTEGER,
     market_value_trend INTEGER,
     average_points INTEGER,
@@ -35,38 +35,37 @@ CREATE TABLE IF NOT EXISTS own_squad (
 CREATE TABLE IF NOT EXISTS market_listings (
     fetched_at TEXT NOT NULL,
     player_id TEXT NOT NULL,
-    first_name TEXT,
-    last_name TEXT,
+    name TEXT,
     position TEXT,
-    status TEXT,
+    status_code INTEGER,
+    status_label TEXT,
     market_value INTEGER,
     price INTEGER,
-    expiry INTEGER,
     average_points INTEGER,
-    total_points INTEGER,
     offering_user_id TEXT,
     offering_username TEXT,
     is_system_offer INTEGER,
+    pending_offers_count INTEGER,
     PRIMARY KEY (fetched_at, player_id)
 );
 
-CREATE TABLE IF NOT EXISTS league_matchday_stats (
-    day INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS league_ranking (
+    fetched_at TEXT NOT NULL,
     user_id TEXT NOT NULL,
-    day_points INTEGER,
-    day_placement INTEGER,
+    name TEXT,
+    season_points INTEGER,
+    matchday_points INTEGER,
     team_value INTEGER,
-    points INTEGER,
-    placement INTEGER,
-    PRIMARY KEY (day, user_id)
+    season_placement INTEGER,
+    matchday_placement INTEGER,
+    recent_points TEXT,
+    PRIMARY KEY (fetched_at, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS own_status_history (
+CREATE TABLE IF NOT EXISTS own_budget_history (
     fetched_at TEXT PRIMARY KEY,
-    budget REAL,
-    team_value REAL,
-    placement INTEGER,
-    points INTEGER
+    user_id TEXT,
+    budget REAL
 );
 """
 
@@ -79,6 +78,8 @@ def connect() -> sqlite3.Connection:
 
 
 def upsert_league_users(conn: sqlite3.Connection, users: list[dict]) -> None:
+    if not users:
+        return
     conn.executemany(
         "INSERT OR REPLACE INTO league_users (user_id, name) VALUES (:user_id, :name)",
         users,
@@ -91,10 +92,10 @@ def replace_own_squad(conn: sqlite3.Connection, fetched_at: str, players: list[d
     conn.executemany(
         """
         INSERT INTO own_squad (
-            fetched_at, player_id, first_name, last_name, position, status,
+            fetched_at, player_id, name, position, status_code, status_label,
             market_value, market_value_trend, average_points, total_points, team_id
         ) VALUES (
-            :fetched_at, :player_id, :first_name, :last_name, :position, :status,
+            :fetched_at, :player_id, :name, :position, :status_code, :status_label,
             :market_value, :market_value_trend, :average_points, :total_points, :team_id
         )
         """,
@@ -108,13 +109,13 @@ def replace_market_listings(conn: sqlite3.Connection, fetched_at: str, listings:
     conn.executemany(
         """
         INSERT INTO market_listings (
-            fetched_at, player_id, first_name, last_name, position, status,
-            market_value, price, expiry, average_points, total_points,
-            offering_user_id, offering_username, is_system_offer
+            fetched_at, player_id, name, position, status_code, status_label,
+            market_value, price, average_points,
+            offering_user_id, offering_username, is_system_offer, pending_offers_count
         ) VALUES (
-            :fetched_at, :player_id, :first_name, :last_name, :position, :status,
-            :market_value, :price, :expiry, :average_points, :total_points,
-            :offering_user_id, :offering_username, :is_system_offer
+            :fetched_at, :player_id, :name, :position, :status_code, :status_label,
+            :market_value, :price, :average_points,
+            :offering_user_id, :offering_username, :is_system_offer, :pending_offers_count
         )
         """,
         [{**listing, "fetched_at": fetched_at} for listing in listings],
@@ -122,27 +123,28 @@ def replace_market_listings(conn: sqlite3.Connection, fetched_at: str, listings:
     conn.commit()
 
 
-def upsert_matchday_stats(conn: sqlite3.Connection, rows: list[dict]) -> None:
+def replace_league_ranking(conn: sqlite3.Connection, fetched_at: str, rows: list[dict]) -> None:
+    conn.execute("DELETE FROM league_ranking WHERE fetched_at = ?", (fetched_at,))
     conn.executemany(
         """
-        INSERT OR REPLACE INTO league_matchday_stats (
-            day, user_id, day_points, day_placement, team_value, points, placement
+        INSERT INTO league_ranking (
+            fetched_at, user_id, name, season_points, matchday_points,
+            team_value, season_placement, matchday_placement, recent_points
         ) VALUES (
-            :day, :user_id, :day_points, :day_placement, :team_value, :points, :placement
+            :fetched_at, :user_id, :name, :season_points, :matchday_points,
+            :team_value, :season_placement, :matchday_placement, :recent_points
         )
         """,
-        rows,
+        [{**r, "fetched_at": fetched_at} for r in rows],
     )
     conn.commit()
 
 
-def upsert_own_status(conn: sqlite3.Connection, row: dict) -> None:
+def upsert_own_budget(
+    conn: sqlite3.Connection, fetched_at: str, user_id: str | None, budget: float | None
+) -> None:
     conn.execute(
-        """
-        INSERT OR REPLACE INTO own_status_history (
-            fetched_at, budget, team_value, placement, points
-        ) VALUES (:fetched_at, :budget, :team_value, :placement, :points)
-        """,
-        row,
+        "INSERT OR REPLACE INTO own_budget_history (fetched_at, user_id, budget) VALUES (?, ?, ?)",
+        (fetched_at, user_id, budget),
     )
     conn.commit()
