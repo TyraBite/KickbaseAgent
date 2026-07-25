@@ -1,4 +1,3 @@
-kickbase-api
+kickbase_api
 requests
-beautifulsoup4
 python-dotenv
