@@ -77,10 +77,22 @@ def _player_line(p: sqlite3.Row, current_matchday) -> str:
 
 def _market_line(p: sqlite3.Row, current_matchday) -> str:
     if p["is_system_offer"]:
-        anbieter = "Kickbase (kein Anbieter-User erkannt, evtl. Systemangebot)"
+        anbieter = "Kickbase (kein Anbieter erkannt, freier Spieler)"
     else:
         anbieter = p["offering_username"] or f"Manager {p['offering_user_id']}"
-    extra = f" | Laufende Gebote: {p['pending_offers_count']}" if p["pending_offers_count"] else ""
+
+    extra = ""
+    if p["pending_offers_count"]:
+        if p["is_own_leading_bid"]:
+            extra = f" | Gebote: {p['pending_offers_count']} (ICH fuehre aktuell mit {p['leading_bid_price']})"
+        elif p["leading_bid_username"]:
+            extra = (
+                f" | Gebote: {p['pending_offers_count']} "
+                f"(fuehrend: {p['leading_bid_username']} mit {p['leading_bid_price']})"
+            )
+        else:
+            extra = f" | Gebote: {p['pending_offers_count']}"
+
     delta = p["price_delta_pct"]
     delta_hint = ""
     if delta is not None and delta != 0:

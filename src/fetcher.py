@@ -70,18 +70,40 @@ def _squad_item_to_row(item: dict, team_names_by_id: dict) -> dict:
     }
 
 
-def _market_item_to_row(item: dict, names_by_user_id: dict, team_names_by_id: dict) -> dict:
+def _market_item_to_row(
+    item: dict, names_by_user_id: dict, team_names_by_id: dict, own_user_id: str | None = None
+) -> dict:
     status_code = item.get("st") or 0
-    # "u"/"unm" sind fuer /managers/{id}/squad an einem echten Beispiel
-    # bestaetigt, fuer /market selbst (noch) nicht - siehe Modul-Docstring
-    # in kickbase_client.py. "oui"/"un" bleiben als Fallback fuer den Fall,
-    # dass /market doch die anderen Kuerzel nutzt.
-    offering_user_id = item.get("u") or item.get("oui") or None
-    offering_username = (
-        item.get("unm") or item.get("un") or names_by_user_id.get(offering_user_id)
-        if offering_user_id
-        else None
-    )
+
+    # Bestaetigt an echten Beispielen (25.07.2026): ist ein Spieler von einem
+    # Mitspieler angeboten, steckt der Anbieter unter "u" als VERSCHACHTELTES
+    # Objekt {"i": ..., "n": ...} (nicht als flache ID/String wie zunaechst
+    # angenommen - das war der Grund fuer den "unhashable type: dict"-Absturz).
+    # Ist der Spieler ein freier/System-Spieler, fehlt "u" komplett, dafuer
+    # gibt es "uoid"/"uop" (fuehrendes Gebot: User-Id/Preis) und "ofs"
+    # (Liste aller Gebote, dort "u"/"unm" als flache Felder).
+    owner = item.get("u")
+    if isinstance(owner, dict):
+        offering_user_id = owner.get("i")
+        offering_username = owner.get("n") or names_by_user_id.get(offering_user_id)
+    elif isinstance(owner, str):
+        # Fallback, falls die API das doch mal als flache ID liefert.
+        offering_user_id = owner
+        offering_username = names_by_user_id.get(owner)
+    else:
+        offering_user_id = None
+        offering_username = None
+
+    offers = item.get("ofs") or []
+    leading_bid_user_id = item.get("uoid")
+    leading_bid_price = item.get("uop")
+    leading_bid_username = None
+    for offer in offers:
+        if offer.get("u") == leading_bid_user_id:
+            leading_bid_username = offer.get("unm")
+            break
+    is_own_leading_bid = bool(own_user_id) and leading_bid_user_id == own_user_id
+
     market_value = item.get("mv")
     price = item.get("prc")
     price_delta_pct = None
@@ -108,7 +130,10 @@ def _market_item_to_row(item: dict, names_by_user_id: dict, team_names_by_id: di
         "offering_user_id": offering_user_id,
         "offering_username": offering_username,
         "is_system_offer": 1 if not offering_user_id else 0,
-        "pending_offers_count": len(item.get("ofs") or []),
+        "pending_offers_count": len(offers),
+        "leading_bid_username": leading_bid_username,
+        "leading_bid_price": leading_bid_price,
+        "is_own_leading_bid": 1 if is_own_leading_bid else 0,
     }
 
 
@@ -211,6 +236,11 @@ def run() -> str:
     names_by_user_id = {u.get("i"): u.get("n") for u in ranking_users if u.get("i")}
     current_matchday = ranking.get("day")
     season_name = ranking.get("sn")
+    # "lfmd" (last finished matchday) == 0 heisst: noch kein Spieltag dieser
+    # Saison abgeschlossen (Vorsaison). In dem Fall fehlen Teamwert/Punkte/
+    # Platzierung fuer ALLE Manager in der Ranking-Response - kein Bug,
+    # sondern erwartete Datenluecke (siehe _sanity_check).
+    last_finished_matchday = ranking.get("lfmd")
 
     own_user_id = user.get("id")
     own_name = user.get("name")
@@ -235,7 +265,8 @@ def run() -> str:
     market_response = get_market(token, league_id)
     market_items = market_response.get("it", [])
     market_rows = [
-        _market_item_to_row(item, names_by_user_id, team_names_by_id) for item in market_items
+        _market_item_to_row(item, names_by_user_id, team_names_by_id, own_user_id)
+        for item in market_items
     ]
 
     # /market lieferte im ersten echten Testlauf offenbar eine Spieler-
@@ -279,7 +310,7 @@ def run() -> str:
         "market_value_updated_at": market_response.get("mvud"),
     }
 
-    _sanity_check(own_squad_rows, ranking_rows, matched_ranking_user)
+    _sanity_check(own_squad_rows, ranking_rows, matched_ranking_user, last_finished_matchday)
 
     conn = db.connect()
     try:
@@ -313,15 +344,26 @@ def _days_until(iso_timestamp: str | None) -> int | None:
 
 
 def _sanity_check(
-    own_squad_rows: list[dict], ranking_rows: list[dict], matched_ranking_user: dict | None
+    own_squad_rows: list[dict],
+    ranking_rows: list[dict],
+    matched_ranking_user: dict | None,
+    last_finished_matchday: int | None,
 ) -> None:
     """Nicht blockierende Plausibilitaetspruefung - soll verhindern, dass ein
     erneuter Feldnamen-Bug (wie die Spieler-IDs im 'lp'-Feld, die als
     Spieltagspunkte bis 13.479 im Prompt auftauchten) unbemerkt durchlaeuft."""
-    if own_squad_rows and matched_ranking_user is not None and matched_ranking_user.get("tv") is None:
+    # Vor dem ersten abgeschlossenen Spieltag (Vorsaison) fehlen tv/sp/mdp/mdpl
+    # bei JEDEM Manager in der Ranking-Response - erwartete Datenluecke, kein
+    # Matching-Bug. Warnung nur nach Saisonstart aussagekraeftig.
+    if (
+        last_finished_matchday
+        and own_squad_rows
+        and matched_ranking_user is not None
+        and matched_ranking_user.get("tv") is None
+    ):
         print(
-            "Warnung: Teamwert ist None trotz vorhandenem Kader - Feldnamen in "
-            "get_ranking()/_match_own_ranking_user pruefen",
+            "Warnung: Teamwert ist None trotz vorhandenem Kader und bereits gespielten "
+            "Spieltagen - Feldnamen in get_ranking()/_match_own_ranking_user pruefen",
             file=sys.stderr,
         )
 

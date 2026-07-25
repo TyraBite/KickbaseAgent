@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS market_listings (
     offering_username TEXT,
     is_system_offer INTEGER,
     pending_offers_count INTEGER,
+    leading_bid_username TEXT,
+    leading_bid_price INTEGER,
+    is_own_leading_bid INTEGER,
     PRIMARY KEY (fetched_at, player_id)
 );
 
@@ -140,13 +143,15 @@ def replace_market_listings(conn: sqlite3.Connection, fetched_at: str, listings:
             market_value, market_value_change_7d, market_value_low_92d,
             market_value_high_92d, market_value_in_drop_phase,
             price, price_delta_pct, average_points, total_points, team_id, team_name,
-            offering_user_id, offering_username, is_system_offer, pending_offers_count
+            offering_user_id, offering_username, is_system_offer, pending_offers_count,
+            leading_bid_username, leading_bid_price, is_own_leading_bid
         ) VALUES (
             :fetched_at, :player_id, :name, :position, :status_code, :status_label,
             :market_value, :market_value_change_7d, :market_value_low_92d,
             :market_value_high_92d, :market_value_in_drop_phase,
             :price, :price_delta_pct, :average_points, :total_points, :team_id, :team_name,
-            :offering_user_id, :offering_username, :is_system_offer, :pending_offers_count
+            :offering_user_id, :offering_username, :is_system_offer, :pending_offers_count,
+            :leading_bid_username, :leading_bid_price, :is_own_leading_bid
         )
         """,
         [{**listing, "fetched_at": fetched_at} for listing in listings],
