@@ -22,6 +22,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -82,6 +83,24 @@ def _format_duration(hours: float) -> str:
 # ganz nach oben sortieren, obwohl das Gegenteil von dringend ist.
 # JSON.stringify(Infinity) waere ausserdem kein gueltiges JSON.
 _NO_EXPIRY_SENTINEL_SECONDS = 9_999_999
+
+NEXT_MARKET_VALUE_UPDATE_HOUR = 22
+BERLIN_TZ = ZoneInfo("Europe/Berlin")
+
+
+def _next_update_cutoff(now: datetime.datetime) -> datetime.datetime:
+    """Naechstes Kickbase-Marktwert-Update (22 Uhr Europe/Berlin, DST-sicher
+    - Sommerzeit verschiebt den UTC-Offset, ein hartcodierter Versatz waere
+    im Winter falsch). Danach aendert sich der Marktwert ohnehin wieder,
+    Auktionen die VOR diesem Zeitpunkt ablaufen sind fuer die aktuelle
+    Kaufentscheidung am dringendsten."""
+    local_now = now.astimezone(BERLIN_TZ)
+    cutoff_local = local_now.replace(
+        hour=NEXT_MARKET_VALUE_UPDATE_HOUR, minute=0, second=0, microsecond=0
+    )
+    if local_now >= cutoff_local:
+        cutoff_local += datetime.timedelta(days=1)
+    return cutoff_local.astimezone(datetime.timezone.utc)
 
 
 def _auction_status(listed_at, expires_at, expiry_is_estimate, now: datetime.datetime) -> tuple[str, float]:
@@ -149,6 +168,7 @@ def _player_row(row: sqlite3.Row, calibration: dict | None, predictions: dict | 
 
 def _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now=None) -> list[dict]:
     now = now or datetime.datetime.now(datetime.timezone.utc)
+    cutoff_seconds = (_next_update_cutoff(now) - now).total_seconds()
     rows = []
     for r in market_listings:
         row = _player_row(r, calibration, predictions)
@@ -173,6 +193,7 @@ def _build_transfermarkt(market_listings, calibration, predictions, own_availabl
                 ),
                 "auction_status": auction_status,
                 "auction_remaining_seconds": auction_remaining_seconds,
+                "auction_urgent": 0 < auction_remaining_seconds < cutoff_seconds,
             }
         )
         rows.append(row)
@@ -250,13 +271,27 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
                 "near_floor": bool(r["price"] and r["price"] < SPEKULATION_FLOOR_PROTECTED),
                 "auction_status": r.get("auction_status"),
                 "auction_remaining_seconds": r.get("auction_remaining_seconds"),
+                "auction_urgent": r.get("auction_urgent", False),
             }
         )
     rows.sort(key=lambda r: -r["roi_pct"])
     return rows
 
 
-def _build_ligaanalyse(token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad) -> list[dict]:
+REGULAR_STARTING_RANKS = (1, 2)
+
+
+def _count_regulars(starting_ranks) -> int:
+    """'Stammspieler' = starting_rank 1 oder 2 (Startelf-Rang/Einsatz-
+    wahrscheinlichkeit) - NICHT status_code (der bedeutet in diesem Projekt
+    verletzt/angeschlagen, siehe MDs/codes.md). Per Nutzer-Nachfrage am
+    27.07.2026 bestaetigt, um diese Verwechslung auszuschliessen."""
+    return sum(1 for rank in starting_ranks if rank in REGULAR_STARTING_RANKS)
+
+
+def _build_ligaanalyse(
+    token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, starting_rank_by_player_id
+) -> list[dict]:
     budgets_by_user = {b["user_id"]: b for b in manager_budget_rows}
     sell_counts: dict[str, int] = {}
     for listing in market_listings:
@@ -273,15 +308,19 @@ def _build_ligaanalyse(token, league_id, ranking_rows, manager_budget_rows, mark
         if is_self:
             squad_size = len(own_squad)
             squad_value = sum((p["market_value"] or 0) for p in own_squad)
+            regular_count = _count_regulars(p["starting_rank"] for p in own_squad)
         else:
             try:
                 squad = get_manager_squad(token, league_id, user_id)
                 items = squad.get("it", [])
                 squad_size = squad.get("nps") or len(items)
                 squad_value = sum((item.get("mv") or 0) for item in items)
+                regular_count = _count_regulars(
+                    starting_rank_by_player_id.get(item.get("pi")) for item in items
+                )
             except KickbaseError as exc:
                 print(f"Warnung: Kader von Manager {r['name']} nicht ladbar: {exc}", file=sys.stderr)
-                squad_size, squad_value = None, None
+                squad_size, squad_value, regular_count = None, None, None
 
         rows.append(
             {
@@ -298,6 +337,7 @@ def _build_ligaanalyse(token, league_id, ranking_rows, manager_budget_rows, mark
                 "squad_size": squad_size,
                 "squad_value": squad_value,
                 "sell_count": sell_counts.get(user_id, 0),
+                "regular_count": regular_count,
             }
         )
     rows.sort(key=lambda row: (row["season_placement"] is None, row["season_placement"] or 0))
@@ -378,6 +418,7 @@ def _build_wunschkader(
                 "note": target.get("note"),
                 "planned_price": planned_price,
                 "is_estimate": "actual_bid" not in target and not is_own,
+                "is_own": is_own,
                 "status": status,
                 "market_value": market_value,
                 "points_avg": points_avg,
@@ -501,11 +542,16 @@ def export() -> Path:
     own_budget_row = next((b for b in manager_budget_rows if b["is_own_exact"]), None)
     own_available_budget = own_budget_row["available_budget"] if own_budget_row else None
 
+    # Ligaweite Spielerliste (u.a. starting_rank) wird sowohl fuer den
+    # Wunschkader-Abgleich als auch fuer die Stammspieler-Zaehlung in
+    # _build_ligaanalyse gebraucht - einmal holen, nicht doppelt.
+    all_players = player_valuation.fetch_all_players(token, competition_id)
+    starting_rank_by_player_id = {p["player_id"]: p["starting_rank"] for p in all_players}
+
     wunschkader_config = _load_wunschkader()
     wunschkader_rows = []
     if wunschkader_config:
         own_name = own_budget_row["name"] if own_budget_row else None
-        all_players = player_valuation.fetch_all_players(token, competition_id)
         owned_by = (
             player_valuation.resolve_ownership(token, league_id, [dict(r) for r in ranking_rows], own_name)
             if own_name
@@ -516,6 +562,7 @@ def export() -> Path:
         wunschkader_rows = _build_wunschkader(
             wunschkader_config, all_players, owned_by, own_squad_names, market_by_name, calibration, predictions
         )
+    wunschkader_watchlist = [r for r in wunschkader_rows if not r["is_own"]]
 
     budget_plan = (
         _build_budget_plan(
@@ -541,9 +588,11 @@ def export() -> Path:
         "transfermarkt": transfermarkt_rows,
         "eigenes_team_split": _split_eigenes_team(eigenes_team_rows, wunschkader_config),
         "ligaanalyse": _build_ligaanalyse(
-            token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad
+            token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad,
+            starting_rank_by_player_id,
         ),
         "wunschkader": wunschkader_rows,
+        "wunschkader_watchlist": wunschkader_watchlist,
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
         "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
         "budget_plan": budget_plan,
@@ -732,17 +781,17 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 </header>
 <nav class="tabs">
   <button class="tab-btn active" data-tab="transfermarkt">Transfermarkt</button>
-  <button class="tab-btn" data-tab="team">Eigenes Team</button>
-  <button class="tab-btn" data-tab="liga">Ligaanalyse</button>
-  <button class="tab-btn" data-tab="wunschkader">Wunschkader</button>
   <button class="tab-btn" data-tab="spekulation">Spekulation</button>
+  <button class="tab-btn" data-tab="team">Eigenes Team</button>
+  <button class="tab-btn" data-tab="wunschkader">Wunschkader</button>
+  <button class="tab-btn" data-tab="liga">Ligaanalyse</button>
 </nav>
 <main>
   <section id="tab-transfermarkt" class="tab-panel active"></section>
-  <section id="tab-team" class="tab-panel"></section>
-  <section id="tab-liga" class="tab-panel"></section>
-  <section id="tab-wunschkader" class="tab-panel"></section>
   <section id="tab-spekulation" class="tab-panel"></section>
+  <section id="tab-team" class="tab-panel"></section>
+  <section id="tab-wunschkader" class="tab-panel"></section>
+  <section id="tab-liga" class="tab-panel"></section>
 </main>
 <script>
 const DATA = __DASHBOARD_DATA__;
@@ -797,8 +846,13 @@ function renderMeta() {
   el.innerHTML = parts.join(" &nbsp;·&nbsp; ");
 }
 
-function makeSortable(table, getRows, tbody, renderRow) {
-  let sortKey = null, sortDir = 1;
+function makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultSortDir) {
+  let sortKey = defaultSortKey || null, sortDir = defaultSortDir || 1;
+  function markSorted(th, dir) {
+    table.querySelectorAll("th").forEach((h) => { h.classList.remove("sorted"); h.removeAttribute("data-dir"); });
+    th.classList.add("sorted");
+    th.setAttribute("data-dir", dir === 1 ? "▲" : "▼");
+  }
   function draw() {
     let data = getRows().slice();
     if (sortKey) {
@@ -816,17 +870,19 @@ function makeSortable(table, getRows, tbody, renderRow) {
     th.addEventListener("click", () => {
       const key = th.dataset.key;
       if (sortKey === key) { sortDir *= -1; } else { sortKey = key; sortDir = 1; }
-      table.querySelectorAll("th").forEach((h) => { h.classList.remove("sorted"); h.removeAttribute("data-dir"); });
-      th.classList.add("sorted");
-      th.setAttribute("data-dir", sortDir === 1 ? "▲" : "▼");
+      markSorted(th, sortDir);
       draw();
     });
   });
+  if (sortKey) {
+    const initialTh = table.querySelector(`th[data-key="${sortKey}"]`);
+    if (initialTh) markSorted(initialTh, sortDir);
+  }
   draw();
   return draw;
 }
 
-function buildTable(containerId, columns, getRows, renderRow, hint, filterBarHtml) {
+function buildTable(containerId, columns, getRows, renderRow, hint, filterBarHtml, defaultSortKey, defaultSortDir) {
   const container = document.getElementById(containerId);
   const hintHtml = hint ? `<p class="section-hint">${hint}</p>` : "";
   container.innerHTML = `${filterBarHtml || ""}${hintHtml}<table>
@@ -835,18 +891,19 @@ function buildTable(containerId, columns, getRows, renderRow, hint, filterBarHtm
   </table>`;
   const table = container.querySelector("table");
   const tbody = container.querySelector("tbody");
-  return makeSortable(table, getRows, tbody, renderRow);
+  return makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultSortDir);
 }
 
 function renderTransfermarkt() {
   const allRows = DATA.transfermarkt;
-  const filters = { position: "all", anbieter: "all" };
+  const filters = { position: "all", anbieter: "kickbase", search: "" };
   const positions = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
   function getRows() {
     return allRows.filter((r) => {
       if (filters.position !== "all" && r.position !== filters.position) return false;
       if (filters.anbieter === "kickbase" && !r.is_system_offer) return false;
       if (filters.anbieter === "mitspieler" && r.is_system_offer) return false;
+      if (filters.search && !`${r.name} ${r.team_name ?? ""}`.toLowerCase().includes(filters.search)) return false;
       return true;
     });
   }
@@ -880,7 +937,7 @@ function renderTransfermarkt() {
     <td class="num">${mlCell(r.ml_prediction)}</td>
     <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
     <td>${r.affordable ? '<span class="pill pill-good">ja</span>' : '<span class="pill pill-crit">nein</span>'}</td>
-    <td>${r.auction_status ?? '<span class="muted">unbekannt</span>'}</td>
+    <td>${r.auction_urgent ? `<span class="pill pill-crit">${r.auction_status}</span>` : (r.auction_status ?? '<span class="muted">unbekannt</span>')}</td>
   </tr>`;
   const filterBar = `<div class="filter-bar">
     <label>Position <select id="tf-filter-position">
@@ -889,15 +946,16 @@ function renderTransfermarkt() {
     </select></label>
     <label>Anbieter <select id="tf-filter-anbieter">
       <option value="all">Alle</option>
-      <option value="kickbase">Nur Kickbase</option>
+      <option value="kickbase" selected>Nur Kickbase</option>
       <option value="mitspieler">Nur Mitspieler</option>
     </select></label>
+    <label>Suche <input type="text" id="tf-filter-search" placeholder="Spieler/Verein"></label>
     <span id="tf-filter-count" class="muted"></span>
   </div>`;
 
   const redraw = buildTable("tab-transfermarkt", columns, getRows, renderRow,
-    "Signal &gt; 1,25 = deutlich unter Fairwert, &lt; 0,80 = Praemie (siehe MDs/methodik.md). Spaltenkopf klicken zum Sortieren.",
-    filterBar);
+    "Signal &gt; 1,25 = deutlich unter Fairwert, &lt; 0,80 = Praemie (siehe MDs/methodik.md). Spaltenkopf klicken zum Sortieren. Rot markierte Auktionen laufen vor dem naechsten 22-Uhr-Marktwert-Update ab.",
+    filterBar, "auction_remaining_seconds", 1);
 
   const container = document.getElementById("tab-transfermarkt");
   const countEl = container.querySelector("#tf-filter-count");
@@ -914,14 +972,21 @@ function renderTransfermarkt() {
     redraw();
     updateCount();
   });
+  container.querySelector("#tf-filter-search").addEventListener("input", (e) => {
+    filters.search = e.target.value.trim().toLowerCase();
+    redraw();
+    updateCount();
+  });
   updateCount();
 }
 
 function renderTeam() {
   const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [], unkategorisiert: [] };
+  const watchlist = DATA.wunschkader_watchlist || [];
   const container = document.getElementById("tab-team");
-  let html = `<h3>Bleibt im Kader</h3><div id="tab-team-bleibt"></div>`;
-  html += `<h3>Verkaufskandidaten (Hoehepunkt abwarten)</h3><div id="tab-team-verkaufen"></div>`;
+  let html = `<h3>Verkaufskandidaten (Hoehepunkt abwarten)</h3><div id="tab-team-verkaufen"></div>`;
+  html += `<h3>Watchlist (Wunschkader-Ziele, noch nicht im Kader)</h3><div id="tab-team-watchlist"></div>`;
+  html += `<h3>Bleibt im Kader</h3><div id="tab-team-bleibt"></div>`;
   if (split.unkategorisiert && split.unkategorisiert.length) {
     html += `<h3>Nicht kategorisiert - data/wunschkader.json aktualisieren</h3><div id="tab-team-unkategorisiert"></div>`;
   }
@@ -958,9 +1023,6 @@ function renderTeam() {
     <td>${r.status_label ? `<span class="pill pill-warn">${r.status_label}</span>` : ""}</td>
   </tr>`;
 
-  buildTable("tab-team-bleibt", columns, () => split.bleibt, renderRow,
-    "Spieler, die laut Wunschkader (MDs/kaderplan.md) im Kader bleiben sollen. Signal/ML-Prognose sind Zusatzsignale, kein Ersatz fuer die Startelf-Recherche.");
-
   const verkaufColumns = [{ key: "sell_signal", label: "Empfehlung" }, ...columns];
   const verkaufRenderRow = (r) => {
     const rec = r.sell_signal === "halten"
@@ -986,6 +1048,17 @@ function renderTeam() {
   buildTable("tab-team-verkaufen", verkaufColumns, () => split.verkaufen, verkaufRenderRow,
     '"Noch halten" = ML-Prognose noch positiv (Marktwert steigt laut Modell), "Jetzt verkaufen" = Prognose negativ oder fehlt (Hoehepunkt evtl. erreicht) - Zusatzsignal, kein Ersatz fuer eigene Einschaetzung.');
 
+  if (watchlist.length) {
+    buildTable("tab-team-watchlist", wunschkaderColumns, () => watchlist, wunschkaderRenderRow,
+      "Wunschkader-Ziele (MDs/kaderplan.md), die noch nicht im eigenen Kader stehen - Status zeigt wo der Spieler gerade ist.");
+  } else {
+    document.getElementById("tab-team-watchlist").innerHTML =
+      '<p class="section-hint">Alle Wunschkader-Ziele sind bereits im eigenen Kader.</p>';
+  }
+
+  buildTable("tab-team-bleibt", columns, () => split.bleibt, renderRow,
+    "Spieler, die laut Wunschkader (MDs/kaderplan.md) im Kader bleiben sollen. Signal/ML-Prognose sind Zusatzsignale, kein Ersatz fuer die Startelf-Recherche.");
+
   if (split.unkategorisiert && split.unkategorisiert.length) {
     buildTable("tab-team-unkategorisiert", columns, () => split.unkategorisiert, renderRow,
       "Diese Spieler stehen weder in der Verkaufs- noch der Wunschkader-Liste in data/wunschkader.json - dort ergaenzen.");
@@ -993,17 +1066,23 @@ function renderTeam() {
 }
 
 function renderLiga() {
-  const rows = DATA.ligaanalyse;
+  const allRows = DATA.ligaanalyse;
+  const filters = { search: "" };
+  function getRows() {
+    if (!filters.search) return allRows;
+    return allRows.filter((r) => r.name.toLowerCase().includes(filters.search));
+  }
   const columns = [
     { key: "name", label: "Manager" },
     { key: "season_placement", label: "Platz", numeric: true },
     { key: "season_points", label: "Punkte", numeric: true },
     { key: "team_value", label: "Teamwert", numeric: true },
     { key: "squad_size", label: "Kadergroesse", numeric: true },
+    { key: "sell_count", label: "Verkaufsangebote", numeric: true },
+    { key: "regular_count", label: "Stammspieler", numeric: true },
     { key: "squad_value", label: "Kaderwert", numeric: true },
     { key: "estimated_budget", label: "Budget", numeric: true },
     { key: "available_budget", label: "Verfuegbar", numeric: true },
-    { key: "sell_count", label: "Verkaufsangebote", numeric: true },
   ];
   const renderRow = (r) => `<tr class="${r.is_self ? 'self-row' : ''}">
     <td>${r.name}${r.is_self ? " (ich)" : ""}</td>
@@ -1011,13 +1090,23 @@ function renderLiga() {
     <td class="num">${fmtNum(r.season_points)}</td>
     <td class="num">${fmtNum(r.team_value)}</td>
     <td class="num">${fmtNum(r.squad_size)}</td>
+    <td class="num">${fmtNum(r.sell_count)}</td>
+    <td class="num">${fmtNum(r.regular_count)}</td>
     <td class="num">${fmtNum(r.squad_value)}</td>
     <td class="num">${fmtNum(r.estimated_budget)}${r.is_self ? "" : ' <span class="muted">(geschaetzt)</span>'}</td>
     <td class="num">${fmtNum(r.available_budget)}</td>
-    <td class="num">${fmtNum(r.sell_count)}</td>
   </tr>`;
-  buildTable("tab-liga", columns, () => rows, renderRow,
-    "Budgets ausser der eigenen Zeile sind Schaetzungen aus dem Activity-Feed (siehe MDs/methodik.md).");
+  const filterBar = `<div class="filter-bar">
+    <label>Suche <input type="text" id="liga-filter-search" placeholder="Manager"></label>
+  </div>`;
+  const redraw = buildTable("tab-liga", columns, getRows, renderRow,
+    "Budgets ausser der eigenen Zeile sind Schaetzungen aus dem Activity-Feed (siehe MDs/methodik.md). " +
+    "Stammspieler = starting_rank 1 oder 2 (wahrscheinlichster/zweitwahrscheinlichster Stammplatz je Position) im gesamten Kader.",
+    filterBar);
+  document.getElementById("tab-liga").querySelector("#liga-filter-search").addEventListener("input", (e) => {
+    filters.search = e.target.value.trim().toLowerCase();
+    redraw();
+  });
 }
 
 function wunschStatusPill(status) {
@@ -1027,6 +1116,33 @@ function wunschStatusPill(status) {
   if (status.startsWith("Bei")) return `<span class="pill pill-crit">${status}</span>`;
   return `<span class="muted">${status}</span>`;
 }
+
+const wunschkaderColumns = [
+  { key: "position", label: "Pos." },
+  { key: "name", label: "Spieler" },
+  { key: "role", label: "Rolle" },
+  { key: "status", label: "Status" },
+  { key: "market_value", label: "Marktwert", numeric: true },
+  { key: "planned_price", label: "Geplant", numeric: true },
+  { key: "points_avg", label: "Schnitt", numeric: true },
+  { key: "signal", label: "Signal", numeric: true },
+  { key: "ml_prediction", label: "ML-Prognose", numeric: true },
+  { key: "starting_rank", label: "Rang", numeric: true },
+  { key: "note", label: "Notiz" },
+];
+const wunschkaderRenderRow = (r) => `<tr>
+  <td>${r.position}</td>
+  <td>${r.name}</td>
+  <td>${r.role}</td>
+  <td>${wunschStatusPill(r.status)}</td>
+  <td class="num">${fmtNum(r.market_value)}</td>
+  <td class="num">${fmtNum(r.planned_price)}${r.is_estimate ? ' <span class="muted">(gesch.)</span>' : ""}</td>
+  <td class="num">${fmtNum(r.points_avg)}</td>
+  <td class="num">${signalPill(r.signal)}</td>
+  <td class="num">${mlCell(r.ml_prediction)}</td>
+  <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
+  <td class="muted">${r.note ?? ""}</td>
+</tr>`;
 
 function renderBudgetPlan(bp) {
   if (!bp) return "";
@@ -1052,35 +1168,9 @@ function renderWunschkader() {
       '<p class="section-hint">Kein Wunschkader hinterlegt (data/wunschkader.json fehlt oder ist leer).</p>';
     return;
   }
-  const columns = [
-    { key: "position", label: "Pos." },
-    { key: "name", label: "Spieler" },
-    { key: "role", label: "Rolle" },
-    { key: "status", label: "Status" },
-    { key: "market_value", label: "Marktwert", numeric: true },
-    { key: "planned_price", label: "Geplant", numeric: true },
-    { key: "points_avg", label: "Schnitt", numeric: true },
-    { key: "signal", label: "Signal", numeric: true },
-    { key: "ml_prediction", label: "ML-Prognose", numeric: true },
-    { key: "starting_rank", label: "Rang", numeric: true },
-    { key: "note", label: "Notiz" },
-  ];
-  const renderRow = (r) => `<tr>
-    <td>${r.position}</td>
-    <td>${r.name}</td>
-    <td>${r.role}</td>
-    <td>${wunschStatusPill(r.status)}</td>
-    <td class="num">${fmtNum(r.market_value)}</td>
-    <td class="num">${fmtNum(r.planned_price)}${r.is_estimate ? ' <span class="muted">(gesch.)</span>' : ""}</td>
-    <td class="num">${fmtNum(r.points_avg)}</td>
-    <td class="num">${signalPill(r.signal)}</td>
-    <td class="num">${mlCell(r.ml_prediction)}</td>
-    <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
-    <td class="muted">${r.note ?? ""}</td>
-  </tr>`;
   const formation = DATA.wunschkader_formation ? ` (${DATA.wunschkader_formation})` : "";
   const updated = DATA.wunschkader_updated_at ? `, Stand ${DATA.wunschkader_updated_at}` : "";
-  buildTable("tab-wunschkader", columns, () => rows, renderRow,
+  buildTable("tab-wunschkader", wunschkaderColumns, () => rows, wunschkaderRenderRow,
     `Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung. ` +
     "Status: gruen = sofort erreichbar/schon im Kader, gelb = frei (wartet auf Marktauftauchen), rot = bei einem Gegner. " +
     '"(gesch.)" = geschaetzter Preis (Marktwert + Aufschlag), sonst echtes/platziertes Gebot.',
@@ -1088,11 +1178,16 @@ function renderWunschkader() {
 }
 
 function renderSpekulation() {
-  const rows = DATA.spekulation;
-  if (!rows || !rows.length) {
+  const allRows = DATA.spekulation;
+  if (!allRows || !allRows.length) {
     document.getElementById("tab-spekulation").innerHTML =
       '<p class="section-hint">Aktuell keine Spekulations-Kandidaten mit positiver ML-Prognose auf dem Markt.</p>';
     return;
+  }
+  const filters = { search: "" };
+  function getRows() {
+    if (!filters.search) return allRows;
+    return allRows.filter((r) => `${r.name} ${r.team_name ?? ""}`.toLowerCase().includes(filters.search));
   }
   const columns = [
     { key: "name", label: "Spieler" },
@@ -1114,16 +1209,25 @@ function renderSpekulation() {
     <td class="num">${mlCell(r.ml_prediction)}</td>
     <td class="num">${r.roi_pct.toFixed(1)}%</td>
     <td class="num">${fmtNum(r.average_points)}</td>
-    <td>${r.auction_status ?? '<span class="muted">unbekannt</span>'}</td>
+    <td>${r.auction_urgent ? `<span class="pill pill-crit">${r.auction_status}</span>` : (r.auction_status ?? '<span class="muted">unbekannt</span>')}</td>
   </tr>`;
-  buildTable("tab-spekulation", columns, () => rows, renderRow,
-    "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive ML-Prognose, sortiert nach Rendite%. " +
+  const filterBar = `<div class="filter-bar">
+    <label>Suche <input type="text" id="spek-filter-search" placeholder="Spieler/Verein"></label>
+  </div>`;
+  const redraw = buildTable("tab-spekulation", columns, getRows, renderRow,
+    "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive ML-Prognose. " +
     '"Hype-Gipfel" (rot) = Warnung aus MDs/methodik.md: starker 7-Tage-Sprung + 92-Tage-Hoch + kein Punkteschnitt, meist Nachrichten-Hype statt echtes Signal - NICHT zum Kauf geeignet. ' +
     '"Boden-Schutz" (gruen) = Preis unter 1 Mio., nahe am 500k-Mindestwert, begrenztes Abwaertsrisiko. ' +
-    "ML-Prognose ist nur eine 1-Tages-Vorhersage - Spekulation stuetzt sich auf den laufenden Trend, nicht allein aufs Modell.");
+    "ML-Prognose ist nur eine 1-Tages-Vorhersage - Spekulation stuetzt sich auf den laufenden Trend, nicht allein aufs Modell. Rot markierte Auktionen laufen vor dem naechsten 22-Uhr-Update ab.",
+    filterBar, "auction_remaining_seconds", 1);
+  document.getElementById("tab-spekulation").querySelector("#spek-filter-search").addEventListener("input", (e) => {
+    filters.search = e.target.value.trim().toLowerCase();
+    redraw();
+  });
 }
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.dataset.label = btn.textContent;
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
     document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
@@ -1132,12 +1236,29 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
   });
 });
 
+function updateTabBadges() {
+  const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [], unkategorisiert: [] };
+  const teamCount = split.verkaufen.length + split.bleibt.length + (split.unkategorisiert || []).length
+    + (DATA.wunschkader_watchlist || []).length;
+  const counts = {
+    transfermarkt: (DATA.transfermarkt || []).length,
+    spekulation: (DATA.spekulation || []).length,
+    team: teamCount,
+    wunschkader: (DATA.wunschkader || []).length,
+  };
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    const count = counts[btn.dataset.tab];
+    if (count !== undefined) btn.textContent = `${btn.dataset.label} (${count})`;
+  });
+}
+
 renderMeta();
 renderTransfermarkt();
-renderTeam();
-renderLiga();
-renderWunschkader();
 renderSpekulation();
+renderTeam();
+renderWunschkader();
+renderLiga();
+updateTabBadges();
 </script>
 </body>
 </html>
