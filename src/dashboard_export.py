@@ -117,6 +117,53 @@ def _build_eigenes_team(own_squad, calibration, predictions) -> list[dict]:
     return [_player_row(r, calibration, predictions) for r in own_squad]
 
 
+HYPE_CHANGE_THRESHOLD = 1_500_000
+SPEKULATION_FLOOR_PROTECTED = 1_000_000
+
+
+def _is_hype_gipfel(row: dict) -> bool:
+    """Drei Merkmale aus MDs/methodik.md, Abschnitt 'Der Hype-Gipfel':
+    starker 7-Tage-Sprung, Marktwert auf dem 92-Tage-Hoch, kein
+    Punkteschnitt - Nachrichten-Hype statt Leistungssignal, klassische
+    Kaufwarnung (nicht als Spekulationskandidat geeignet)."""
+    return bool(
+        row.get("market_value_change_7d")
+        and row["market_value_change_7d"] > HYPE_CHANGE_THRESHOLD
+        and row.get("market_value") is not None
+        and row.get("market_value_high_92d") == row.get("market_value")
+        and not row.get("average_points")
+    )
+
+
+def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
+    """Kauf-und-Wiederverkauf-Kandidaten: positive ML-Prognose, kein
+    Hype-Gipfel-Verdacht. ML-Prognose ist nur eine 1-Tages-Vorhersage
+    (Modell wird taeglich neu trainiert) - die eigentliche Spekulation
+    stuetzt sich auf den bereits laufenden 7-Tage-Trend, nicht allein auf
+    das Modell."""
+    rows = []
+    for r in transfermarkt_rows:
+        if not r.get("ml_prediction") or r["ml_prediction"] <= 0 or not r.get("price"):
+            continue
+        rows.append(
+            {
+                "name": r["name"],
+                "position": r["position"],
+                "team_name": r["team_name"],
+                "price": r["price"],
+                "market_value_change_7d": r["market_value_change_7d"],
+                "ml_prediction": r["ml_prediction"],
+                "roi_pct": round(r["ml_prediction"] / r["price"] * 100, 1),
+                "average_points": r["average_points"],
+                "is_hype_gipfel": _is_hype_gipfel(r),
+                "near_floor": bool(r["price"] and r["price"] < SPEKULATION_FLOOR_PROTECTED),
+                "offering_username": None if r["is_system_offer"] else r["offering_username"],
+            }
+        )
+    rows.sort(key=lambda r: -r["roi_pct"])
+    return rows
+
+
 def _build_ligaanalyse(token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad) -> list[dict]:
     budgets_by_user = {b["user_id"]: b for b in manager_budget_rows}
     sell_counts: dict[str, int] = {}
@@ -386,6 +433,8 @@ def export() -> Path:
         else None
     )
 
+    transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget)
+
     data = {
         "fetched_at": fetched_at,
         "own_available_budget": own_available_budget,
@@ -394,7 +443,7 @@ def export() -> Path:
         "calibration": calibration,
         "ml_metrics": predictions["metrics"] if predictions else None,
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
-        "transfermarkt": _build_transfermarkt(market_listings, calibration, predictions, own_available_budget),
+        "transfermarkt": transfermarkt_rows,
         "eigenes_team": _build_eigenes_team(own_squad, calibration, predictions),
         "ligaanalyse": _build_ligaanalyse(
             token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad
@@ -403,6 +452,7 @@ def export() -> Path:
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
         "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
         "budget_plan": budget_plan,
+        "spekulation": _build_spekulation(transfermarkt_rows),
     }
 
     html = _render_html(data)
@@ -588,12 +638,14 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   <button class="tab-btn" data-tab="team">Eigenes Team</button>
   <button class="tab-btn" data-tab="liga">Ligaanalyse</button>
   <button class="tab-btn" data-tab="wunschkader">Wunschkader</button>
+  <button class="tab-btn" data-tab="spekulation">Spekulation</button>
 </nav>
 <main>
   <section id="tab-transfermarkt" class="tab-panel active"></section>
   <section id="tab-team" class="tab-panel"></section>
   <section id="tab-liga" class="tab-panel"></section>
   <section id="tab-wunschkader" class="tab-panel"></section>
+  <section id="tab-spekulation" class="tab-panel"></section>
 </main>
 <script>
 const DATA = __DASHBOARD_DATA__;
@@ -897,6 +949,42 @@ function renderWunschkader() {
     renderBudgetPlan(DATA.budget_plan));
 }
 
+function renderSpekulation() {
+  const rows = DATA.spekulation;
+  if (!rows || !rows.length) {
+    document.getElementById("tab-spekulation").innerHTML =
+      '<p class="section-hint">Aktuell keine Spekulations-Kandidaten mit positiver ML-Prognose auf dem Markt.</p>';
+    return;
+  }
+  const columns = [
+    { key: "name", label: "Spieler" },
+    { key: "position", label: "Pos." },
+    { key: "team_name", label: "Verein" },
+    { key: "price", label: "Preis", numeric: true },
+    { key: "market_value_change_7d", label: "Trend 7T", numeric: true },
+    { key: "ml_prediction", label: "ML-Prognose", numeric: true },
+    { key: "roi_pct", label: "Rendite%", numeric: true },
+    { key: "average_points", label: "Schnitt", numeric: true },
+    { key: "offering_username", label: "Anbieter" },
+  ];
+  const renderRow = (r) => `<tr>
+    <td>${r.name}${r.is_hype_gipfel ? ' <span class="pill pill-crit">Hype-Gipfel</span>' : ""}${r.near_floor ? ' <span class="pill pill-good">Boden-Schutz</span>' : ""}</td>
+    <td>${r.position}</td>
+    <td>${r.team_name ?? ""}</td>
+    <td class="num">${fmtNum(r.price)}</td>
+    <td class="num">${fmtSigned(r.market_value_change_7d)}</td>
+    <td class="num">${mlCell(r.ml_prediction)}</td>
+    <td class="num">${r.roi_pct.toFixed(1)}%</td>
+    <td class="num">${fmtNum(r.average_points)}</td>
+    <td>${r.offering_username ?? '<span class="muted">System</span>'}</td>
+  </tr>`;
+  buildTable("tab-spekulation", columns, () => rows, renderRow,
+    "Kauf-und-Wiederverkauf-Kandidaten (positive ML-Prognose, sortiert nach Rendite%). " +
+    '"Hype-Gipfel" (rot) = Warnung aus MDs/methodik.md: starker 7-Tage-Sprung + 92-Tage-Hoch + kein Punkteschnitt, meist Nachrichten-Hype statt echtes Signal - NICHT zum Kauf geeignet. ' +
+    '"Boden-Schutz" (gruen) = Preis unter 1 Mio., nahe am 500k-Mindestwert, begrenztes Abwaertsrisiko. ' +
+    "ML-Prognose ist nur eine 1-Tages-Vorhersage - Spekulation stuetzt sich auf den laufenden Trend, nicht allein aufs Modell.");
+}
+
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -911,6 +999,7 @@ renderTransfermarkt();
 renderTeam();
 renderLiga();
 renderWunschkader();
+renderSpekulation();
 </script>
 </body>
 </html>
