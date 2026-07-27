@@ -488,8 +488,16 @@ def _build_budget_plan(
     pool = cash + sell_proceeds + login_bonus_projection
 
     # Bank/Backup-Option-Rollen sind nur bedingter Bedarf, nicht fest verplant.
+    # Schon im Kader befindliche Ziele (is_own) nicht mitzaehlen - deren Kauf
+    # ist bereits im aktuellen Kontostand (cash) abgezogen, sonst wuerde ein
+    # per actual_bid dokumentierter historischer Gebotsbetrag (z.B. Stage,
+    # Klaus) nach dem erfolgreichen Kauf ein zweites Mal als noch offene
+    # Ausgabe gezaehlt (live gefunden 27.07.2026, hat den Fehlbetrag um genau
+    # die Summe dieser bereits bezahlten Spieler verfaelscht).
     committed = sum(
-        (r["planned_price"] or 0) for r in wunschkader_rows if r["role"] not in ("Bank/Backup-Option",)
+        (r["planned_price"] or 0)
+        for r in wunschkader_rows
+        if r["role"] not in ("Bank/Backup-Option",) and not r["is_own"]
     )
 
     return {
