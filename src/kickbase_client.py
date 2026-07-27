@@ -144,7 +144,11 @@ def get_market_value_history(
 ) -> dict:
     """Echte Marktwert-Zeitreihe eines Spielers (bestaetigt durch echtes
     Beispiel: {"it": [{"dt": ..., "mv": ...}, ...], "lmv", "hmv", "trp",
-    "idp"}). timeframe ist 92 (~3 Monate) oder 365 (1 Jahr) Tage."""
+    "idp"}). timeframe ist 92 (~3 Monate) oder 365 (1 Jahr) Tage. "dt" ist
+    Tage seit Epoch 1970-01-01 (Integer, KEIN ISO-Timestamp) - bestaetigt am
+    27.07.2026: dt=20660 entspricht 2026-07-26. Funktioniert auch fuer
+    Spieler ausserhalb des eigenen Kaders/Markts (bestaetigt, siehe
+    get_team_players/get_player_performance)."""
     response = requests.get(
         f"{BASE_URL}/v4/leagues/{league_id}/players/{player_id}/marketValue/{timeframe}",
         headers=_headers(token),
@@ -185,6 +189,42 @@ def get_achievement_reward(token: str, league_id: str, achievement_id: str) -> d
     Ebenfalls unbestaetigt, siehe get_activities_feed()."""
     response = requests.get(
         f"{BASE_URL}/v4/leagues/{league_id}/user/achievements/{achievement_id}",
+        headers=_headers(token),
+        timeout=TIMEOUT,
+    )
+    _raise_for_status(response)
+    return response.json()
+
+
+def get_team_players(token: str, competition_id: str, team_id: str) -> list[str]:
+    """Spieler-Ids eines Vereins (fuer die ML-Marktwertprognose in
+    src/market_predictor.py, um an alle Liga-Spieler zu kommen - nicht nur
+    die im eigenen Kader/Markt). BESTAETIGT durch echtes Beispiel (27.07.2026,
+    Team Bayern): {"tid","tn","it":[{"i","n","pos","mv","ap",...}]}. "it[].i"
+    ist die Spieler-Id (String, z.B. "1685")."""
+    response = requests.get(
+        f"{BASE_URL}/v4/competitions/{competition_id}/teams/{team_id}/teamprofile",
+        headers=_headers(token),
+        timeout=TIMEOUT,
+    )
+    _raise_for_status(response)
+    return [item["i"] for item in response.json().get("it", []) if item.get("i")]
+
+
+def get_player_performance(token: str, competition_id: str, player_id: str) -> dict:
+    """Rohe Spieltag-Performance-Historie eines Spielers, ueber ALLE Saisons
+    seit ca. 2015 gruppiert. BESTAETIGT durch echtes Beispiel (27.07.2026,
+    Spieler 1685/Kimmich, Bayern - explizit ausserhalb des eigenen Kaders/
+    Markts getestet, um zu pruefen ob die Kickbase-API das ueberhaupt
+    herausgibt): {"it": [{"sid","ti","n","ph": [{"mi","day","md","p","mp",
+    "t1","t2","t1g","t2g","pt","st","cur","mdst",...}]}]}. WICHTIG: enthaelt
+    auch ZUKUENFTIGE, noch nicht gespielte Spieltage (dort fehlen "p"/"mp"/
+    "t1g"/"t2g") - das wird fuer das days_to_next-Feature gebraucht. "mp" ist
+    bei gespielten Spielen ein String wie "90'" (Minuten, muss geparst
+    werden), "md" ist ein ISO-Timestamp (nicht Epoch-Tage wie bei
+    get_market_value_history!)."""
+    response = requests.get(
+        f"{BASE_URL}/v4/competitions/{competition_id}/players/{player_id}/performance",
         headers=_headers(token),
         timeout=TIMEOUT,
     )

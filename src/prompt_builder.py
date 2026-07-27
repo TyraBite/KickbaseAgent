@@ -62,7 +62,22 @@ def _market_value_trend(p: sqlite3.Row) -> str:
     return ", ".join(parts) or "Trend nicht verfuegbar"
 
 
-def _player_line(p: sqlite3.Row, current_matchday) -> str:
+def _ml_prediction_hint(player_id, predictions: dict | None) -> str:
+    """predictions ist das Ergebnis von market_predictor.predict_market_value_changes()
+    ({"predictions": {player_id: delta}, "metrics": {...}}) oder None, wenn der
+    ML-Schritt fehlgeschlagen/deaktiviert ist. Fehlt der Spieler in den
+    Prognosen (z.B. zu wenig Historie fuer diesen einen Spieler), wird das
+    explizit als 'nicht verfuegbar' markiert statt stillschweigend zu fehlen."""
+    if predictions is None:
+        return " | ML-Prognose: nicht verfuegbar"
+    delta = predictions.get("predictions", {}).get(player_id)
+    if delta is None:
+        return " | ML-Prognose: nicht verfuegbar (zu wenig Historie fuer diesen Spieler)"
+    sign = "+" if delta >= 0 else ""
+    return f" | ML-Prognose naechste Aktualisierung: {sign}{delta} (unbestaetigtes Modell, taeglich neu trainiert)"
+
+
+def _player_line(p: sqlite3.Row, current_matchday, predictions: dict | None = None) -> str:
     verein = f", {p['team_name']}" if p["team_name"] else ""
     return (
         f"- {p['name']} ({p['position']}{verein}){_status_hint(p['status_label'])} | "
@@ -72,10 +87,11 @@ def _player_line(p: sqlite3.Row, current_matchday) -> str:
         f"Einsatzzahl: {_appearances(p['total_points'], p['average_points'])} | "
         f"Einsatzquote: {_appearance_rate(p['total_points'], p['average_points'], current_matchday)} | "
         f"Kosten/Punkt: {_cost_per_point(p['market_value'], p['total_points'])}"
+        f"{_ml_prediction_hint(p['player_id'], predictions)}"
     )
 
 
-def _market_line(p: sqlite3.Row, current_matchday) -> str:
+def _market_line(p: sqlite3.Row, current_matchday, predictions: dict | None = None) -> str:
     if p["is_system_offer"]:
         anbieter = "Kickbase (kein Anbieter erkannt, freier Spieler)"
     else:
@@ -108,6 +124,7 @@ def _market_line(p: sqlite3.Row, current_matchday) -> str:
         f"Punkte gesamt: {_fmt_points(p['total_points'])} | "
         f"Kosten/Punkt: {_cost_per_point(p['price'], p['total_points'])} | "
         f"Angeboten von: {anbieter}{delta_hint}{extra}"
+        f"{_ml_prediction_hint(p['player_id'], predictions)}"
     )
 
 
@@ -181,7 +198,20 @@ def _season_context_block(conn: sqlite3.Connection, fetched_at: str) -> str:
     )
 
 
-def build_prompt(fetched_at: str | None = None) -> str:
+def _ml_metrics_block(predictions: dict | None) -> str:
+    if predictions is None:
+        return "(keine ML-Prognose verfuegbar - Modell deaktiviert, fehlgeschlagen oder zu wenig Trainingsdaten)"
+    m = predictions["metrics"]
+    return (
+        f"RMSE: {m['rmse']} | MAE: {m['mae']} | R2: {m['r2']} | "
+        f"Richtung korrekt: {m['sign_accuracy']}% | Trainingszeilen: {m['train_rows']} | Testzeilen: {m['test_rows']}\n"
+        "(Hinweis: taeglich neu trainiertes Modell ohne persistente Historie, Testmetriken koennen "
+        "insbesondere frueh in der Saison stark schwanken - als zusaetzliches, nicht entscheidendes "
+        "Signal neben der qualitativen Marktwertentwicklung oben werten.)"
+    )
+
+
+def build_prompt(fetched_at: str | None = None, predictions: dict | None = None) -> str:
     conn = db.connect()
     conn.row_factory = sqlite3.Row
     try:
@@ -221,11 +251,11 @@ def build_prompt(fetched_at: str | None = None) -> str:
         conn.close()
 
     squad_lines = (
-        "\n".join(_player_line(p, current_matchday) for p in own_squad)
+        "\n".join(_player_line(p, current_matchday, predictions) for p in own_squad)
         or "(keine Spieler im Kader gefunden)"
     )
     market_lines = (
-        "\n".join(_market_line(p, current_matchday) for p in market_listings)
+        "\n".join(_market_line(p, current_matchday, predictions) for p in market_listings)
         or "(kein Spieler aktuell auf dem Markt)"
     )
     table_lines = "\n".join(league_table_lines)
@@ -256,8 +286,10 @@ wer pausiert - beruecksichtige auffaellige Status-Codes, siehe Kader unten), fal
 Saisonphase ueberhaupt relevant.
 2. Fuer JEDEN einzelnen Spieler in meinem Kader unten: Verkaufen oder Halten, mit einer kurzen \
 Begruendung (1-2 Saetze). Beruecksichtige dabei explizit die Marktwertentwicklung (Trend/Tiefst-\
-Hoechstwert/Preisverfall) und Kosten pro Punkt als eigene Kriterien, nicht nur nebenbei. \
-Achte bei Verkaufsempfehlungen darauf, dass keine Position in meinem Kader komplett leerlaeuft.
+Hoechstwert/Preisverfall) und Kosten pro Punkt als eigene Kriterien, nicht nur nebenbei. Die \
+ML-Prognose je Spieler ist ein zusaetzliches, NICHT entscheidendes Signal - gewichte sie schwaecher \
+als die qualitative Marktwertentwicklung. Achte bei Verkaufsempfehlungen darauf, dass keine Position \
+in meinem Kader komplett leerlaeuft.
 3. Fuer JEDEN einzelnen Spieler auf dem Transfermarkt unten: Kaufen oder Nicht kaufen, mit einer \
 kurzen Begruendung. Beruecksichtige dabei explizit: ob der Spieler von einem Mitspieler (dann ggf. \
 Verhandlungsspielraum, siehe Preis-Delta) oder von Kickbase selbst (Systemangebot, Festpreis) \
@@ -303,6 +335,9 @@ als exakte Zahl.
 
 === GESCHAETZTE BUDGETS ALLER MANAGER ===
 {manager_budget_block_lines}
+
+=== ML-MARKTWERT-PROGNOSE (EXPERIMENTELL) ===
+{_ml_metrics_block(predictions)}
 """
 
 
