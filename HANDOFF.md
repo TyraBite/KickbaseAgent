@@ -148,9 +148,15 @@ planning/spec artifact at this point, zero Firestore code written.
 **Broken**: Nothing known broken. Repo is still **private** (not yet
 flipped public — that's Phase 3, not done).
 
-**Uncommitted Changes**: None — working tree is clean, all work this
-session is committed to `main` (not pushed to origin; per project rule,
-push only happens on explicit user request).
+**Uncommitted Changes**: `MDs/*.md` (5 files) and `data/kickbase.db` show
+as locally modified — investigated, this is a line-ending change only
+(LF → CRLF, likely a Windows-side tool touching the shared DrvFs-mounted
+working directory), not real content changes; `kickbase.db`'s size is
+unchanged too. Not part of this session's work, left untouched
+deliberately — don't assume it's related to Firestore/Firebase, and don't
+discard it without asking the user first. Everything else is committed to
+`main` (not pushed to origin; per project rule, push only happens on
+explicit user request).
 
 ## Files to Know
 
