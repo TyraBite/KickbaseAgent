@@ -2,7 +2,7 @@
   "updated_at": "2026-07-27",
   "formation": "3-4-3",
   "season_start": "2026-08-28",
-  "sell_list": ["Chaves", "Urbig", "Funk", "Stange", "Suleiman", "Katic"],
+  "sell_list": ["Chaves", "Urbig", "Funk", "Stange", "Suleiman", "Katic", "Schubert", "Pinckert"],
   "markup_rules": {
     "topspieler_threshold": 20000000,
     "topspieler_markup": 0.10,
@@ -19,10 +19,10 @@
     "note": "Deckel bei 100.000/Tag ist UNBESTAETIGT (User-Erinnerung, nur 2 echte Datenpunkte). Setzt taegliche Login-Streak ohne Unterbrechung voraus."
   },
   "targets": [
-    {"name": "Rönnow", "position": "Torwart", "role": "Starter", "note": "Gebot führend", "actual_bid": 7350556},
+    {"name": "Rönnow", "position": "Torwart", "role": "Starter", "note": "Gebot führend", "actual_bid": 7450556},
     {"name": "Klaus", "position": "Torwart", "role": "Backup", "note": "Gebot gewonnen", "actual_bid": 1350576},
     {"name": "Günther", "position": "Abwehr", "role": "Starter", "note": "eigener Kader, verhandelbar bei Bedarf"},
-    {"name": "Lienhart", "position": "Abwehr", "role": "Starter", "note": "Ziel, Markt"},
+    {"name": "Lienhart", "position": "Abwehr", "role": "Starter", "note": "Gebot führend", "actual_bid": 8810210},
     {"name": "Matsima", "position": "Abwehr", "role": "Starter", "note": "eigener Kader - Live-Rang 1, Fitness (Status 2) vor endgültiger Planung prüfen"},
     {"name": "Muheim", "position": "Abwehr", "role": "Bank/Backup-Option", "note": "nur falls Matsima nicht fit - Status 2, Fitness prüfen"},
     {"name": "Deman", "position": "Abwehr", "role": "Bank/Backup-Option", "note": "Alternative zu Muheim - waere mit Stage 2 von 3 erlaubten Bremer Spielern, unproblematisch"},

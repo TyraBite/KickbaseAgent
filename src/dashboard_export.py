@@ -382,12 +382,16 @@ def _build_wunschkader(
         live = by_name.get(name)
         is_own = name in own_squad_names
 
+        note = target.get("note")
         if is_own:
             status = "Eigener Kader"
         elif name in market_by_name:
             m = market_by_name[name]
             anbieter = "System" if m["is_system_offer"] else m["offering_username"]
             status = f"Markt ({anbieter}, {m['price']:,})"
+            auction_status = m.get("auction_status")
+            if auction_status:
+                note = f"{note} - {auction_status}" if note else auction_status
         elif live and owned_by.get(live["player_id"]):
             status = f"Bei {owned_by[live['player_id']]}"
         elif live:
@@ -415,7 +419,7 @@ def _build_wunschkader(
                 "name": name,
                 "position": target["position"],
                 "role": target["role"],
-                "note": target.get("note"),
+                "note": note,
                 "planned_price": planned_price,
                 "is_estimate": "actual_bid" not in target and not is_own,
                 "is_own": is_own,
@@ -548,6 +552,9 @@ def export() -> Path:
     all_players = player_valuation.fetch_all_players(token, competition_id)
     starting_rank_by_player_id = {p["player_id"]: p["starting_rank"] for p in all_players}
 
+    now = datetime.datetime.now(datetime.timezone.utc)
+    transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
+
     wunschkader_config = _load_wunschkader()
     wunschkader_rows = []
     if wunschkader_config:
@@ -558,7 +565,9 @@ def export() -> Path:
             else {}
         )
         own_squad_names = {r["name"] for r in own_squad}
-        market_by_name = {r["name"]: r for r in market_listings}
+        # transfermarkt_rows statt roher market_listings, damit auction_status
+        # (echte Auktions-Restzeit) fuer die Watchlist-Notiz verfuegbar ist.
+        market_by_name = {r["name"]: r for r in transfermarkt_rows}
         wunschkader_rows = _build_wunschkader(
             wunschkader_config, all_players, owned_by, own_squad_names, market_by_name, calibration, predictions
         )
@@ -571,9 +580,6 @@ def export() -> Path:
         if wunschkader_config
         else None
     )
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
 
     eigenes_team_rows = _build_eigenes_team(own_squad, calibration, predictions)
 
