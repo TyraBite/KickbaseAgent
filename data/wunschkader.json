@@ -1,23 +1,40 @@
 {
   "updated_at": "2026-07-27",
   "formation": "3-4-3",
+  "season_start": "2026-08-28",
+  "sell_list": ["Chaves", "Urbig", "Funk", "Stange", "Suleiman", "Katic"],
+  "markup_rules": {
+    "topspieler_threshold": 20000000,
+    "topspieler_markup": 0.10,
+    "normal_markup": 0.05,
+    "note": "Live verifiziert 27.07.2026 gegen echte Trades: Kimmich (Topspieler, 59,0 Mio. MW) wurde fuer +8,86% ueber MW gekauft, Jeltsch (Normalspieler, 10,7 Mio. MW) fuer +4,94%. Schwelle 20 Mio. bewusst konservativ (aufgerundet)."
+  },
+  "login_bonus": {
+    "observed": [
+      {"date": "2026-07-25", "amount": 10000},
+      {"date": "2026-07-27", "amount": 20000}
+    ],
+    "daily_increment": 10000,
+    "assumed_cap": 100000,
+    "note": "Deckel bei 100.000/Tag ist UNBESTAETIGT (User-Erinnerung, nur 2 echte Datenpunkte). Setzt taegliche Login-Streak ohne Unterbrechung voraus."
+  },
   "targets": [
-    {"name": "Rönnow", "position": "Torwart", "role": "Starter", "note": "Gebot führend", "planned_price": 7350556},
-    {"name": "Klaus", "position": "Torwart", "role": "Backup", "note": "Gebot gewonnen", "planned_price": 1350576},
-    {"name": "Günther", "position": "Abwehr", "role": "Starter", "note": "eigener Kader, verhandelbar bei Bedarf", "planned_price": null},
-    {"name": "Lienhart", "position": "Abwehr", "role": "Starter", "note": "Ziel, Markt", "planned_price": 8802894},
-    {"name": "Matsima", "position": "Abwehr", "role": "Starter", "note": "eigener Kader - Live-Rang 1, Fitness (Status 2) vor endgültiger Planung prüfen", "planned_price": null},
-    {"name": "Muheim", "position": "Abwehr", "role": "Bank/Backup-Option", "note": "nur falls Matsima nicht fit - Status 2, Fitness prüfen", "planned_price": 6063833},
-    {"name": "Deman", "position": "Abwehr", "role": "Bank/Backup-Option", "note": "Alternative zu Muheim - waere mit Stage 2 von 3 erlaubten Bremer Spielern, unproblematisch", "planned_price": 6372529},
-    {"name": "Leweling", "position": "Mittelfeld", "role": "Starter", "note": "fixer Kern", "planned_price": null},
-    {"name": "Fellhauer", "position": "Mittelfeld", "role": "Starter", "note": "Ersetzt Lynen - Lynen+Stage waeren beide Bremen gewesen (Liga-Regel: max. 3 pro Verein), Fellhauer ist Augsburg (2. Augsburg-Spieler neben Matsima, unproblematisch)", "planned_price": 6620979},
-    {"name": "Krauß", "position": "Mittelfeld", "role": "Starter", "note": "Ziel, frei", "planned_price": 4760230},
-    {"name": "Stage", "position": "Mittelfeld", "role": "Starter", "note": "Gebot platziert", "planned_price": 16200000},
-    {"name": "Tella", "position": "Mittelfeld", "role": "Bank", "note": "eigener Kader, behalten statt verkaufen (kostenneutral)", "planned_price": null},
-    {"name": "Scherhant", "position": "Mittelfeld", "role": "Bank", "note": "eigener Kader, behalten statt verkaufen (kostenneutral)", "planned_price": null},
-    {"name": "Matanović", "position": "Sturm", "role": "Starter", "note": "Ziel, frei", "planned_price": 15212867},
-    {"name": "Beier", "position": "Sturm", "role": "Starter", "note": "Ziel, frei", "planned_price": 25464588},
-    {"name": "Undav", "position": "Sturm", "role": "Starter", "note": "Ziel, frei", "planned_price": 44378715},
-    {"name": "Harder", "position": "Sturm", "role": "Bank/Wildcard", "note": "eigener Kader, kein Stammspieler mehr (Live-Rang 4)", "planned_price": null}
+    {"name": "Rönnow", "position": "Torwart", "role": "Starter", "note": "Gebot führend", "actual_bid": 7350556},
+    {"name": "Klaus", "position": "Torwart", "role": "Backup", "note": "Gebot gewonnen", "actual_bid": 1350576},
+    {"name": "Günther", "position": "Abwehr", "role": "Starter", "note": "eigener Kader, verhandelbar bei Bedarf"},
+    {"name": "Lienhart", "position": "Abwehr", "role": "Starter", "note": "Ziel, Markt"},
+    {"name": "Matsima", "position": "Abwehr", "role": "Starter", "note": "eigener Kader - Live-Rang 1, Fitness (Status 2) vor endgültiger Planung prüfen"},
+    {"name": "Muheim", "position": "Abwehr", "role": "Bank/Backup-Option", "note": "nur falls Matsima nicht fit - Status 2, Fitness prüfen"},
+    {"name": "Deman", "position": "Abwehr", "role": "Bank/Backup-Option", "note": "Alternative zu Muheim - waere mit Stage 2 von 3 erlaubten Bremer Spielern, unproblematisch"},
+    {"name": "Leweling", "position": "Mittelfeld", "role": "Starter", "note": "fixer Kern"},
+    {"name": "Fellhauer", "position": "Mittelfeld", "role": "Starter", "note": "Ersetzt Lynen - Lynen+Stage waeren beide Bremen gewesen (Liga-Regel: max. 3 pro Verein), Fellhauer ist Augsburg (2. Augsburg-Spieler neben Matsima, unproblematisch)"},
+    {"name": "Krauß", "position": "Mittelfeld", "role": "Starter", "note": "Ziel, frei"},
+    {"name": "Stage", "position": "Mittelfeld", "role": "Starter", "note": "Gebot platziert", "actual_bid": 16200000},
+    {"name": "Tella", "position": "Mittelfeld", "role": "Bank", "note": "eigener Kader, behalten statt verkaufen (kostenneutral)"},
+    {"name": "Scherhant", "position": "Mittelfeld", "role": "Bank", "note": "eigener Kader, behalten statt verkaufen (kostenneutral)"},
+    {"name": "Matanović", "position": "Sturm", "role": "Starter", "note": "Ziel, frei"},
+    {"name": "Beier", "position": "Sturm", "role": "Starter", "note": "Ziel, frei"},
+    {"name": "Undav", "position": "Sturm", "role": "Starter", "note": "Ziel, frei"},
+    {"name": "Harder", "position": "Sturm", "role": "Bank/Wildcard", "note": "eigener Kader, kein Stammspieler mehr (Live-Rang 4)"}
   ]
 }

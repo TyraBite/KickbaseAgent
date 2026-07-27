@@ -16,6 +16,7 @@ das haelt diesen Lauf schnell/billig, K aendert sich ohnehin langsam.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import sqlite3
@@ -173,6 +174,18 @@ def _load_wunschkader() -> dict | None:
     return json.loads(WUNSCHKADER_PATH.read_text(encoding="utf-8"))
 
 
+def _estimate_price(market_value: float | None, markup_rules: dict | None) -> float | None:
+    """Marktwert x Aufschlag - Topspieler (Marktwert >= Schwelle) bekommen
+    einen hoeheren Aufschlag als der Rest. Live verifiziert 27.07.2026 gegen
+    echte Trades (siehe markup_rules.note in wunschkader.json): Kimmich
+    (Topspieler) +8,86% ueber Marktwert, Jeltsch (Normalspieler) +4,94%."""
+    if not market_value or not markup_rules:
+        return None
+    threshold = markup_rules.get("topspieler_threshold", 0)
+    markup = markup_rules.get("topspieler_markup" if market_value >= threshold else "normal_markup", 0)
+    return round(market_value * (1 + markup))
+
+
 def _build_wunschkader(
     wunschkader: dict,
     all_players: list[dict],
@@ -183,12 +196,14 @@ def _build_wunschkader(
     predictions: dict | None,
 ) -> list[dict]:
     by_name = {p["name"]: p for p in all_players}
+    markup_rules = wunschkader.get("markup_rules")
     rows = []
     for target in wunschkader.get("targets", []):
         name = target["name"]
         live = by_name.get(name)
+        is_own = name in own_squad_names
 
-        if name in own_squad_names:
+        if is_own:
             status = "Eigener Kader"
         elif name in market_by_name:
             m = market_by_name[name]
@@ -209,13 +224,21 @@ def _build_wunschkader(
             if k:
                 signal = round(k / (market_value / points_avg), 2)
 
+        if "actual_bid" in target:
+            planned_price = target["actual_bid"]
+        elif is_own:
+            planned_price = 0
+        else:
+            planned_price = _estimate_price(market_value, markup_rules)
+
         rows.append(
             {
                 "name": name,
                 "position": target["position"],
                 "role": target["role"],
                 "note": target.get("note"),
-                "planned_price": target.get("planned_price"),
+                "planned_price": planned_price,
+                "is_estimate": "actual_bid" not in target and not is_own,
                 "status": status,
                 "market_value": market_value,
                 "points_avg": points_avg,
@@ -230,6 +253,71 @@ def _build_wunschkader(
             }
         )
     return rows
+
+
+def _project_login_bonus(login_cfg: dict | None, season_start: str | None, fetched_at: str) -> int:
+    """Projiziert die verbleibende Login-Praemie bis Saisonstart (nur
+    zukuenftige Tage, der heutige/vergangene Betrag steckt schon im
+    aktuellen Kontostand). Setzt eine ununterbrochene taegliche
+    Login-Streak voraus - reine Schaetzung, siehe login_bonus.note in
+    wunschkader.json."""
+    if not login_cfg or not login_cfg.get("observed") or not season_start:
+        return 0
+    observed = sorted(login_cfg["observed"], key=lambda o: o["date"])
+    last_date = datetime.date.fromisoformat(observed[-1]["date"])
+    amount = observed[-1]["amount"]
+    increment = login_cfg.get("daily_increment", 0)
+    cap = login_cfg.get("assumed_cap", amount)
+    season_start_date = datetime.date.fromisoformat(season_start)
+    today = datetime.date.fromisoformat(fetched_at)
+
+    total = 0
+    current_date = last_date
+    while current_date < season_start_date:
+        current_date += datetime.timedelta(days=1)
+        amount = min(amount + increment, cap)
+        if current_date > today:
+            total += amount
+    return total
+
+
+def _build_budget_plan(
+    wunschkader: dict,
+    wunschkader_rows: list[dict],
+    own_squad: list,
+    own_budget_exact: float | None,
+    fetched_at: str,
+) -> dict:
+    own_squad_by_name = {r["name"]: r for r in own_squad}
+    sell_rows = [
+        {"name": name, "market_value": own_squad_by_name[name]["market_value"]}
+        for name in wunschkader.get("sell_list", [])
+        if name in own_squad_by_name
+    ]
+    sell_proceeds = sum((r["market_value"] or 0) for r in sell_rows)
+
+    login_bonus_projection = _project_login_bonus(
+        wunschkader.get("login_bonus"), wunschkader.get("season_start"), fetched_at
+    )
+
+    cash = own_budget_exact or 0
+    pool = cash + sell_proceeds + login_bonus_projection
+
+    # Bank/Backup-Option-Rollen sind nur bedingter Bedarf, nicht fest verplant.
+    committed = sum(
+        (r["planned_price"] or 0) for r in wunschkader_rows if r["role"] not in ("Bank/Backup-Option",)
+    )
+
+    return {
+        "cash": cash,
+        "sell_rows": sell_rows,
+        "sell_proceeds": sell_proceeds,
+        "login_bonus_projection": login_bonus_projection,
+        "season_start": wunschkader.get("season_start"),
+        "pool": pool,
+        "committed": committed,
+        "remaining": pool - committed,
+    }
 
 
 def _load_snapshot(fetched_at: str):
@@ -290,6 +378,14 @@ def export() -> Path:
             wunschkader_config, all_players, owned_by, own_squad_names, market_by_name, calibration, predictions
         )
 
+    budget_plan = (
+        _build_budget_plan(
+            wunschkader_config, wunschkader_rows, own_squad, own_budget_row["estimated_budget"] if own_budget_row else None, fetched_at
+        )
+        if wunschkader_config
+        else None
+    )
+
     data = {
         "fetched_at": fetched_at,
         "own_available_budget": own_available_budget,
@@ -306,6 +402,7 @@ def export() -> Path:
         "wunschkader": wunschkader_rows,
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
         "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
+        "budget_plan": budget_plan,
     }
 
     html = _render_html(data)
@@ -462,6 +559,23 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   border-radius: 4px;
   padding: 3px 6px;
 }
+.budget-plan {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.budget-plan h3 { margin: 0 0 10px; font-size: 0.95rem; }
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px 16px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+.budget-grid > div { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -724,6 +838,23 @@ function wunschStatusPill(status) {
   return `<span class="muted">${status}</span>`;
 }
 
+function renderBudgetPlan(bp) {
+  if (!bp) return "";
+  const sellList = (bp.sell_rows || []).map((r) => `${r.name} (${fmtNum(r.market_value)})`).join(", ") || "keine";
+  return `<div class="budget-plan">
+    <h3>Budget-Planung</h3>
+    <div class="budget-grid">
+      <div><span class="muted">Cash</span><br>${fmtNum(bp.cash)}</div>
+      <div><span class="muted">+ Verkaufserlöse</span><br>${fmtNum(bp.sell_proceeds)}</div>
+      <div><span class="muted">+ Login-Prämie bis ${bp.season_start ?? "?"}</span><br>${fmtNum(bp.login_bonus_projection)}</div>
+      <div><span class="muted">= Pool</span><br><b>${fmtNum(bp.pool)}</b></div>
+      <div><span class="muted">- Eingeplant</span><br>${fmtNum(bp.committed)}</div>
+      <div><span class="muted">= Rest</span><br><b class="${bp.remaining >= 0 ? "trend-up" : "trend-down"}">${fmtSigned(bp.remaining)}</b></div>
+    </div>
+    <p class="section-hint">Verkauf eingeplant: ${sellList}. Login-Prämie ist eine Schätzung (Deckel unbestätigt, setzt tägliche Streak voraus, siehe MDs/kaderplan.md). "Eingeplant" zählt nur Starter/Backup, nicht die bedingten Bank-Optionen.</p>
+  </div>`;
+}
+
 function renderWunschkader() {
   const rows = DATA.wunschkader;
   if (!rows || !rows.length) {
@@ -750,7 +881,7 @@ function renderWunschkader() {
     <td>${r.role}</td>
     <td>${wunschStatusPill(r.status)}</td>
     <td class="num">${fmtNum(r.market_value)}</td>
-    <td class="num">${fmtNum(r.planned_price)}</td>
+    <td class="num">${fmtNum(r.planned_price)}${r.is_estimate ? ' <span class="muted">(gesch.)</span>' : ""}</td>
     <td class="num">${fmtNum(r.points_avg)}</td>
     <td class="num">${signalPill(r.signal)}</td>
     <td class="num">${mlCell(r.ml_prediction)}</td>
@@ -761,7 +892,9 @@ function renderWunschkader() {
   const updated = DATA.wunschkader_updated_at ? `, Stand ${DATA.wunschkader_updated_at}` : "";
   buildTable("tab-wunschkader", columns, () => rows, renderRow,
     `Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung. ` +
-    "Status: gruen = sofort erreichbar/schon im Kader, gelb = frei (wartet auf Marktauftauchen), rot = bei einem Gegner.");
+    "Status: gruen = sofort erreichbar/schon im Kader, gelb = frei (wartet auf Marktauftauchen), rot = bei einem Gegner. " +
+    '"(gesch.)" = geschaetzter Preis (Marktwert + Aufschlag), sonst echtes/platziertes Gebot.',
+    renderBudgetPlan(DATA.budget_plan));
 }
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
