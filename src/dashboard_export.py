@@ -55,6 +55,48 @@ def _valuation(market_value, points_avg, position, calibration):
     return round(points_avg * k), round(k / kp, 2)
 
 
+def _parse_iso_z(raw: str | None) -> datetime.datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc
+        )
+    except ValueError:
+        return None
+
+
+def _format_duration(hours: float) -> str:
+    hours = max(hours, 0)
+    if hours >= 24:
+        days = int(hours // 24)
+        rest_h = int(hours % 24)
+        return f"{days}d {rest_h}h"
+    minutes = int(round((hours % 1) * 60))
+    return f"{int(hours)}h {minutes}m"
+
+
+def _auction_status(listed_at, expires_at, is_system_offer: bool, now: datetime.datetime) -> str:
+    """Kickbase-Systemangebote laufen live beobachtet ohne festes Zeitlimit
+    (Alter reicht bis >27h ohne erkennbare Obergrenze) - dafuer zeigen wir
+    die Standzeit statt einer erfundenen Deadline. Mitspieler-Angebote
+    verfallen nach 'mpst' Tagen automatisch (siehe fetcher._compute_expiry),
+    dafuer die echte Restzeit."""
+    if is_system_offer or not expires_at:
+        listed = _parse_iso_z(listed_at)
+        if listed is None:
+            return "unbekannt"
+        age_hours = (now - listed).total_seconds() / 3600
+        return f"Kickbase, kein Zeitlimit (gelistet seit {_format_duration(age_hours)})"
+    expires = _parse_iso_z(expires_at)
+    if expires is None:
+        return "unbekannt"
+    remaining_hours = (expires - now).total_seconds() / 3600
+    if remaining_hours <= 0:
+        return "Frist abgelaufen"
+    return f"läuft ab in {_format_duration(remaining_hours)}"
+
+
 def _trend_direction(change_7d) -> str:
     if change_7d is None or change_7d == 0:
         return "flat"
@@ -88,16 +130,18 @@ def _player_row(row: sqlite3.Row, calibration: dict | None, predictions: dict | 
     }
 
 
-def _build_transfermarkt(market_listings, calibration, predictions, own_available_budget) -> list[dict]:
+def _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now=None) -> list[dict]:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
     rows = []
     for r in market_listings:
         row = _player_row(r, calibration, predictions)
+        is_system_offer = bool(r["is_system_offer"])
         row.update(
             {
                 "price": r["price"],
                 "price_delta_pct": r["price_delta_pct"],
                 "offering_username": r["offering_username"],
-                "is_system_offer": bool(r["is_system_offer"]),
+                "is_system_offer": is_system_offer,
                 "pending_offers_count": r["pending_offers_count"],
                 "leading_bid_username": r["leading_bid_username"],
                 "leading_bid_price": r["leading_bid_price"],
@@ -106,6 +150,9 @@ def _build_transfermarkt(market_listings, calibration, predictions, own_availabl
                     own_available_budget is not None
                     and r["price"] is not None
                     and r["price"] <= own_available_budget
+                ),
+                "auction_status": _auction_status(
+                    r["listed_at"], r["expires_at"], is_system_offer, now
                 ),
             }
         )
@@ -182,6 +229,7 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
                 "average_points": r["average_points"],
                 "is_hype_gipfel": _is_hype_gipfel(r),
                 "near_floor": bool(r["price"] and r["price"] < SPEKULATION_FLOOR_PROTECTED),
+                "auction_status": r.get("auction_status"),
             }
         )
     rows.sort(key=lambda r: -r["roi_pct"])
@@ -457,7 +505,8 @@ def export() -> Path:
         else None
     )
 
-    transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
 
     eigenes_team_rows = _build_eigenes_team(own_squad, calibration, predictions)
 
@@ -795,6 +844,7 @@ function renderTransfermarkt() {
     { key: "ml_prediction", label: "ML-Prognose", numeric: true },
     { key: "starting_rank", label: "Startelf-Rang", numeric: true },
     { key: "affordable", label: "Leistbar" },
+    { key: "auction_status", label: "Auktion" },
   ];
   const renderRow = (r) => `<tr>
     <td>${r.name}</td>
@@ -810,6 +860,7 @@ function renderTransfermarkt() {
     <td class="num">${mlCell(r.ml_prediction)}</td>
     <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
     <td>${r.affordable ? '<span class="pill pill-good">ja</span>' : '<span class="pill pill-crit">nein</span>'}</td>
+    <td>${r.auction_status ?? '<span class="muted">unbekannt</span>'}</td>
   </tr>`;
   const filterBar = `<div class="filter-bar">
     <label>Position <select id="tf-filter-position">
@@ -1032,6 +1083,7 @@ function renderSpekulation() {
     { key: "ml_prediction", label: "ML-Prognose", numeric: true },
     { key: "roi_pct", label: "Rendite%", numeric: true },
     { key: "average_points", label: "Schnitt", numeric: true },
+    { key: "auction_status", label: "Auktion" },
   ];
   const renderRow = (r) => `<tr>
     <td>${r.name}${r.is_hype_gipfel ? ' <span class="pill pill-crit">Hype-Gipfel</span>' : ""}${r.near_floor ? ' <span class="pill pill-good">Boden-Schutz</span>' : ""}</td>
@@ -1042,6 +1094,7 @@ function renderSpekulation() {
     <td class="num">${mlCell(r.ml_prediction)}</td>
     <td class="num">${r.roi_pct.toFixed(1)}%</td>
     <td class="num">${fmtNum(r.average_points)}</td>
+    <td>${r.auction_status ?? '<span class="muted">unbekannt</span>'}</td>
   </tr>`;
   buildTable("tab-spekulation", columns, () => rows, renderRow,
     "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive ML-Prognose, sortiert nach Rendite%. " +

@@ -70,6 +70,12 @@ PREDICTION_LOG_PATH = Path(__file__).resolve().parent.parent / "data" / "ml_pred
 LOG_RETENTION_DAYS = 90
 ACCURACY_WINDOWS_DAYS = (7, 30)
 
+# Anzahl rollierender Trainingsschnitte fuer den Walk-Forward-Backtest (siehe
+# _walk_forward_backtest) - bewusst klein gehalten, jeder Fold trainiert beide
+# Modell-Kandidaten neu, kostet also spuerbar Laufzeit.
+BACKTEST_FOLDS = 6
+BACKTEST_MIN_TRAIN_ROWS = MIN_TRAINING_ROWS
+
 # Aggregierter Sicherheits-Check: schlagen zu viele der ersten Abrufe fehl,
 # lieber den ganzen Corpus-Aufbau abbrechen als auf degradierten Daten zu
 # trainieren (Rate-Limit? API-Aenderung?).
@@ -217,11 +223,38 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     werden soll)."""
     df = df.sort_values(["player_id", "date"]).reset_index(drop=True)
 
-    df = df[
-        (df["team_id"] == df["t1"])
-        | (df["team_id"] == df["t2"])
-        | (df["t1"].isna() & df["t2"].isna())
+    team_match = (
+        (df["team_id"] == df["t1"]) | (df["team_id"] == df["t2"]) | (df["t1"].isna() & df["t2"].isna())
+    )
+    # merge_asof(direction="backward") in _fetch_player_training_frame haengt
+    # jedem Marktwert-Tag die letzte bekannte Performance-Zeile an - bei
+    # Spielern, die seit Jahren nicht mehr gespielt haben (z.B. Funk, letzter
+    # Einsatz 2021), gehoert diese letzte Zeile zu einem laengst vergangenen
+    # Verein/Gegner und matcht NIE den aktuellen team_id. Ohne Sonderbehandlung
+    # verliert der Filter oben dann ALLE Zeilen dieses Spielers (nicht nur die
+    # Performance-Feature-Zeilen) - er faellt komplett aus history_df/today_df
+    # und bekommt nie eine ML-Prognose (live bestaetigt 27.07.2026). Fuer
+    # Spieler, bei denen wirklich KEINE Zeile matcht, werden die
+    # Performance-Spalten stattdessen genullt (wie beim p_df.empty-Fall) -
+    # der Spieler bleibt so mit "keine verwertbare Performance-Historie" statt
+    # unsichtbar zu verschwinden.
+    # Nur ueber die Marktwert-bekannten (taeglichen) Zeilen pruefen - die
+    # zusaetzlichen Zukunfts-Fixture-Zeilen (mv noch unbekannt) matchen bei
+    # JEDEM Spieler oft zufaellig, sagen aber nichts darueber, ob die
+    # eigentlich relevanten mv-Zeilen brauchbare Performance-Daten haben.
+    mv_known_mask = df["mv"].notna()
+    never_matches = [
+        pid
+        for pid in df.loc[mv_known_mask & ~team_match, "player_id"].unique()
+        if not team_match[mv_known_mask & (df["player_id"] == pid)].any()
     ]
+    if never_matches:
+        stale_mask = df["player_id"].isin(never_matches)
+        for col in ("md", "p", "mp", "t1", "t2", "t1g", "t2g"):
+            df.loc[stale_mask, col] = None
+        team_match = team_match | stale_mask
+
+    df = df[team_match]
 
     df["date"] = pd.to_datetime(df["date"])
     df["md"] = pd.to_datetime(df["md"])
@@ -324,6 +357,72 @@ def _train_and_evaluate(history_df: pd.DataFrame):
         "test_rows": len(test),
     }
     return best_model, metrics
+
+
+def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
+    """Beantwortet direkt "wie waere die Prognose damals gewesen" - ohne wie
+    beim Live-Log (_evaluate_realized_accuracy) tage-/wochenlang auf echte
+    Folgetage warten zu muessen. history_df enthaelt fuer JEDEN historischen
+    Tag bereits das bekannte Ergebnis (mv_target); es reicht also, mehrere
+    Cutoff-Tage rueckwirkend durchzugehen: Training nur auf Zeilen VOR dem
+    Cutoff, Test auf den Zeilen GENAU am Cutoff-Tag, verglichen gegen den
+    tatsaechlichen (ungeklippten) Marktwert-Sprung. Bewertet beide
+    Modell-Kandidaten pro Fold, damit sichtbar wird, welches Modell nicht
+    nur im aktuellen 75/25-Split (_train_and_evaluate), sondern ueber
+    mehrere echte historische Tage hinweg konsistent gewinnt."""
+    dates = sorted(history_df["date"].unique())
+    if len(dates) <= BACKTEST_FOLDS:
+        return None
+    cutoffs = dates[-BACKTEST_FOLDS:]
+
+    sign_hits: dict[str, list[bool]] = {"RandomForest": [], "HistGradientBoosting": []}
+    abs_errors: dict[str, list[float]] = {"RandomForest": [], "HistGradientBoosting": []}
+    folds_run = 0
+
+    for cutoff in cutoffs:
+        train = history_df[history_df["date"] < cutoff]
+        test = history_df[history_df["date"] == cutoff]
+        if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
+            continue
+        folds_run += 1
+
+        x_train, y_train = train[FEATURES], train[TARGET]
+        x_test = test[FEATURES]
+        y_test_actual = test["mv_target"]
+
+        candidates = {
+            "RandomForest": RandomForestRegressor(
+                n_estimators=200,
+                max_depth=20,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                max_features="sqrt",
+                n_jobs=-1,
+                random_state=RANDOM_STATE,
+            ),
+            "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+        }
+        for name, candidate in candidates.items():
+            candidate.fit(x_train, y_train)
+            y_pred = candidate.predict(x_test)
+            sign_hits[name].extend((np.sign(y_test_actual) == np.sign(y_pred)).tolist())
+            abs_errors[name].extend(np.abs(y_test_actual - y_pred).tolist())
+
+    if not folds_run:
+        return None
+
+    per_model = {}
+    for name, hits in sign_hits.items():
+        if not hits:
+            continue
+        per_model[name] = {
+            "sign_accuracy": round(float(np.mean(hits)) * 100, 1),
+            "mae": round(float(np.mean(abs_errors[name])), 2),
+            "n": len(hits),
+        }
+    if not per_model:
+        return None
+    return {"n_folds": folds_run, "per_model": per_model}
 
 
 def _load_prediction_log() -> list[dict]:
@@ -449,6 +548,22 @@ def predict_market_value_changes() -> dict | None:
             )
             return None
         model, metrics = trained
+
+        backtest = _walk_forward_backtest(history_df)
+        if backtest is not None:
+            metrics["backtest"] = backtest
+
+        # Spieler ohne verwertbaren "naechster Spieltag" (kein Spiel seit
+        # Jahren wie Funk, oder Performance-Historie komplett leer wie
+        # Suleiman - beides live bestaetigt 27.07.2026) haben NaN bei
+        # days_to_next und wuerden sonst komplett aus der Prognose
+        # herausfallen. Fuer die Vorhersage (NICHT fuers Training, siehe
+        # history_df.dropna oben in _engineer_features) reicht der
+        # Median aus der Trainingshistorie als neutrale Annahme - lieber
+        # eine etwas unsicherere Prognose als gar keine.
+        median_days_to_next = history_df["days_to_next"].median()
+        today_df = today_df.copy()
+        today_df["days_to_next"] = today_df["days_to_next"].fillna(median_days_to_next)
 
         today_df = today_df.dropna(subset=["mv"] + FEATURES)
         if today_df.empty:

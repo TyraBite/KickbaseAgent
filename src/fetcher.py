@@ -92,8 +92,39 @@ def _squad_item_to_row(item: dict, team_names_by_id: dict) -> dict:
     }
 
 
+def _parse_kickbase_dt(raw: str | None) -> datetime.datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc
+        )
+    except ValueError:
+        return None
+
+
+def _compute_expiry(listed_at: str | None, is_system_offer: bool, market_sell_days: int | None) -> str | None:
+    """Marktplatz-Angebote von Mitspielern laufen nach einer festen Anzahl
+    Tage automatisch ab (Liga-Feld 'mpst' - UNBESTAETIGT als offizieller
+    Feldname, aber Wert 3 stimmt mit dem in dieser Liga beobachteten
+    Standard-Zeitfenster ueberein). System-/Kickbase-Angebote haben live
+    beobachtet KEIN festes Zeitlimit (Alter reicht von <2h bis >27h ohne
+    erkennbare Obergrenze) - fuer die bleibt expires_at None."""
+    if is_system_offer or not market_sell_days:
+        return None
+    listed = _parse_kickbase_dt(listed_at)
+    if listed is None:
+        return None
+    expires = listed + datetime.timedelta(days=market_sell_days)
+    return expires.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _market_item_to_row(
-    item: dict, names_by_user_id: dict, team_names_by_id: dict, own_user_id: str | None = None
+    item: dict,
+    names_by_user_id: dict,
+    team_names_by_id: dict,
+    own_user_id: str | None = None,
+    market_sell_days: int | None = None,
 ) -> dict:
     status_code = item.get("st") or 0
 
@@ -132,6 +163,8 @@ def _market_item_to_row(
     if market_value and price is not None:
         price_delta_pct = round((price - market_value) / market_value * 100, 1)
     team_id = item.get("tid")
+    is_system_offer = not offering_user_id
+    listed_at = item.get("dt")
     return {
         "player_id": item.get("i") or item.get("pi"),
         "name": item.get("n") or item.get("pn"),
@@ -151,12 +184,14 @@ def _market_item_to_row(
         "team_name": team_names_by_id.get(team_id),
         "offering_user_id": offering_user_id,
         "offering_username": offering_username,
-        "is_system_offer": 1 if not offering_user_id else 0,
+        "is_system_offer": 1 if is_system_offer else 0,
         "pending_offers_count": len(offers),
         "leading_bid_username": leading_bid_username,
         "leading_bid_price": leading_bid_price,
         "is_own_leading_bid": 1 if is_own_leading_bid else 0,
         "starting_rank": item.get("prob"),
+        "listed_at": listed_at,
+        "expires_at": _compute_expiry(listed_at, is_system_offer, market_sell_days),
     }
 
 
@@ -281,6 +316,10 @@ def run() -> str:
         raise RuntimeError("Account ist in keiner Liga Mitglied")
     league = _select_league(leagues)
     league_id = league["id"]
+    # "mpst" (Feldname UNBESTAETIGT, aber live beobachteter Wert 3 passt exakt
+    # zum Zeitfenster, in dem eigene Mitspieler-Angebote in dieser Liga
+    # automatisch verfallen) - siehe _compute_expiry().
+    market_sell_days = league.get("mpst")
 
     me = get_me(token, league_id)
     budget = me.get("b")
@@ -326,7 +365,7 @@ def run() -> str:
     market_response = get_market(token, league_id)
     market_items = market_response.get("it", [])
     market_rows = [
-        _market_item_to_row(item, names_by_user_id, team_names_by_id, own_user_id)
+        _market_item_to_row(item, names_by_user_id, team_names_by_id, own_user_id, market_sell_days)
         for item in market_items
     ]
 
