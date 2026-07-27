@@ -161,3 +161,15 @@ class UpsertPredictionLogEntriesTests(unittest.TestCase):
         firestore_db.upsert_prediction_log_entries(client, [])
 
         client.batch.assert_not_called()
+
+
+class UpsertDashboardSnapshotTests(unittest.TestCase):
+    def test_writes_whole_dict_as_single_doc_named_latest(self):
+        client = MagicMock()
+        data = {"fetched_at": "2026-07-27T20:00:00Z", "transfermarkt": [{"player_id": "p1"}]}
+
+        firestore_db.upsert_dashboard_snapshot(client, data)
+
+        client.collection.assert_any_call("dashboard_snapshot")
+        client.collection.return_value.document.assert_called_once_with("latest")
+        client.collection.return_value.document.return_value.set.assert_called_once_with(data)

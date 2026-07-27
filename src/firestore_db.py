@@ -79,3 +79,11 @@ def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict])
     market_predictor._save_prediction_log()."""
     docs = {f"{e['date']}_{e['player_id']}": e for e in entries}
     _write_in_batches(client, "ml_prediction_log", docs)
+
+
+def upsert_dashboard_snapshot(client: firestore.Client, data: dict) -> None:
+    """Phase 2: schreibt den kompletten, bereits berechneten Dashboard-Dict
+    (dashboard_export.py::export(), Joins/ML/Fairwert schon fertig gemischt)
+    als EIN Dokument - keine Rekonstruktion aus den rohen Collections auf
+    Client-Seite, siehe Spec. Immer genau ein Dokument, kein Batching noetig."""
+    client.collection("dashboard_snapshot").document("latest").set(data)
