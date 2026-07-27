@@ -3,13 +3,21 @@
 Taeglich automatisch laufender Decision-Support-Agent fuer Kickbase.
 
 Sammelt Kader-, Liga-, Transfermarkt- und Punktedaten ueber die inoffizielle
-Kickbase-API (inkl. eingebautem Verletzt-/Gesperrt-Status je Spieler) und
-baut daraus einen fertigen Analyse-Prompt (Aufstellung, Kauf-/Verkaufs-
-empfehlungen pro Spieler, Liga-Konkurrenzanalyse). Der Prompt wird per
-Discord-Webhook zugestellt und manuell ins Claude-WebUI eingefuegt
-(MVP-Phase: keine Anthropic-API-Kosten).
+Kickbase-API (inkl. eingebautem Verletzt-/Gesperrt-Status und Startelf-Rang
+je Spieler), schaetzt die Budgets aller Liga-Manager aus dem Activity-Feed
+und prognostiziert Marktwertaenderungen per taeglich neu trainiertem
+RandomForest-Modell. Daraus entstehen zwei Ausgaben:
 
-Details siehe Plan-Dokument (Projektverlauf).
+1. Ein fertiger Analyse-Prompt (Aufstellung, Kauf-/Verkaufsempfehlungen pro
+   Spieler, Liga-Konkurrenzanalyse), per Discord-Webhook zugestellt und
+   manuell ins Claude-WebUI eingefuegt (MVP-Phase: keine Anthropic-API-Kosten).
+2. Ein lokales Dashboard (`docs/dashboard.html`) mit drei Ansichten:
+   Transfermarkt, Eigenes Team, Ligaanalyse.
+
+Details siehe Plan-Dokument (Projektverlauf). Die manuelle Recherche-
+Methodik (Startelf-Einschaetzungen, Verletzungslage, Vereinskontext) liegt
+in `MDs/*.md` - ein separater, von Hand gepflegter Wissensspeicher, kein
+Code-Feature.
 
 ## Setup
 
@@ -48,9 +56,34 @@ copy .env.example .env  # Secrets lokal eintragen, .env nie committen
   Budget-Schaetzung - Trades vor diesem Datum werden ignoriert. Standardmaessig leer (kein
   Cutoff, ganzer verfuegbarer Activity-Feed wird verwendet). Bei Saisonwechsel mit
   Budget-Reset auf das Reset-Datum setzen, sonst verzerren Trades der Vorsaison die Schaetzung.
+- `MARKET_PREDICTOR_ENABLED`: Kill-Switch fuer die ML-Marktwertprognose (Default `true`).
+  Auf `false` setzen, falls der Schritt mal Probleme macht - der Rest der Pipeline laeuft
+  dann unveraendert weiter.
+- `MARKET_PREDICTOR_MAX_WORKERS` / `PLAYER_VALUATION_MAX_WORKERS`: Nebenlaeufigkeit beim
+  Abruf der ligaweiten Spielerhistorie (Default je 8).
 
 ## Ausfuehren
 
+**Taeglicher Discord-Report** (Fetch, Budget-Schaetzung, ML-Prognose, Prompt, Discord-Versand;
+laeuft automatisch per `.github/workflows/daily.yml`, 07:00 UTC):
+
 ```bash
 python -m src.main
+```
+
+**Dashboard** (Transfermarkt/Eigenes Team/Ligaanalyse; laeuft automatisch per
+`.github/workflows/dashboard.yml`, 21:15 UTC - kurz nach Kickbases 22:00-Uhr-Marktwert-
+Update). Schreibt `docs/dashboard.html`, danach lokal im Browser oeffnen (`file://`):
+
+```bash
+python -m src.dashboard_export
+```
+
+**Fairwert/K-Punkt-Kalibrierung** (Referenzpreis je Position aus allen ~450 Liga-Spielern,
+siehe `MDs/methodik.md`, Abschnitt "Fairwert und Signal"). Kein taeglicher Job - manuell
+anstossen, wenn sich die Formkurve deutlich geaendert hat (z.B. nach ein paar Spieltagen).
+Ergebnis landet in `data/valuation_k.json`, das Dashboard nutzt automatisch den letzten Stand:
+
+```bash
+python -m src.player_valuation
 ```
