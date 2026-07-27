@@ -88,10 +88,15 @@ def get_squad(token: str, league_id: str) -> list[dict]:
 
 
 def get_manager_squad(token: str, league_id: str, manager_id: str) -> dict:
-    """Kader eines ANDEREN Liga-Managers (bestaetigt 27.07.2026, gleiche
-    Feldform wie get_squad() fuer den eigenen Account). Gibt das komplette
-    Response-Dict zurueck (nicht nur 'it'), weil 'nps' (Kadergroesse) fuer
-    src/dashboard_export.py gebraucht wird."""
+    """Kader eines ANDEREN Liga-Managers (bestaetigt 27.07.2026). Gibt das
+    komplette Response-Dict zurueck (nicht nur 'it'), weil 'nps'
+    (Kadergroesse) fuer src/dashboard_export.py gebraucht wird.
+
+    WICHTIG - abweichende Feldnamen ggue. get_squad()/get_team_squad():
+    die Spieler-Items hier tragen die Spieler-Id/den Namen unter 'pi'/'pn',
+    NICHT unter 'i'/'n' wie bei allen anderen Endpoints (bestaetigt
+    27.07.2026 beim Aufbau eines ligaweiten Ownership-Abgleichs - ein
+    Zugriff auf item['i'] liefert hier durchgehend None)."""
     response = requests.get(
         f"{BASE_URL}/v4/leagues/{league_id}/managers/{manager_id}/squad",
         headers=_headers(token),
