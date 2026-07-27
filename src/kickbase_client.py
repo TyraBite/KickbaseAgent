@@ -196,19 +196,26 @@ def get_achievement_reward(token: str, league_id: str, achievement_id: str) -> d
     return response.json()
 
 
-def get_team_players(token: str, competition_id: str, team_id: str) -> list[str]:
-    """Spieler-Ids eines Vereins (fuer die ML-Marktwertprognose in
-    src/market_predictor.py, um an alle Liga-Spieler zu kommen - nicht nur
-    die im eigenen Kader/Markt). BESTAETIGT durch echtes Beispiel (27.07.2026,
-    Team Bayern): {"tid","tn","it":[{"i","n","pos","mv","ap",...}]}. "it[].i"
-    ist die Spieler-Id (String, z.B. "1685")."""
+def get_team_squad(token: str, competition_id: str, team_id: str) -> list[dict]:
+    """Rohe Spieler-Liste eines Vereins, um an alle Liga-Spieler zu kommen -
+    nicht nur die im eigenen Kader/Markt (siehe src/market_predictor.py,
+    src/player_valuation.py). BESTAETIGT durch echtes Beispiel (27.07.2026,
+    Team Bayern): {"tid","tn","it":[{"i","n","pos","mv","ap","tid",...}]}.
+    Jedes Item hat Marktwert ("mv") und Punkteschnitt ("ap") direkt mit,
+    aber KEINE Gesamtpunkte/Einsatzhistorie - dafuer get_player_performance()."""
     response = requests.get(
         f"{BASE_URL}/v4/competitions/{competition_id}/teams/{team_id}/teamprofile",
         headers=_headers(token),
         timeout=TIMEOUT,
     )
     _raise_for_status(response)
-    return [item["i"] for item in response.json().get("it", []) if item.get("i")]
+    return response.json().get("it", [])
+
+
+def get_team_players(token: str, competition_id: str, team_id: str) -> list[str]:
+    """Nur die Spieler-Ids eines Vereins (String, z.B. "1685") - duenner
+    Wrapper um get_team_squad() fuer Aufrufer, die nur die Ids brauchen."""
+    return [item["i"] for item in get_team_squad(token, competition_id, team_id) if item.get("i")]
 
 
 def get_player_performance(token: str, competition_id: str, player_id: str) -> dict:
