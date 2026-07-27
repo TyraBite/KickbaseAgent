@@ -41,6 +41,14 @@ class ParseTradesTests(unittest.TestCase):
         trades = mb._parse_trades([old, new], league_start_date="2026-07-01")
         self.assertEqual(len(trades), 1)
 
+    def test_rejects_non_iso_cutoff_instead_of_silently_dropping_everything(self):
+        # Live-Bug (27.07.2026): "25-07-2026" (deutsches TT-MM-JJJJ) wurde als
+        # roher String mit ISO-Timestamps verglichen - "2026..." < "25-..."
+        # ist lexikografisch IMMER True, das hat JEDEN Trade rausgefiltert.
+        trade = _trade(1, 100, byr="A")
+        with self.assertRaises(ValueError):
+            mb._parse_trades([trade], league_start_date="25-07-2026")
+
 
 class ReplayTradeLedgerTests(unittest.TestCase):
     def test_system_purchase_deducts_from_buyer_only(self):

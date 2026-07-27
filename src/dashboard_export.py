@@ -76,27 +76,42 @@ def _format_duration(hours: float) -> str:
     return f"{int(hours)}h {minutes}m"
 
 
-def _auction_status(listed_at, expires_at, expiry_is_estimate, now: datetime.datetime) -> str:
+# Sentinel fuer "kein Ablauf ermittelbar" - muss eine grosse ENDLICHE Zahl
+# sein (kein None/Infinity): der Sortier-Comparator im Dashboard behandelt
+# null/undefined als -Infinity, wuerde "kein Zeitlimit" sonst faelschlich
+# ganz nach oben sortieren, obwohl das Gegenteil von dringend ist.
+# JSON.stringify(Infinity) waere ausserdem kein gueltiges JSON.
+_NO_EXPIRY_SENTINEL_SECONDS = 9_999_999
+
+
+def _auction_status(listed_at, expires_at, expiry_is_estimate, now: datetime.datetime) -> tuple[str, float]:
     """Kickbase liefert bei Systemangeboten IMMER ein 'exs'-Feld (Sekunden bis
     Ablauf, live bestaetigt 27.07.2026 u.a. an Stage) - fetcher._compute_expiry
     wandelt das schon in ein exaktes expires_at um (expiry_is_estimate=False).
     Nur bei Mitspieler-Angeboten (die 'exs' nie liefern) bleibt die
     mpst-Tage-Schaetzung ab 'dt' die einzige Naeherung - als 'geschaetzt'
-    gekennzeichnet, damit sie nicht mit der echten Restzeit verwechselt wird."""
+    gekennzeichnet, damit sie nicht mit der echten Restzeit verwechselt wird.
+
+    Gibt (label, remaining_seconds) zurueck - remaining_seconds fuers
+    Sortieren nach echter Restzeit statt alphabetisch nach dem Anzeigetext."""
     if not expires_at:
         listed = _parse_iso_z(listed_at)
         if listed is None:
-            return "unbekannt"
+            return "unbekannt", _NO_EXPIRY_SENTINEL_SECONDS
         age_hours = (now - listed).total_seconds() / 3600
-        return f"kein Zeitlimit ermittelbar (gelistet seit {_format_duration(age_hours)})"
+        return (
+            f"kein Zeitlimit ermittelbar (gelistet seit {_format_duration(age_hours)})",
+            _NO_EXPIRY_SENTINEL_SECONDS,
+        )
     expires = _parse_iso_z(expires_at)
     if expires is None:
-        return "unbekannt"
-    remaining_hours = (expires - now).total_seconds() / 3600
-    if remaining_hours <= 0:
-        return "Frist abgelaufen"
+        return "unbekannt", _NO_EXPIRY_SENTINEL_SECONDS
+    remaining_seconds = (expires - now).total_seconds()
+    if remaining_seconds <= 0:
+        return "Frist abgelaufen", remaining_seconds
+    remaining_hours = remaining_seconds / 3600
     suffix = " (geschätzt)" if expiry_is_estimate else ""
-    return f"läuft ab in {_format_duration(remaining_hours)}{suffix}"
+    return f"läuft ab in {_format_duration(remaining_hours)}{suffix}", remaining_seconds
 
 
 def _trend_direction(change_7d) -> str:
@@ -138,6 +153,9 @@ def _build_transfermarkt(market_listings, calibration, predictions, own_availabl
     for r in market_listings:
         row = _player_row(r, calibration, predictions)
         is_system_offer = bool(r["is_system_offer"])
+        auction_status, auction_remaining_seconds = _auction_status(
+            r["listed_at"], r["expires_at"], bool(r["expiry_is_estimate"]), now
+        )
         row.update(
             {
                 "price": r["price"],
@@ -153,9 +171,8 @@ def _build_transfermarkt(market_listings, calibration, predictions, own_availabl
                     and r["price"] is not None
                     and r["price"] <= own_available_budget
                 ),
-                "auction_status": _auction_status(
-                    r["listed_at"], r["expires_at"], bool(r["expiry_is_estimate"]), now
-                ),
+                "auction_status": auction_status,
+                "auction_remaining_seconds": auction_remaining_seconds,
             }
         )
         rows.append(row)
@@ -232,6 +249,7 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
                 "is_hype_gipfel": _is_hype_gipfel(r),
                 "near_floor": bool(r["price"] and r["price"] < SPEKULATION_FLOOR_PROTECTED),
                 "auction_status": r.get("auction_status"),
+                "auction_remaining_seconds": r.get("auction_remaining_seconds"),
             }
         )
     rows.sort(key=lambda r: -r["roi_pct"])
@@ -846,7 +864,7 @@ function renderTransfermarkt() {
     { key: "ml_prediction", label: "ML-Prognose", numeric: true },
     { key: "starting_rank", label: "Startelf-Rang", numeric: true },
     { key: "affordable", label: "Leistbar" },
-    { key: "auction_status", label: "Auktion" },
+    { key: "auction_remaining_seconds", label: "Auktion", numeric: true },
   ];
   const renderRow = (r) => `<tr>
     <td>${r.name}</td>
@@ -1085,7 +1103,7 @@ function renderSpekulation() {
     { key: "ml_prediction", label: "ML-Prognose", numeric: true },
     { key: "roi_pct", label: "Rendite%", numeric: true },
     { key: "average_points", label: "Schnitt", numeric: true },
-    { key: "auction_status", label: "Auktion" },
+    { key: "auction_remaining_seconds", label: "Auktion", numeric: true },
   ];
   const renderRow = (r) => `<tr>
     <td>${r.name}${r.is_hype_gipfel ? ' <span class="pill pill-crit">Hype-Gipfel</span>' : ""}${r.near_floor ? ' <span class="pill pill-good">Boden-Schutz</span>' : ""}</td>

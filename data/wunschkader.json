@@ -29,7 +29,7 @@
     {"name": "Leweling", "position": "Mittelfeld", "role": "Starter", "note": "fixer Kern"},
     {"name": "Fellhauer", "position": "Mittelfeld", "role": "Starter", "note": "Ersetzt Lynen - Lynen+Stage waeren beide Bremen gewesen (Liga-Regel: max. 3 pro Verein), Fellhauer ist Augsburg (2. Augsburg-Spieler neben Matsima, unproblematisch)"},
     {"name": "Krauß", "position": "Mittelfeld", "role": "Starter", "note": "Ziel, frei"},
-    {"name": "Stage", "position": "Mittelfeld", "role": "Starter", "note": "Gebot platziert", "actual_bid": 16200000},
+    {"name": "Stage", "position": "Mittelfeld", "role": "Starter", "note": "Gebot gewonnen", "actual_bid": 16222578},
     {"name": "Tella", "position": "Mittelfeld", "role": "Bank", "note": "eigener Kader, behalten statt verkaufen (kostenneutral)"},
     {"name": "Scherhant", "position": "Mittelfeld", "role": "Bank", "note": "eigener Kader, behalten statt verkaufen (kostenneutral)"},
     {"name": "Matanović", "position": "Sturm", "role": "Starter", "note": "Ziel, frei"},

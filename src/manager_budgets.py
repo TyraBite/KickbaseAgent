@@ -19,6 +19,8 @@ Rohdaten uebergeben und ist dadurch isoliert testbar (siehe tests/).
 
 from __future__ import annotations
 
+import datetime
+
 TRADE_TYPE = 15
 LOGIN_BONUS_TYPE = 22
 ACHIEVEMENT_TYPE = 26
@@ -30,7 +32,23 @@ OVERDRAFT_FACTOR = -0.33
 def _parse_trades(activities: list[dict], league_start_date: str | None) -> list[dict]:
     """Filtert Typ-15-Eintraege (Trade), optional per Datumscutoff (ISO-String-
     Vergleich, funktioniert weil Kickbase durchgehend ISO-8601-Timestamps
-    liefert). Gibt die 'data'-Dicts zurueck (byr/slr/trp/t)."""
+    liefert). Gibt die 'data'-Dicts zurueck (byr/slr/trp/t).
+
+    league_start_date wird beim Eintritt validiert (muss ISO YYYY-MM-DD
+    sein) - ein falsches Format wie "25-07-2026" (deutsches TT-MM-JJJJ)
+    wuerde beim rohen String-Vergleich unten sonst STILL jeden einzelnen
+    Trade rausfiltern (jeder echte Timestamp beginnt mit "20...", was
+    lexikografisch IMMER kleiner als "25-..." ist) - live gefunden am
+    27.07.2026, hat allen Managern in der Ligaanalyse das exakt gleiche
+    Budget beschert. Lieber laut scheitern als still falsche Daten liefern."""
+    if league_start_date:
+        try:
+            datetime.date.fromisoformat(league_start_date)
+        except ValueError:
+            raise ValueError(
+                f"KICKBASE_LEAGUE_START_DATE muss ISO-Format (YYYY-MM-DD) sein, "
+                f"bekommen: {league_start_date!r}"
+            ) from None
     trades = []
     for entry in activities:
         if entry.get("t") != TRADE_TYPE:
