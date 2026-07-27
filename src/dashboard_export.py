@@ -136,13 +136,16 @@ def _is_hype_gipfel(row: dict) -> bool:
 
 
 def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
-    """Kauf-und-Wiederverkauf-Kandidaten: positive ML-Prognose, kein
-    Hype-Gipfel-Verdacht. ML-Prognose ist nur eine 1-Tages-Vorhersage
-    (Modell wird taeglich neu trainiert) - die eigentliche Spekulation
-    stuetzt sich auf den bereits laufenden 7-Tage-Trend, nicht allein auf
-    das Modell."""
+    """Kauf-und-Wiederverkauf-Kandidaten: nur Systemangebote (Kickbase
+    selbst, Festpreis = Marktwert, kein Verhandlungsaufschlag durch einen
+    Mitspieler), positive ML-Prognose, kein Hype-Gipfel-Verdacht.
+    ML-Prognose ist nur eine 1-Tages-Vorhersage (Modell wird taeglich neu
+    trainiert) - die eigentliche Spekulation stuetzt sich auf den bereits
+    laufenden 7-Tage-Trend, nicht allein auf das Modell."""
     rows = []
     for r in transfermarkt_rows:
+        if not r.get("is_system_offer"):
+            continue
         if not r.get("ml_prediction") or r["ml_prediction"] <= 0 or not r.get("price"):
             continue
         rows.append(
@@ -157,7 +160,6 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
                 "average_points": r["average_points"],
                 "is_hype_gipfel": _is_hype_gipfel(r),
                 "near_floor": bool(r["price"] and r["price"] < SPEKULATION_FLOOR_PROTECTED),
-                "offering_username": None if r["is_system_offer"] else r["offering_username"],
             }
         )
     rows.sort(key=lambda r: -r["roi_pct"])
@@ -965,7 +967,6 @@ function renderSpekulation() {
     { key: "ml_prediction", label: "ML-Prognose", numeric: true },
     { key: "roi_pct", label: "Rendite%", numeric: true },
     { key: "average_points", label: "Schnitt", numeric: true },
-    { key: "offering_username", label: "Anbieter" },
   ];
   const renderRow = (r) => `<tr>
     <td>${r.name}${r.is_hype_gipfel ? ' <span class="pill pill-crit">Hype-Gipfel</span>' : ""}${r.near_floor ? ' <span class="pill pill-good">Boden-Schutz</span>' : ""}</td>
@@ -976,10 +977,9 @@ function renderSpekulation() {
     <td class="num">${mlCell(r.ml_prediction)}</td>
     <td class="num">${r.roi_pct.toFixed(1)}%</td>
     <td class="num">${fmtNum(r.average_points)}</td>
-    <td>${r.offering_username ?? '<span class="muted">System</span>'}</td>
   </tr>`;
   buildTable("tab-spekulation", columns, () => rows, renderRow,
-    "Kauf-und-Wiederverkauf-Kandidaten (positive ML-Prognose, sortiert nach Rendite%). " +
+    "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive ML-Prognose, sortiert nach Rendite%. " +
     '"Hype-Gipfel" (rot) = Warnung aus MDs/methodik.md: starker 7-Tage-Sprung + 92-Tage-Hoch + kein Punkteschnitt, meist Nachrichten-Hype statt echtes Signal - NICHT zum Kauf geeignet. ' +
     '"Boden-Schutz" (gruen) = Preis unter 1 Mio., nahe am 500k-Mindestwert, begrenztes Abwaertsrisiko. ' +
     "ML-Prognose ist nur eine 1-Tages-Vorhersage - Spekulation stuetzt sich auf den laufenden Trend, nicht allein aufs Modell.");
