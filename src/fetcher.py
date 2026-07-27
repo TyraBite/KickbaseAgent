@@ -6,9 +6,11 @@ import sys
 
 from dotenv import load_dotenv
 
-from src import db
+from src import db, manager_budgets
 from src.kickbase_client import (
     KickbaseError,
+    get_achievement_reward,
+    get_activities_feed,
     get_market,
     get_market_value_history,
     get_me,
@@ -28,6 +30,21 @@ FORM_CURVE_MATCHDAYS = 5
 # gewaehlt, soll nur eindeutig kaputte Werte abfangen (z.B. Verwechslung mit
 # Spieler-IDs), keine echten Grenzfaelle.
 IMPLAUSIBLE_MATCHDAY_POINTS = 5000
+
+# Wie viele Activity-Feed-Eintraege maximal abgefragt werden (fuer die
+# Budget-Schaetzung in manager_budgets.py). Reines Tuning, kein Liga-
+# spezifischer Wert, daher keine Env-Variable.
+ACTIVITIES_FEED_MAX = 5000
+
+# Startbudget einer neuen Kickbase-Liga (Plattform-Standard). Ueberschreibbar
+# per KICKBASE_LEAGUE_START_BUDGET, falls die eigene Liga einen anderen Wert
+# eingestellt hat.
+DEFAULT_START_BUDGET = 50_000_000
+
+# Grenzwert fuer die Plausibilitaetspruefung geschaetzter Budgets - ein
+# Vielfaches des Startbudgets, soll nur eindeutig kaputte Werte (z.B.
+# Vorzeichenfehler bei Kauf/Verkauf) abfangen, keine echten Grenzfaelle.
+IMPLAUSIBLE_BUDGET_MULTIPLE = 20
 
 
 def _select_league(leagues: list[dict]) -> dict:
@@ -160,6 +177,44 @@ def _apply_market_value_history(token: str, league_id: str, row: dict) -> None:
     row["market_value_low_92d"] = history.get("lmv")
     row["market_value_high_92d"] = history.get("hmv")
     row["market_value_in_drop_phase"] = 1 if history.get("idp") else 0
+
+
+def _fetch_activities_feed(token: str, league_id: str) -> list[dict] | None:
+    """Holt den Liga-Activity-Feed fuer die Budget-Schaetzung. Schlaegt der
+    Call fehl, wird die komplette Budget-Schaetzung fuer den Tag
+    uebersprungen (Warnung, kein Abbruch des restlichen Laufs) - analog zum
+    bestehenden get_teams()-Try/Except in run()."""
+    try:
+        activities = get_activities_feed(token, league_id, max_entries=ACTIVITIES_FEED_MAX)
+    except KickbaseError as exc:
+        print(f"Warnung: Activity-Feed nicht ladbar, Budget-Schaetzung wird uebersprungen: {exc}", file=sys.stderr)
+        return None
+    if len(activities) >= ACTIVITIES_FEED_MAX:
+        print(
+            f"Warnung: Activity-Feed evtl. abgeschnitten (>= {ACTIVITIES_FEED_MAX} Eintraege) - "
+            "Budget-Schaetzung kann unvollstaendige Historie verwenden.",
+            file=sys.stderr,
+        )
+    return activities
+
+
+def _fetch_achievement_bonus_total(token: str, league_id: str, achievement_ids: set) -> float:
+    """Fragt jede (deduplizierte) Achievement-Id einmal ab und summiert
+    ac*er. Ein einzelner fehlgeschlagener Call darf die Budget-Schaetzung
+    nicht komplett verhindern, daher try/except pro Id, analog
+    _apply_market_value_history."""
+    total = 0.0
+    for achievement_id in achievement_ids:
+        try:
+            reward = get_achievement_reward(token, league_id, achievement_id)
+        except KickbaseError as exc:
+            print(
+                f"Warnung: Achievement-Reward fuer Id {achievement_id} fehlgeschlagen: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        total += (reward.get("ac") or 0) * (reward.get("er") or 0)
+    return total
 
 
 def _fetch_recent_matchday_points(
@@ -301,6 +356,27 @@ def run() -> str:
         for u in ranking_users
     ]
 
+    activities = _fetch_activities_feed(token, league_id)
+    if activities is not None:
+        achievement_bonus_total = _fetch_achievement_bonus_total(
+            token, league_id, manager_budgets.unique_achievement_ids(activities)
+        )
+        start_budget = float(
+            os.environ.get("KICKBASE_LEAGUE_START_BUDGET", DEFAULT_START_BUDGET)
+        )
+        league_start_date = os.environ.get("KICKBASE_LEAGUE_START_DATE") or None
+        manager_budget_rows = manager_budgets.estimate_all(
+            activities=activities,
+            ranking_rows=ranking_rows,
+            own_name=own_name,
+            own_budget=budget,
+            start_budget=start_budget,
+            league_start_date=league_start_date,
+            achievement_bonus_total=achievement_bonus_total,
+        )
+    else:
+        manager_budget_rows = []
+
     next_deadline_at = market_response.get("dt")
     season_context = {
         "season_name": season_name,
@@ -310,7 +386,9 @@ def run() -> str:
         "market_value_updated_at": market_response.get("mvud"),
     }
 
-    _sanity_check(own_squad_rows, ranking_rows, matched_ranking_user, last_finished_matchday)
+    _sanity_check(
+        own_squad_rows, ranking_rows, matched_ranking_user, last_finished_matchday, manager_budget_rows
+    )
 
     conn = db.connect()
     try:
@@ -322,12 +400,14 @@ def run() -> str:
         db.replace_league_ranking(conn, fetched_at, ranking_rows)
         db.upsert_own_budget(conn, fetched_at, own_user_id, budget)
         db.upsert_season_context(conn, fetched_at, season_context)
+        db.replace_manager_budgets(conn, fetched_at, manager_budget_rows)
     finally:
         conn.close()
 
     print(
         f"Snapshot {fetched_at}: {len(own_squad_rows)} eigene Spieler, "
-        f"{len(market_rows)} Marktangebote, {len(ranking_rows)} Liga-Manager"
+        f"{len(market_rows)} Marktangebote, {len(ranking_rows)} Liga-Manager, "
+        f"{len(manager_budget_rows)} geschaetzte Budgets"
     )
     return fetched_at
 
@@ -348,6 +428,7 @@ def _sanity_check(
     ranking_rows: list[dict],
     matched_ranking_user: dict | None,
     last_finished_matchday: int | None,
+    manager_budget_rows: list[dict],
 ) -> None:
     """Nicht blockierende Plausibilitaetspruefung - soll verhindern, dass ein
     erneuter Feldnamen-Bug (wie die Spieler-IDs im 'lp'-Feld, die als
@@ -379,6 +460,19 @@ def _sanity_check(
         if isinstance(season_points, (int, float)) and season_points < 0:
             print(
                 f"Warnung: negative Saisonpunkte ({season_points}) fuer {row.get('name')}",
+                file=sys.stderr,
+            )
+
+    implausible_budget_abs = DEFAULT_START_BUDGET * IMPLAUSIBLE_BUDGET_MULTIPLE
+    for row in manager_budget_rows:
+        estimated_budget = row.get("estimated_budget")
+        if (
+            isinstance(estimated_budget, (int, float))
+            and abs(estimated_budget) > implausible_budget_abs
+        ):
+            print(
+                f"Warnung: unplausibel hohes geschaetztes Budget ({estimated_budget}) fuer "
+                f"{row.get('name')} - Trade-Parsing in manager_budgets.py pruefen",
                 file=sys.stderr,
             )
 

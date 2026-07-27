@@ -39,6 +39,16 @@ copy .env.example .env  # Secrets lokal eintragen, .env nie committen
 - `KICKBASE_PASSWORD`
 - `DISCORD_WEBHOOK_URL`
 
+## Optionale Konfiguration
+
+- `KICKBASE_LEAGUE_ID`: Falls der Account in mehreren Ligen ist, sonst wird die erste genommen.
+- `KICKBASE_LEAGUE_START_BUDGET`: Startbudget der Liga fuer die Manager-Budget-Schaetzung
+  (Default 50.000.000, Kickbase-Plattform-Standard).
+- `KICKBASE_LEAGUE_START_DATE`: ISO-Datum (z.B. `2026-08-01`). Setzt einen Cutoff fuer die
+  Budget-Schaetzung - Trades vor diesem Datum werden ignoriert. Standardmaessig leer (kein
+  Cutoff, ganzer verfuegbarer Activity-Feed wird verwendet). Bei Saisonwechsel mit
+  Budget-Reset auf das Reset-Datum setzen, sonst verzerren Trades der Vorsaison die Schaetzung.
+
 ## Ausfuehren
 
 ```bash

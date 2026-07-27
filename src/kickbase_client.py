@@ -154,6 +154,44 @@ def get_market_value_history(
     return response.json()
 
 
+def get_activities_feed(token: str, league_id: str, max_entries: int = 5000) -> list[dict]:
+    """Liga-Activity-Feed (Trades, Login-Boni, Achievements) - Basis fuer die
+    Budget-Schaetzung anderer Manager in src/manager_budgets.py.
+
+    UNBESTAETIGT gegen echte Daten (aus einem fremden Referenz-Client
+    uebernommen, siehe github.com/LennardFe/Kickbase-Trading-Advisor):
+    Response hat Feld "af" (Liste). Jeder Eintrag hat "t" (Activity-Typ) und
+    "dt" (Datum). Typ 15 = Trade mit "data.byr" (Kaeufer-User-Id),
+    "data.slr" (Verkaeufer-User-Id), "data.trp" (Preis) - fehlt "byr" war es
+    ein Systemverkauf, fehlt "slr" ein Systemkauf. Typ 22 = Login-Bonus mit
+    "data.bn" (Betrag). Typ 26 = Achievement mit "data.t" (Achievement-Id).
+    Vor Vertrauen: rohes JSON eines echten Laufs ausgeben und Typen/Felder
+    gegenchecken."""
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/activitiesFeed",
+        headers=_headers(token),
+        params={"max": max_entries},
+        timeout=TIMEOUT,
+    )
+    _raise_for_status(response)
+    return response.json().get("af", [])
+
+
+def get_achievement_reward(token: str, league_id: str, achievement_id: str) -> dict:
+    """Rohes Achievement-Dict fuer den EIGENEN User ("ac" = Anzahl Treffer,
+    "er" = Belohnung pro Treffer). Dient als Anker-Betrag, der fuer andere
+    Manager in src/manager_budgets.py nach Punkte-Verhaeltnis skaliert wird,
+    da diese Route offenbar nur die eigenen Achievement-Zahlen liefert.
+    Ebenfalls unbestaetigt, siehe get_activities_feed()."""
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/user/achievements/{achievement_id}",
+        headers=_headers(token),
+        timeout=TIMEOUT,
+    )
+    _raise_for_status(response)
+    return response.json()
+
+
 def position_label(pos: int) -> str:
     return POSITION_LABELS.get(pos, f"Position {pos}")
 

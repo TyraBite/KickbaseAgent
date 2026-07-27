@@ -93,6 +93,19 @@ CREATE TABLE IF NOT EXISTS season_context (
     days_until_next_deadline INTEGER,
     market_value_updated_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS manager_budgets (
+    fetched_at TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    name TEXT,
+    estimated_budget REAL,
+    is_own_exact INTEGER,
+    team_value INTEGER,
+    max_negative_budget REAL,
+    available_budget REAL,
+    trade_count INTEGER,
+    PRIMARY KEY (fetched_at, user_id)
+);
 """
 
 
@@ -200,5 +213,22 @@ def upsert_season_context(conn: sqlite3.Connection, fetched_at: str, context: di
         )
         """,
         {**context, "fetched_at": fetched_at},
+    )
+    conn.commit()
+
+
+def replace_manager_budgets(conn: sqlite3.Connection, fetched_at: str, rows: list[dict]) -> None:
+    conn.execute("DELETE FROM manager_budgets WHERE fetched_at = ?", (fetched_at,))
+    conn.executemany(
+        """
+        INSERT INTO manager_budgets (
+            fetched_at, user_id, name, estimated_budget, is_own_exact,
+            team_value, max_negative_budget, available_budget, trade_count
+        ) VALUES (
+            :fetched_at, :user_id, :name, :estimated_budget, :is_own_exact,
+            :team_value, :max_negative_budget, :available_budget, :trade_count
+        )
+        """,
+        [{**row, "fetched_at": fetched_at} for row in rows],
     )
     conn.commit()

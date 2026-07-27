@@ -141,6 +141,24 @@ def _league_table(conn: sqlite3.Connection, fetched_at: str) -> list[str]:
     return lines or ["(keine Liga-Tabellendaten vorhanden)"]
 
 
+def _manager_budget_line(r: sqlite3.Row) -> str:
+    name = r["name"] or r["user_id"]
+    herkunft = "exakt" if r["is_own_exact"] else f"geschaetzt, {r['trade_count']} Trades"
+    return (
+        f"- {name} - Budget: {_fmt_points(r['estimated_budget'])} ({herkunft}) | "
+        f"Teamwert: {_fmt_points(r['team_value'])} | "
+        f"Verfuegbares Budget inkl. Ueberziehung: {_fmt_points(r['available_budget'])}"
+    )
+
+
+def _manager_budgets_block(conn: sqlite3.Connection, fetched_at: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT * FROM manager_budgets WHERE fetched_at = ? ORDER BY available_budget DESC",
+        (fetched_at,),
+    ).fetchall()
+    return [_manager_budget_line(r) for r in rows] or ["(keine Budget-Schaetzung vorhanden)"]
+
+
 def _season_context_block(conn: sqlite3.Connection, fetched_at: str) -> str:
     row = conn.execute(
         "SELECT * FROM season_context WHERE fetched_at = ?", (fetched_at,)
@@ -197,6 +215,7 @@ def build_prompt(fetched_at: str | None = None) -> str:
                 (fetched_at, own_budget_row["user_id"]),
             ).fetchone()
         league_table_lines = _league_table(conn, fetched_at)
+        manager_budget_lines = _manager_budgets_block(conn, fetched_at)
         season_block = _season_context_block(conn, fetched_at)
     finally:
         conn.close()
@@ -210,6 +229,7 @@ def build_prompt(fetched_at: str | None = None) -> str:
         or "(kein Spieler aktuell auf dem Markt)"
     )
     table_lines = "\n".join(league_table_lines)
+    manager_budget_block_lines = "\n".join(manager_budget_lines)
 
     if own_budget_row:
         status_parts = [f"Budget: {own_budget_row['budget']}"]
@@ -245,7 +265,9 @@ angeboten wird, sowie mein verfuegbares Budget (siehe MEIN STATUS) - priorisiere
 Kaufempfehlungen danach, was ich mir tatsaechlich leisten kann.
 4. Eine Einschaetzung meiner Position in der Liga im Vergleich zu den anderen Managern - nutze dafuer \
 nicht nur die aktuelle Platzierung, sondern auch die Formkurve (letzte Spieltage) je Manager: wer ist \
-im Aufwind, wer im Abwind, wer ist deshalb besonders gefaehrlich oder gerade verwundbar.
+im Aufwind, wer im Abwind, wer ist deshalb besonders gefaehrlich oder gerade verwundbar. Beruecksichtige \
+dabei auch die geschaetzten Budgets unten (siehe GESCHAETZTE BUDGETS ALLER MANAGER): wer kann sich \
+ueberhaupt noch grosse Transfers leisten und ist deshalb eine echte Bedrohung im Bietwettstreit.
 
 Bitte gehe wirklich JEDEN Spieler aus beiden Listen einzeln durch, ueberspringe keinen.
 
@@ -272,6 +294,15 @@ entsprechend vorsichtig sein.
 
 === LIGA-TABELLE ===
 {table_lines}
+
+Hinweis zu geschaetzten Budgets: Kickbase zeigt Kontostaende anderer Manager nicht direkt an. Die \
+Werte unten sind aus dem Liga-Activity-Feed hochgerechnet (Transfers nachvollzogen, Login-Bonus \
+gleichmaessig auf alle verteilt, Achievement-Bonus anteilig nach Saisonpunkten skaliert) - nur meine \
+eigene Zeile (markiert "exakt") ist ein echter Wert. Nutze die Schaetzungen als grobe Tendenz, nicht \
+als exakte Zahl.
+
+=== GESCHAETZTE BUDGETS ALLER MANAGER ===
+{manager_budget_block_lines}
 """
 
 
