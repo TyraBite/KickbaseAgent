@@ -1,5 +1,6 @@
-"""ML-Marktwertprognose: taeglich neu trainiertes RandomForest-Modell auf
-Basis von Kickbase's eigener 365-Tage-Marktwert- und Performance-Historie.
+"""ML-Marktwertprognose: taeglich neu trainiertes Modell (RandomForest oder
+HistGradientBoosting, siehe _train_and_evaluate) auf Basis von Kickbase's
+eigener 365-Tage-Marktwert- und Performance-Historie.
 
 Kein eigenes Langzeit-Tracking noetig - Kickbase liefert die Historie selbst
 (bestaetigt am 27.07.2026, auch fuer Spieler ausserhalb des eigenen Kaders/
@@ -19,19 +20,26 @@ aber bewusst abgewandelt:
   sqrt())
 
 Vollstaendig transient - kein DB-Schreiben, Modell wird jeden Lauf neu
-trainiert (kein persistiertes Modell-File).
+trainiert (kein persistiertes Modell-File). Einzige Ausnahme:
+data/ml_prediction_log.jsonl protokolliert taegliche Prognosen (Datum,
+Spieler, prognostizierte Aenderung), damit die tatsaechliche Tag-fuer-Tag-
+Genauigkeit rueckwirkend berechnet werden kann - der Corpus liefert die
+echte Wertaenderung dafuer bereits mit, kein zweiter Log fuer "was
+tatsaechlich passiert ist" noetig.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
 import datetime
+import json
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from src.kickbase_client import (
@@ -57,6 +65,10 @@ LAST_PERFORMANCE_VALUES = 50
 MIN_TRAINING_ROWS = 200
 RANDOM_STATE = 42
 _EPOCH = datetime.date(1970, 1, 1)
+
+PREDICTION_LOG_PATH = Path(__file__).resolve().parent.parent / "data" / "ml_prediction_log.jsonl"
+LOG_RETENTION_DAYS = 90
+ACCURACY_WINDOWS_DAYS = (7, 30)
 
 # Aggregierter Sicherheits-Check: schlagen zu viele der ersten Abrufe fehl,
 # lieber den ganzen Corpus-Aufbau abbrechen als auf degradierten Daten zu
@@ -255,9 +267,13 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def _train_and_evaluate(history_df: pd.DataFrame):
-    """Trainiert RandomForestRegressor per Zeit-Split (75/25, kein Shuffle,
-    verhindert Data Leakage). Gibt (model, metrics) oder None zurueck, wenn
-    zu wenig Daten fuer einen sinnvollen Split/Training vorhanden sind."""
+    """Trainiert zwei Modell-Kandidaten per Zeit-Split (75/25, kein Shuffle,
+    verhindert Data Leakage) und behaelt den Gewinner nach Test-R2 -
+    RandomForestRegressor (bisherige feste Parameter) gegen
+    HistGradientBoostingRegressor (eingebautes Early-Stopping, oft besser
+    bei Feature-Interaktionen). Gibt (model, metrics) oder None zurueck,
+    wenn zu wenig Daten fuer einen sinnvollen Split/Training vorhanden
+    sind. metrics["model_type"] zeigt, welcher Kandidat gewonnen hat."""
     if len(history_df) < MIN_TRAINING_ROWS:
         return None
 
@@ -273,32 +289,131 @@ def _train_and_evaluate(history_df: pd.DataFrame):
     x_train, y_train = train[FEATURES], train[TARGET]
     x_test, y_test = test[FEATURES], test[TARGET]
 
-    model = RandomForestRegressor(
-        n_estimators=500,
-        max_depth=20,
-        min_samples_split=5,
-        min_samples_leaf=2,
-        max_features="sqrt",
-        n_jobs=-1,
-        random_state=RANDOM_STATE,
-    )
-    model.fit(x_train, y_train)
+    candidates = {
+        "RandomForest": RandomForestRegressor(
+            n_estimators=500,
+            max_depth=20,
+            min_samples_split=5,
+            min_samples_leaf=2,
+            max_features="sqrt",
+            n_jobs=-1,
+            random_state=RANDOM_STATE,
+        ),
+        "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+    }
 
-    y_pred = model.predict(x_test)
-    rmse = mean_squared_error(y_test, y_pred) ** 0.5
-    mae = mean_absolute_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    sign_accuracy = float(np.mean(np.sign(y_test) == np.sign(y_pred)) * 100)
+    best_name, best_model, best_r2, best_pred = None, None, None, None
+    for name, candidate in candidates.items():
+        candidate.fit(x_train, y_train)
+        y_pred = candidate.predict(x_test)
+        r2 = r2_score(y_test, y_pred)
+        if best_r2 is None or r2 > best_r2:
+            best_name, best_model, best_r2, best_pred = name, candidate, r2, y_pred
+
+    rmse = mean_squared_error(y_test, best_pred) ** 0.5
+    mae = mean_absolute_error(y_test, best_pred)
+    sign_accuracy = float(np.mean(np.sign(y_test) == np.sign(best_pred)) * 100)
 
     metrics = {
+        "model_type": best_name,
         "rmse": round(rmse, 2),
         "mae": round(mae, 2),
-        "r2": round(r2, 3),
+        "r2": round(best_r2, 3),
         "sign_accuracy": round(sign_accuracy, 1),
         "train_rows": len(train),
         "test_rows": len(test),
     }
-    return model, metrics
+    return best_model, metrics
+
+
+def _load_prediction_log() -> list[dict]:
+    if not PREDICTION_LOG_PATH.exists():
+        return []
+    entries = []
+    for line in PREDICTION_LOG_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            entries.append(json.loads(line))
+    return entries
+
+
+def _save_prediction_log(entries: list[dict]) -> None:
+    """Schreibt das Log neu: dedupliziert nach (date, player_id) - haelt den
+    LETZTEN Eintrag pro Schluessel (main.py und dashboard_export.py rufen
+    beide taeglich predict_market_value_changes() auf, ein zweiter Lauf am
+    selben Tag darf keine doppelte Zeile erzeugen) - und begrenzt auf
+    LOG_RETENTION_DAYS relativ zum juengsten Eintrag, waechst sonst
+    unbegrenzt."""
+    if not entries:
+        return
+    deduped = {(e["date"], e["player_id"]): e for e in entries}
+    kept_entries = list(deduped.values())
+    latest = max(datetime.date.fromisoformat(e["date"]) for e in kept_entries)
+    cutoff = latest - datetime.timedelta(days=LOG_RETENTION_DAYS)
+    kept_entries = [e for e in kept_entries if datetime.date.fromisoformat(e["date"]) >= cutoff]
+    PREDICTION_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PREDICTION_LOG_PATH.write_text(
+        "\n".join(json.dumps(e, ensure_ascii=False) for e in kept_entries) + "\n", encoding="utf-8"
+    )
+
+
+def _build_mv_lookup(corpus: pd.DataFrame) -> dict[tuple[str, str], float]:
+    """(player_id, ISO-Datum) -> Marktwert, aus dem schon geladenen Corpus -
+    kein zweiter Log fuer 'was tatsaechlich passiert ist' noetig, Kickbase
+    liefert die echte Historie ohnehin bei jedem Lauf frisch."""
+    lookup: dict[tuple[str, str], float] = {}
+    for player_id, date, mv in zip(corpus["player_id"], corpus["date"], corpus["mv"]):
+        if pd.notna(mv) and pd.notna(date):
+            lookup[(player_id, pd.Timestamp(date).date().isoformat())] = float(mv)
+    return lookup
+
+
+def _summarize_window(evaluated: list[dict], today: str, days: int) -> dict | None:
+    cutoff = (datetime.date.fromisoformat(today) - datetime.timedelta(days=days)).isoformat()
+    window = [e for e in evaluated if e["date"] >= cutoff]
+    if not window:
+        return None
+    sign_accuracy = sum(1 for e in window if e["sign_correct"]) / len(window) * 100
+    mae = sum(e["abs_error"] for e in window) / len(window)
+    return {"n": len(window), "sign_accuracy": round(sign_accuracy, 1), "mae": round(mae, 2)}
+
+
+def _evaluate_realized_accuracy(log_entries: list[dict], mv_lookup: dict, today: str) -> dict:
+    """Prueft alle Log-Eintraege, fuer die inzwischen ein echtes Ergebnis
+    bekannt ist (Datum vor 'today' UND Folgetag im Corpus vorhanden), gegen
+    die tatsaechliche Wertaenderung - echte Tag-fuer-Tag-Genauigkeit statt
+    nur des synthetischen Zeit-Splits aus _train_and_evaluate()."""
+    evaluated = []
+    for entry in log_entries:
+        date = entry["date"]
+        if date >= today:
+            continue
+        next_date = (datetime.date.fromisoformat(date) + datetime.timedelta(days=1)).isoformat()
+        mv_then = mv_lookup.get((entry["player_id"], date))
+        mv_next = mv_lookup.get((entry["player_id"], next_date))
+        if mv_then is None or mv_next is None:
+            continue
+        actual_delta = mv_next - mv_then
+        evaluated.append(
+            {
+                "date": date,
+                "sign_correct": np.sign(entry["predicted_delta"]) == np.sign(actual_delta),
+                "abs_error": abs(entry["predicted_delta"] - actual_delta),
+            }
+        )
+    return {
+        f"realized_{days}d": _summarize_window(evaluated, today, days) for days in ACCURACY_WINDOWS_DAYS
+    }
+
+
+def _append_todays_predictions(today_df: pd.DataFrame, predictions: dict[str, float]) -> None:
+    new_entries = [
+        {"date": pd.Timestamp(date).date().isoformat(), "player_id": player_id, "predicted_delta": predictions[player_id]}
+        for player_id, date in zip(today_df["player_id"], today_df["date"])
+        if player_id in predictions
+    ]
+    log = _load_prediction_log() + new_entries
+    _save_prediction_log(log)
 
 
 def predict_market_value_changes() -> dict | None:
@@ -345,6 +460,13 @@ def predict_market_value_changes() -> dict | None:
             player_id: round(float(value))
             for player_id, value in zip(today_df["player_id"], predicted)
         }
+
+        today_iso = pd.Timestamp(corpus["date"].max()).date().isoformat()
+        mv_lookup = _build_mv_lookup(corpus)
+        realized = _evaluate_realized_accuracy(_load_prediction_log(), mv_lookup, today_iso)
+        metrics.update(realized)
+        _append_todays_predictions(today_df, predictions)
+
         return {"predictions": predictions, "metrics": metrics}
     except (KickbaseError, RuntimeError) as exc:
         print(f"Warnung: ML-Marktwertprognose fehlgeschlagen, wird uebersprungen: {exc}", file=sys.stderr)

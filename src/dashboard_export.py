@@ -117,6 +117,28 @@ def _build_eigenes_team(own_squad, calibration, predictions) -> list[dict]:
     return [_player_row(r, calibration, predictions) for r in own_squad]
 
 
+def _split_eigenes_team(eigenes_team_rows: list[dict], wunschkader_config: dict | None) -> dict:
+    """Teilt den eigenen Kader in Verkaufskandidaten (sell_list aus
+    wunschkader.json) und Spieler, die im Kader bleiben sollen
+    (Wunschkader-Ziele) - reine Umsortierung bestehender Zeilen, keine
+    neuen Daten/Calls. Spieler in keiner der beiden Listen landen sichtbar
+    in 'unkategorisiert' statt zu verschwinden (z.B. gerade neu erworben,
+    wunschkader.json noch nicht nachgezogen)."""
+    sell_names = set(wunschkader_config.get("sell_list", [])) if wunschkader_config else set()
+    target_names = {t["name"] for t in wunschkader_config.get("targets", [])} if wunschkader_config else set()
+
+    verkaufen, bleibt, unkategorisiert = [], [], []
+    for row in eigenes_team_rows:
+        if row["name"] in sell_names:
+            sell_signal = "halten" if (row.get("ml_prediction") or 0) > 0 else "verkaufen"
+            verkaufen.append({**row, "sell_signal": sell_signal})
+        elif row["name"] in target_names:
+            bleibt.append(row)
+        else:
+            unkategorisiert.append(row)
+    return {"verkaufen": verkaufen, "bleibt": bleibt, "unkategorisiert": unkategorisiert}
+
+
 HYPE_CHANGE_THRESHOLD = 1_500_000
 SPEKULATION_FLOOR_PROTECTED = 1_000_000
 
@@ -437,6 +459,8 @@ def export() -> Path:
 
     transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget)
 
+    eigenes_team_rows = _build_eigenes_team(own_squad, calibration, predictions)
+
     data = {
         "fetched_at": fetched_at,
         "own_available_budget": own_available_budget,
@@ -446,7 +470,7 @@ def export() -> Path:
         "ml_metrics": predictions["metrics"] if predictions else None,
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "transfermarkt": transfermarkt_rows,
-        "eigenes_team": _build_eigenes_team(own_squad, calibration, predictions),
+        "eigenes_team_split": _split_eigenes_team(eigenes_team_rows, wunschkader_config),
         "ligaanalyse": _build_ligaanalyse(
             token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad
         ),
@@ -546,6 +570,8 @@ nav.tabs {
 main { padding: 16px 24px 40px; overflow-x: auto; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
+.tab-panel h3 { margin: 20px 0 10px; font-size: 0.95rem; }
+.tab-panel h3:first-child { margin-top: 0; }
 table {
   width: 100%;
   border-collapse: collapse;
@@ -821,7 +847,15 @@ function renderTransfermarkt() {
 }
 
 function renderTeam() {
-  const rows = DATA.eigenes_team;
+  const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [], unkategorisiert: [] };
+  const container = document.getElementById("tab-team");
+  let html = `<h3>Bleibt im Kader</h3><div id="tab-team-bleibt"></div>`;
+  html += `<h3>Verkaufskandidaten (Hoehepunkt abwarten)</h3><div id="tab-team-verkaufen"></div>`;
+  if (split.unkategorisiert && split.unkategorisiert.length) {
+    html += `<h3>Nicht kategorisiert - data/wunschkader.json aktualisieren</h3><div id="tab-team-unkategorisiert"></div>`;
+  }
+  container.innerHTML = html;
+
   const columns = [
     { key: "name", label: "Spieler" },
     { key: "position", label: "Pos." },
@@ -852,8 +886,39 @@ function renderTeam() {
     <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
     <td>${r.status_label ? `<span class="pill pill-warn">${r.status_label}</span>` : ""}</td>
   </tr>`;
-  buildTable("tab-team", columns, () => rows, renderRow,
-    "Signal/ML-Prognose sind Zusatzsignale, kein Ersatz fuer die Startelf-Recherche (siehe MDs/methodik.md).");
+
+  buildTable("tab-team-bleibt", columns, () => split.bleibt, renderRow,
+    "Spieler, die laut Wunschkader (MDs/kaderplan.md) im Kader bleiben sollen. Signal/ML-Prognose sind Zusatzsignale, kein Ersatz fuer die Startelf-Recherche.");
+
+  const verkaufColumns = [{ key: "sell_signal", label: "Empfehlung" }, ...columns];
+  const verkaufRenderRow = (r) => {
+    const rec = r.sell_signal === "halten"
+      ? '<span class="pill pill-warn">Noch halten</span>'
+      : '<span class="pill pill-good">Jetzt verkaufen</span>';
+    return `<tr>
+      <td>${rec}</td>
+      <td>${r.name}</td>
+      <td>${r.position}</td>
+      <td>${r.team_name ?? ""}</td>
+      <td class="num">${fmtNum(r.market_value)}</td>
+      <td class="num">${trendCell(r)}</td>
+      <td class="num">${fmtNum(r.market_value_low_92d)}</td>
+      <td class="num">${fmtNum(r.market_value_high_92d)}</td>
+      <td class="num">${fmtNum(r.average_points)}</td>
+      <td class="num">${fmtNum(r.cost_per_point)}</td>
+      <td class="num">${signalPill(r.signal)}</td>
+      <td class="num">${mlCell(r.ml_prediction)}</td>
+      <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
+      <td>${r.status_label ? `<span class="pill pill-warn">${r.status_label}</span>` : ""}</td>
+    </tr>`;
+  };
+  buildTable("tab-team-verkaufen", verkaufColumns, () => split.verkaufen, verkaufRenderRow,
+    '"Noch halten" = ML-Prognose noch positiv (Marktwert steigt laut Modell), "Jetzt verkaufen" = Prognose negativ oder fehlt (Hoehepunkt evtl. erreicht) - Zusatzsignal, kein Ersatz fuer eigene Einschaetzung.');
+
+  if (split.unkategorisiert && split.unkategorisiert.length) {
+    buildTable("tab-team-unkategorisiert", columns, () => split.unkategorisiert, renderRow,
+      "Diese Spieler stehen weder in der Verkaufs- noch der Wunschkader-Liste in data/wunschkader.json - dort ergaenzen.");
+  }
 }
 
 function renderLiga() {
