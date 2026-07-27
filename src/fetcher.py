@@ -6,7 +6,7 @@ import sys
 
 from dotenv import load_dotenv
 
-from src import db, manager_budgets
+from src import db, firestore_db, manager_budgets
 from src.kickbase_client import (
     KickbaseError,
     get_achievement_reward,
@@ -476,6 +476,18 @@ def run() -> str:
         db.replace_manager_budgets(conn, fetched_at, manager_budget_rows)
     finally:
         conn.close()
+
+    if os.environ.get("FIRESTORE_ENABLED"):
+        try:
+            fs_client = firestore_db.connect()
+            firestore_db.replace_own_squad(fs_client, fetched_at, own_squad_rows)
+            firestore_db.replace_market_listings(fs_client, fetched_at, market_rows)
+            firestore_db.replace_league_ranking(fs_client, fetched_at, ranking_rows)
+            firestore_db.upsert_own_budget(fs_client, fetched_at, own_user_id, budget)
+            firestore_db.upsert_season_context(fs_client, fetched_at, season_context)
+            firestore_db.replace_manager_budgets(fs_client, fetched_at, manager_budget_rows)
+        except Exception as exc:  # ein Firestore-Ausfall darf die Pipeline nie brechen
+            print(f"Warnung: Firestore-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
 
     print(
         f"Snapshot {fetched_at}: {len(own_squad_rows)} eigene Spieler, "

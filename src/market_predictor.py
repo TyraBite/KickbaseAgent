@@ -42,6 +42,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from src import firestore_db
 from src.kickbase_client import (
     KickbaseError,
     get_market_value_history,
@@ -454,6 +455,23 @@ def _save_prediction_log(entries: list[dict]) -> None:
     PREDICTION_LOG_PATH.write_text(
         "\n".join(json.dumps(e, ensure_ascii=False) for e in kept_entries) + "\n", encoding="utf-8"
     )
+
+    if os.environ.get("FIRESTORE_ENABLED"):
+        try:
+            # Nur den juengsten Tag an Firestore senden, nicht die komplette
+            # LOG_RETENTION_DAYS-Historie: die ist hier schon lokal dedupliziert
+            # und aeltere Tage wurden an frueheren Laeufen bereits geschrieben
+            # (Doc-Id ist date_player_id-basiert) - ein voller Re-Sync bei jedem
+            # Lauf waere unnoetiges Schreibvolumen (Firestore Spark-Free-Tier
+            # hat ein taegliches Schreib-Kontingent).
+            todays_entries = [e for e in kept_entries if e["date"] == latest.isoformat()]
+            fs_client = firestore_db.connect()
+            firestore_db.upsert_prediction_log_entries(fs_client, todays_entries)
+        except Exception as exc:  # ein Firestore-Ausfall darf die Pipeline nie brechen
+            print(
+                f"Warnung: Firestore-Schreibzugriff fuer ml_prediction_log fehlgeschlagen: {exc}",
+                file=sys.stderr,
+            )
 
 
 def _build_mv_lookup(corpus: pd.DataFrame) -> dict[tuple[str, str], float]:

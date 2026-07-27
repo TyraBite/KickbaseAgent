@@ -3,3 +3,4 @@ python-dotenv
 scikit-learn
 pandas
 numpy
+google-cloud-firestore
