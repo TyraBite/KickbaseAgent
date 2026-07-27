@@ -175,6 +175,30 @@ Dedizierter Review-Schritt: ein Durchlauf, der den User aktiv zu aktueller
 Nutzung und Painpoints befragt (nicht nur aus Annahmen heraus gestaltet),
 danach mobile Ansicht + darauf aufbauende UI/UX-Verbesserungen.
 
+## Firebase-Web-Config (fuer Phase 2, jetzt schon gesichert)
+
+Firebase-Projekt "KickbaseAgent" hat eine Web-App registriert
+("KickbaseAgent Dashboard", ohne Firebase Hosting). Config-Snippet:
+
+```js
+const firebaseConfig = {
+  apiKey: "AIzaSyDaKr1cKLxqqA8EGauwSaNNOpsPQedHRQs",
+  authDomain: "kickbaseagent.firebaseapp.com",
+  projectId: "kickbaseagent",
+  storageBucket: "kickbaseagent.firebasestorage.app",
+  messagingSenderId: "622019870310",
+  appId: "1:622019870310:web:45410188371a0327a1b7a7"
+};
+```
+
+`apiKey` ist HIER kein Geheimnis (live gegen die offizielle Firebase-Doku
+verifiziert, 27.07.2026: "API keys restricted to Firebase services do not
+need to be treated as secrets, and it's safe to include them in your code
+or configuration files" - Autorisierung laeuft ausschliesslich ueber
+Firebase Security Rules/App Check, nicht ueber Geheimhaltung dieses
+Strings). Bedenkenlos im Repo/Client-Code verwendbar, sobald Phase 2 die
+Shell-Seite baut.
+
 ## Nicht Teil dieses Plans
 
 - Kein Cutover von SQLite zu Firestore (Parallelbetrieb bleibt bestehen,
