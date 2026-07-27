@@ -4,3 +4,4 @@ __pycache__/
 .env
 .idea/
 *.bundle
+firebase-service-account.json
