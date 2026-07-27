@@ -25,9 +25,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src import db, fetcher, market_predictor, player_valuation
-from src.kickbase_client import KickbaseError, get_manager_squad, login
+from src.kickbase_client import KickbaseError, get_manager_squad, get_me, login
 
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "docs" / "dashboard.html"
+WUNSCHKADER_PATH = Path(__file__).resolve().parent.parent / "data" / "wunschkader.json"
 
 # Toleranzband aus MDs/methodik.md, Abschnitt "Fairwert und Signal".
 SIGNAL_GOOD = 1.25
@@ -163,6 +164,74 @@ def _build_ligaanalyse(token, league_id, ranking_rows, manager_budget_rows, mark
     return rows
 
 
+def _load_wunschkader() -> dict | None:
+    """Handgepflegte Zielspieler-Liste (siehe MDs/kaderplan.md fuer die
+    Begruendungen), NICHT automatisch generiert - bei jeder Aenderung des
+    Kaderplans auch diese Datei nachziehen."""
+    if not WUNSCHKADER_PATH.exists():
+        return None
+    return json.loads(WUNSCHKADER_PATH.read_text(encoding="utf-8"))
+
+
+def _build_wunschkader(
+    wunschkader: dict,
+    all_players: list[dict],
+    owned_by: dict,
+    own_squad_names: set,
+    market_by_name: dict,
+    calibration: dict | None,
+    predictions: dict | None,
+) -> list[dict]:
+    by_name = {p["name"]: p for p in all_players}
+    rows = []
+    for target in wunschkader.get("targets", []):
+        name = target["name"]
+        live = by_name.get(name)
+
+        if name in own_squad_names:
+            status = "Eigener Kader"
+        elif name in market_by_name:
+            m = market_by_name[name]
+            anbieter = "System" if m["is_system_offer"] else m["offering_username"]
+            status = f"Markt ({anbieter}, {m['price']:,})"
+        elif live and owned_by.get(live["player_id"]):
+            status = f"Bei {owned_by[live['player_id']]}"
+        elif live:
+            status = "Frei"
+        else:
+            status = "Nicht gefunden"
+
+        market_value = live.get("market_value") if live else None
+        points_avg = live.get("points_avg") if live else None
+        signal = None
+        if live and calibration and market_value and points_avg:
+            k = player_valuation.k_for_position(calibration, target["position"])
+            if k:
+                signal = round(k / (market_value / points_avg), 2)
+
+        rows.append(
+            {
+                "name": name,
+                "position": target["position"],
+                "role": target["role"],
+                "note": target.get("note"),
+                "planned_price": target.get("planned_price"),
+                "status": status,
+                "market_value": market_value,
+                "points_avg": points_avg,
+                "starting_rank": live.get("starting_rank") if live else None,
+                "status_code": live.get("status_code") if live else None,
+                "signal": signal,
+                "ml_prediction": (
+                    predictions.get("predictions", {}).get(live["player_id"])
+                    if (predictions and live)
+                    else None
+                ),
+            }
+        )
+    return rows
+
+
 def _load_snapshot(fetched_at: str):
     conn = db.connect()
     conn.row_factory = sqlite3.Row
@@ -195,6 +264,7 @@ def export() -> Path:
 
     token, _user, leagues = login(email, password)
     league_id = leagues[0]["id"]
+    competition_id = get_me(token, league_id).get("cpi") or "1"
 
     predictions = market_predictor.predict_market_value_changes()
     calibration = player_valuation.load_calibration()
@@ -203,6 +273,22 @@ def export() -> Path:
 
     own_budget_row = next((b for b in manager_budget_rows if b["is_own_exact"]), None)
     own_available_budget = own_budget_row["available_budget"] if own_budget_row else None
+
+    wunschkader_config = _load_wunschkader()
+    wunschkader_rows = []
+    if wunschkader_config:
+        own_name = own_budget_row["name"] if own_budget_row else None
+        all_players = player_valuation.fetch_all_players(token, competition_id)
+        owned_by = (
+            player_valuation.resolve_ownership(token, league_id, [dict(r) for r in ranking_rows], own_name)
+            if own_name
+            else {}
+        )
+        own_squad_names = {r["name"] for r in own_squad}
+        market_by_name = {r["name"]: r for r in market_listings}
+        wunschkader_rows = _build_wunschkader(
+            wunschkader_config, all_players, owned_by, own_squad_names, market_by_name, calibration, predictions
+        )
 
     data = {
         "fetched_at": fetched_at,
@@ -217,6 +303,9 @@ def export() -> Path:
         "ligaanalyse": _build_ligaanalyse(
             token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad
         ),
+        "wunschkader": wunschkader_rows,
+        "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
+        "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
     }
 
     html = _render_html(data)
@@ -384,11 +473,13 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   <button class="tab-btn active" data-tab="transfermarkt">Transfermarkt</button>
   <button class="tab-btn" data-tab="team">Eigenes Team</button>
   <button class="tab-btn" data-tab="liga">Ligaanalyse</button>
+  <button class="tab-btn" data-tab="wunschkader">Wunschkader</button>
 </nav>
 <main>
   <section id="tab-transfermarkt" class="tab-panel active"></section>
   <section id="tab-team" class="tab-panel"></section>
   <section id="tab-liga" class="tab-panel"></section>
+  <section id="tab-wunschkader" class="tab-panel"></section>
 </main>
 <script>
 const DATA = __DASHBOARD_DATA__;
@@ -625,6 +716,54 @@ function renderLiga() {
     "Budgets ausser der eigenen Zeile sind Schaetzungen aus dem Activity-Feed (siehe MDs/methodik.md).");
 }
 
+function wunschStatusPill(status) {
+  if (status.startsWith("Eigener Kader")) return `<span class="pill pill-good">${status}</span>`;
+  if (status.startsWith("Markt")) return `<span class="pill pill-good">${status}</span>`;
+  if (status.startsWith("Frei")) return `<span class="pill pill-warn">${status}</span>`;
+  if (status.startsWith("Bei")) return `<span class="pill pill-crit">${status}</span>`;
+  return `<span class="muted">${status}</span>`;
+}
+
+function renderWunschkader() {
+  const rows = DATA.wunschkader;
+  if (!rows || !rows.length) {
+    document.getElementById("tab-wunschkader").innerHTML =
+      '<p class="section-hint">Kein Wunschkader hinterlegt (data/wunschkader.json fehlt oder ist leer).</p>';
+    return;
+  }
+  const columns = [
+    { key: "position", label: "Pos." },
+    { key: "name", label: "Spieler" },
+    { key: "role", label: "Rolle" },
+    { key: "status", label: "Status" },
+    { key: "market_value", label: "Marktwert", numeric: true },
+    { key: "planned_price", label: "Geplant", numeric: true },
+    { key: "points_avg", label: "Schnitt", numeric: true },
+    { key: "signal", label: "Signal", numeric: true },
+    { key: "ml_prediction", label: "ML-Prognose", numeric: true },
+    { key: "starting_rank", label: "Rang", numeric: true },
+    { key: "note", label: "Notiz" },
+  ];
+  const renderRow = (r) => `<tr>
+    <td>${r.position}</td>
+    <td>${r.name}</td>
+    <td>${r.role}</td>
+    <td>${wunschStatusPill(r.status)}</td>
+    <td class="num">${fmtNum(r.market_value)}</td>
+    <td class="num">${fmtNum(r.planned_price)}</td>
+    <td class="num">${fmtNum(r.points_avg)}</td>
+    <td class="num">${signalPill(r.signal)}</td>
+    <td class="num">${mlCell(r.ml_prediction)}</td>
+    <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
+    <td class="muted">${r.note ?? ""}</td>
+  </tr>`;
+  const formation = DATA.wunschkader_formation ? ` (${DATA.wunschkader_formation})` : "";
+  const updated = DATA.wunschkader_updated_at ? `, Stand ${DATA.wunschkader_updated_at}` : "";
+  buildTable("tab-wunschkader", columns, () => rows, renderRow,
+    `Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung. ` +
+    "Status: gruen = sofort erreichbar/schon im Kader, gelb = frei (wartet auf Marktauftauchen), rot = bei einem Gegner.");
+}
+
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -638,6 +777,7 @@ renderMeta();
 renderTransfermarkt();
 renderTeam();
 renderLiga();
+renderWunschkader();
 </script>
 </body>
 </html>

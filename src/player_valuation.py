@@ -36,6 +36,7 @@ from pathlib import Path
 
 from src.kickbase_client import (
     KickbaseError,
+    get_manager_squad,
     get_player_performance,
     get_team_squad,
     get_teams,
@@ -64,11 +65,13 @@ def _max_workers() -> int:
     return int(os.environ.get("PLAYER_VALUATION_MAX_WORKERS", 8))
 
 
-def _fetch_all_players(token: str, competition_id: str) -> list[dict]:
-    """Alle Liga-Spieler mit Marktwert/Punkteschnitt/Position, ueber alle
-    Vereine der Competition (18 Calls, kein Threading noetig)."""
+def fetch_all_players(token: str, competition_id: str) -> list[dict]:
+    """Alle Liga-Spieler mit Marktwert/Punkteschnitt/Position/Startelf-Rang/
+    Status, ueber alle Vereine der Competition (18 Calls, kein Threading
+    noetig). Oeffentlich, weil src/dashboard_export.py das fuer den
+    Wunschkader-Abgleich braucht."""
     rows = []
-    for team_id in get_teams(token, competition_id):
+    for team_id, team_name in get_teams(token, competition_id).items():
         try:
             items = get_team_squad(token, competition_id, team_id)
         except KickbaseError as exc:
@@ -84,11 +87,41 @@ def _fetch_all_players(token: str, competition_id: str) -> list[dict]:
                     "name": item.get("n"),
                     "position": position_label(item.get("pos")),
                     "team_id": team_id,
+                    "team_name": team_name,
                     "market_value": item.get("mv"),
                     "points_avg": item.get("ap"),
+                    "starting_rank": item.get("prob"),
+                    "status_code": item.get("st"),
                 }
             )
     return rows
+
+
+def resolve_ownership(token: str, league_id: str, ranking_rows: list[dict], own_name: str) -> dict[str, str]:
+    """player_id -> Manager-Name, fuer alle Manager AUSSER sich selbst.
+    Fehlt ein player_id in dieser Map, gehoert er niemandem in der Liga
+    (frei, kann jederzeit vom System auf den Markt gesetzt werden).
+
+    WICHTIG: der Gegner-Kader-Endpoint (get_manager_squad) nutzt 'pi' fuer
+    die Spieler-Id, NICHT 'i' wie get_squad()/get_team_squad() - siehe
+    Docstring von get_manager_squad() in kickbase_client.py. Ein fruehes
+    Ad-hoc-Skript hat das uebersehen und lieferte dadurch fuer JEDEN
+    Spieler faelschlich 'frei' zurueck."""
+    owned_by: dict[str, str] = {}
+    for row in ranking_rows:
+        name = row.get("name")
+        if not name or name == own_name:
+            continue
+        try:
+            squad = get_manager_squad(token, league_id, row["user_id"])
+        except KickbaseError as exc:
+            print(f"Warnung: Kader von Manager {name} nicht ladbar: {exc}", file=sys.stderr)
+            continue
+        for item in squad.get("it", []):
+            player_id = item.get("pi")
+            if player_id:
+                owned_by[player_id] = name
+    return owned_by
 
 
 def _current_season_appearances(performance_data: dict) -> int | None:
@@ -114,7 +147,7 @@ def _fetch_player_appearances(token: str, competition_id: str, player_id: str) -
 
 
 def _build_dataset(token: str, competition_id: str) -> list[dict]:
-    rows = _fetch_all_players(token, competition_id)
+    rows = fetch_all_players(token, competition_id)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=_max_workers()) as executor:
         futures = {
