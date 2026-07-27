@@ -103,20 +103,39 @@ def _parse_kickbase_dt(raw: str | None) -> datetime.datetime | None:
         return None
 
 
-def _compute_expiry(listed_at: str | None, is_system_offer: bool, market_sell_days: int | None) -> str | None:
-    """Marktplatz-Angebote von Mitspielern laufen nach einer festen Anzahl
-    Tage automatisch ab (Liga-Feld 'mpst' - UNBESTAETIGT als offizieller
-    Feldname, aber Wert 3 stimmt mit dem in dieser Liga beobachteten
-    Standard-Zeitfenster ueberein). System-/Kickbase-Angebote haben live
-    beobachtet KEIN festes Zeitlimit (Alter reicht von <2h bis >27h ohne
-    erkennbare Obergrenze) - fuer die bleibt expires_at None."""
+def _compute_expiry(
+    exs_seconds,
+    listed_at: str | None,
+    is_system_offer: bool,
+    market_sell_days: int | None,
+    now: datetime.datetime,
+) -> tuple[str | None, bool]:
+    """Gibt (expires_at, is_estimate) zurueck.
+
+    Live bestaetigt 27.07.2026 an echten Beispielen (u.a. Stage, exs=175
+    Sekunden bei einem Angebot, das der User in der App bei "laeuft in 4 Min.
+    ab" sah): Kickbase-Systemangebote liefern ein Feld 'exs' (Sekunden bis
+    Ablauf) - IMMER, auch ohne Gebot (Beispiel Mittelstädt, ofc=0,
+    exs=70986). Die fruehere Annahme "Systemangebote haben kein Zeitlimit"
+    war falsch - sie beruhte auf dem Angebots-ALTER ('dt'), das tatsaechlich
+    nichts mit der Restzeit zu tun hat. 'exs' ist die tatsaechliche,
+    sekundengenaue Restzeit, keine Schaetzung.
+
+    Mitspieler-Angebote liefern 'exs' dagegen NIE (auch nicht mit Gebot
+    drauf, live geprueft an Harder mit ofc=1) - fuer die bleibt die
+    mpst-Tage-Schaetzung ab 'dt' der einzige verfuegbare Anhaltspunkt
+    (Liga-Feld 'mpst', Feldname unbestaetigt, Wert 3 passt aber zum
+    beobachteten Zeitfenster) - als Schaetzung markiert (is_estimate=True)."""
+    if exs_seconds is not None:
+        expires = now + datetime.timedelta(seconds=int(exs_seconds))
+        return expires.strftime("%Y-%m-%dT%H:%M:%SZ"), False
     if is_system_offer or not market_sell_days:
-        return None
+        return None, False
     listed = _parse_kickbase_dt(listed_at)
     if listed is None:
-        return None
+        return None, False
     expires = listed + datetime.timedelta(days=market_sell_days)
-    return expires.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return expires.strftime("%Y-%m-%dT%H:%M:%SZ"), True
 
 
 def _market_item_to_row(
@@ -125,7 +144,9 @@ def _market_item_to_row(
     team_names_by_id: dict,
     own_user_id: str | None = None,
     market_sell_days: int | None = None,
+    now: datetime.datetime | None = None,
 ) -> dict:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
     status_code = item.get("st") or 0
 
     # Bestaetigt an echten Beispielen (25.07.2026): ist ein Spieler von einem
@@ -165,6 +186,9 @@ def _market_item_to_row(
     team_id = item.get("tid")
     is_system_offer = not offering_user_id
     listed_at = item.get("dt")
+    expires_at, expiry_is_estimate = _compute_expiry(
+        item.get("exs"), listed_at, is_system_offer, market_sell_days, now
+    )
     return {
         "player_id": item.get("i") or item.get("pi"),
         "name": item.get("n") or item.get("pn"),
@@ -191,7 +215,8 @@ def _market_item_to_row(
         "is_own_leading_bid": 1 if is_own_leading_bid else 0,
         "starting_rank": item.get("prob"),
         "listed_at": listed_at,
-        "expires_at": _compute_expiry(listed_at, is_system_offer, market_sell_days),
+        "expires_at": expires_at,
+        "expiry_is_estimate": 1 if expiry_is_estimate else 0,
     }
 
 
@@ -363,9 +388,12 @@ def run() -> str:
     own_squad_rows = [_squad_item_to_row(item, team_names_by_id) for item in squad_items]
 
     market_response = get_market(token, league_id)
+    market_fetched_at = datetime.datetime.now(datetime.timezone.utc)
     market_items = market_response.get("it", [])
     market_rows = [
-        _market_item_to_row(item, names_by_user_id, team_names_by_id, own_user_id, market_sell_days)
+        _market_item_to_row(
+            item, names_by_user_id, team_names_by_id, own_user_id, market_sell_days, market_fetched_at
+        )
         for item in market_items
     ]
 

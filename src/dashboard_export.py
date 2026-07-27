@@ -76,25 +76,27 @@ def _format_duration(hours: float) -> str:
     return f"{int(hours)}h {minutes}m"
 
 
-def _auction_status(listed_at, expires_at, is_system_offer: bool, now: datetime.datetime) -> str:
-    """Kickbase-Systemangebote laufen live beobachtet ohne festes Zeitlimit
-    (Alter reicht bis >27h ohne erkennbare Obergrenze) - dafuer zeigen wir
-    die Standzeit statt einer erfundenen Deadline. Mitspieler-Angebote
-    verfallen nach 'mpst' Tagen automatisch (siehe fetcher._compute_expiry),
-    dafuer die echte Restzeit."""
-    if is_system_offer or not expires_at:
+def _auction_status(listed_at, expires_at, expiry_is_estimate, now: datetime.datetime) -> str:
+    """Kickbase liefert bei Systemangeboten IMMER ein 'exs'-Feld (Sekunden bis
+    Ablauf, live bestaetigt 27.07.2026 u.a. an Stage) - fetcher._compute_expiry
+    wandelt das schon in ein exaktes expires_at um (expiry_is_estimate=False).
+    Nur bei Mitspieler-Angeboten (die 'exs' nie liefern) bleibt die
+    mpst-Tage-Schaetzung ab 'dt' die einzige Naeherung - als 'geschaetzt'
+    gekennzeichnet, damit sie nicht mit der echten Restzeit verwechselt wird."""
+    if not expires_at:
         listed = _parse_iso_z(listed_at)
         if listed is None:
             return "unbekannt"
         age_hours = (now - listed).total_seconds() / 3600
-        return f"Kickbase, kein Zeitlimit (gelistet seit {_format_duration(age_hours)})"
+        return f"kein Zeitlimit ermittelbar (gelistet seit {_format_duration(age_hours)})"
     expires = _parse_iso_z(expires_at)
     if expires is None:
         return "unbekannt"
     remaining_hours = (expires - now).total_seconds() / 3600
     if remaining_hours <= 0:
         return "Frist abgelaufen"
-    return f"läuft ab in {_format_duration(remaining_hours)}"
+    suffix = " (geschätzt)" if expiry_is_estimate else ""
+    return f"läuft ab in {_format_duration(remaining_hours)}{suffix}"
 
 
 def _trend_direction(change_7d) -> str:
@@ -152,7 +154,7 @@ def _build_transfermarkt(market_listings, calibration, predictions, own_availabl
                     and r["price"] <= own_available_budget
                 ),
                 "auction_status": _auction_status(
-                    r["listed_at"], r["expires_at"], is_system_offer, now
+                    r["listed_at"], r["expires_at"], bool(r["expiry_is_estimate"]), now
                 ),
             }
         )

@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS market_listings (
     starting_rank INTEGER,
     listed_at TEXT,
     expires_at TEXT,
+    expiry_is_estimate INTEGER,
     PRIMARY KEY (fetched_at, player_id)
 );
 
@@ -130,6 +131,7 @@ def connect() -> sqlite3.Connection:
     _ensure_column(conn, "market_listings", "starting_rank", "INTEGER")
     _ensure_column(conn, "market_listings", "listed_at", "TEXT")
     _ensure_column(conn, "market_listings", "expires_at", "TEXT")
+    _ensure_column(conn, "market_listings", "expiry_is_estimate", "INTEGER")
     conn.commit()
     return conn
 
@@ -176,7 +178,7 @@ def replace_market_listings(conn: sqlite3.Connection, fetched_at: str, listings:
             price, price_delta_pct, average_points, total_points, team_id, team_name,
             offering_user_id, offering_username, is_system_offer, pending_offers_count,
             leading_bid_username, leading_bid_price, is_own_leading_bid, starting_rank,
-            listed_at, expires_at
+            listed_at, expires_at, expiry_is_estimate
         ) VALUES (
             :fetched_at, :player_id, :name, :position, :status_code, :status_label,
             :market_value, :market_value_change_7d, :market_value_low_92d,
@@ -184,7 +186,7 @@ def replace_market_listings(conn: sqlite3.Connection, fetched_at: str, listings:
             :price, :price_delta_pct, :average_points, :total_points, :team_id, :team_name,
             :offering_user_id, :offering_username, :is_system_offer, :pending_offers_count,
             :leading_bid_username, :leading_bid_price, :is_own_leading_bid, :starting_rank,
-            :listed_at, :expires_at
+            :listed_at, :expires_at, :expiry_is_estimate
         )
         """,
         [{**listing, "fetched_at": fetched_at} for listing in listings],
