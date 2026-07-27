@@ -25,6 +25,7 @@ jobs:
           KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
           KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          KICKBASE_LEAGUE_START_BUDGET: '80000000'
         run: python -m src.main
 
       - name: Commit updated snapshot database

@@ -353,6 +353,26 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 .trend-flat { color: var(--text-muted); }
 .self-row { font-weight: 600; }
 .section-hint { color: var(--text-muted); font-size: 0.8rem; margin: 0 0 10px; }
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.filter-bar label { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+.filter-bar select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
 </style>
 </head>
 <body>
@@ -423,10 +443,10 @@ function renderMeta() {
   el.innerHTML = parts.join(" &nbsp;·&nbsp; ");
 }
 
-function makeSortable(table, rows, columns, tbody, renderRow) {
+function makeSortable(table, getRows, tbody, renderRow) {
   let sortKey = null, sortDir = 1;
   function draw() {
-    let data = rows.slice();
+    let data = getRows().slice();
     if (sortKey) {
       data.sort((a, b) => {
         let av = a[sortKey], bv = b[sortKey];
@@ -449,22 +469,33 @@ function makeSortable(table, rows, columns, tbody, renderRow) {
     });
   });
   draw();
+  return draw;
 }
 
-function buildTable(containerId, columns, rows, renderRow, hint) {
+function buildTable(containerId, columns, getRows, renderRow, hint, filterBarHtml) {
   const container = document.getElementById(containerId);
   const hintHtml = hint ? `<p class="section-hint">${hint}</p>` : "";
-  container.innerHTML = `${hintHtml}<table>
+  container.innerHTML = `${filterBarHtml || ""}${hintHtml}<table>
     <thead><tr>${columns.map((c) => `<th data-key="${c.key}" class="${c.numeric ? 'num' : ''}">${c.label}</th>`).join("")}</tr></thead>
     <tbody></tbody>
   </table>`;
   const table = container.querySelector("table");
   const tbody = container.querySelector("tbody");
-  makeSortable(table, rows, columns, tbody, renderRow);
+  return makeSortable(table, getRows, tbody, renderRow);
 }
 
 function renderTransfermarkt() {
-  const rows = DATA.transfermarkt;
+  const allRows = DATA.transfermarkt;
+  const filters = { position: "all", anbieter: "all" };
+  const positions = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
+  function getRows() {
+    return allRows.filter((r) => {
+      if (filters.position !== "all" && r.position !== filters.position) return false;
+      if (filters.anbieter === "kickbase" && !r.is_system_offer) return false;
+      if (filters.anbieter === "mitspieler" && r.is_system_offer) return false;
+      return true;
+    });
+  }
   const columns = [
     { key: "name", label: "Spieler" },
     { key: "position", label: "Pos." },
@@ -495,8 +526,39 @@ function renderTransfermarkt() {
     <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
     <td>${r.affordable ? '<span class="pill pill-good">ja</span>' : '<span class="pill pill-crit">nein</span>'}</td>
   </tr>`;
-  buildTable("tab-transfermarkt", columns, rows, renderRow,
-    "Signal &gt; 1,25 = deutlich unter Fairwert, &lt; 0,80 = Praemie (siehe MDs/methodik.md). Spaltenkopf klicken zum Sortieren.");
+  const filterBar = `<div class="filter-bar">
+    <label>Position <select id="tf-filter-position">
+      <option value="all">Alle</option>
+      ${positions.map((p) => `<option value="${p}">${p}</option>`).join("")}
+    </select></label>
+    <label>Anbieter <select id="tf-filter-anbieter">
+      <option value="all">Alle</option>
+      <option value="kickbase">Nur Kickbase</option>
+      <option value="mitspieler">Nur Mitspieler</option>
+    </select></label>
+    <span id="tf-filter-count" class="muted"></span>
+  </div>`;
+
+  const redraw = buildTable("tab-transfermarkt", columns, getRows, renderRow,
+    "Signal &gt; 1,25 = deutlich unter Fairwert, &lt; 0,80 = Praemie (siehe MDs/methodik.md). Spaltenkopf klicken zum Sortieren.",
+    filterBar);
+
+  const container = document.getElementById("tab-transfermarkt");
+  const countEl = container.querySelector("#tf-filter-count");
+  function updateCount() {
+    countEl.textContent = `${getRows().length} von ${allRows.length} Angeboten`;
+  }
+  container.querySelector("#tf-filter-position").addEventListener("change", (e) => {
+    filters.position = e.target.value;
+    redraw();
+    updateCount();
+  });
+  container.querySelector("#tf-filter-anbieter").addEventListener("change", (e) => {
+    filters.anbieter = e.target.value;
+    redraw();
+    updateCount();
+  });
+  updateCount();
 }
 
 function renderTeam() {
@@ -531,7 +593,7 @@ function renderTeam() {
     <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
     <td>${r.status_label ? `<span class="pill pill-warn">${r.status_label}</span>` : ""}</td>
   </tr>`;
-  buildTable("tab-team", columns, rows, renderRow,
+  buildTable("tab-team", columns, () => rows, renderRow,
     "Signal/ML-Prognose sind Zusatzsignale, kein Ersatz fuer die Startelf-Recherche (siehe MDs/methodik.md).");
 }
 
@@ -559,7 +621,7 @@ function renderLiga() {
     <td class="num">${fmtNum(r.available_budget)}</td>
     <td class="num">${fmtNum(r.sell_count)}</td>
   </tr>`;
-  buildTable("tab-liga", columns, rows, renderRow,
+  buildTable("tab-liga", columns, () => rows, renderRow,
     "Budgets ausser der eigenen Zeile sind Schaetzungen aus dem Activity-Feed (siehe MDs/methodik.md).");
 }
 
