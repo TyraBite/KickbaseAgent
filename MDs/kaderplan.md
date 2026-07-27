@@ -16,6 +16,16 @@ statt verkauft. Tella/Scherhant werden als Bank behalten statt verkauft
 Budget nicht mehr ohne Weiteres - Katic wird zusätzlich verkauft, eine
 Restlücke von ~4,2 Mio. wird bewusst offen gelassen (siehe Budget-Abschnitt).
 
+**Update 27.07.2026 (3. Runde)**: **Liga-Regel entdeckt: maximal 3 Spieler
+pro Kickbase-Verein im Kader erlaubt** (Liga-eigene Regel, nicht
+Kickbase-Plattform-Standard). Lynen ersetzt durch Fellhauer, weil Lynen +
+Stage beide Werder Bremen gewesen wären - mit Deman als Abwehr-Backup waere
+das schon der Cap gewesen. Freiburg (Lienhart + Scherhant + potenziell
+Matanović) waere ebenfalls bei 3/3 - bewusst akzeptiert, keine Aenderung
+noetig. Login-Praemie (taeglich steigender Betrag, live bestaetigt:
+10.000 am 25.07., 20.000 am 27.07.) als zusaetzliche Budget-Quelle bis
+Saisonstart eingerechnet.
+
 ## Kalkulationsregel
 
 Für noch nicht gebotene Ziele mit **Marktwert × 1,05** rechnen, nicht mit
@@ -52,7 +62,7 @@ verkaufen (3. Keeper unnötig).
 | 2 | Lienhart | Ziel, Markt (System) | 8.802.894 | Rang 2, Schnitt 69 | 2026-07-27 |
 | 3 | **Matsima** | eigener Kader | – | **Live-Rang 1, Schnitt 82** - widerspricht der alten MD-Notiz ("Ausfall+Rotation", 21.07.). Status-Code 2 (angeschlagen) bleibt - **Fitness im Client/bei Ligainsider prüfen, bevor er final als Starter gilt** | 2026-07-27 |
 | 3 (Bank-Option) | Muheim | Ziel, frei | 6.063.833 | Nur falls Matsima nicht fit - Rang 1, Schnitt 67, selbst Status-Code 2 | 2026-07-27 |
-| 3 (Bank-Option) | Deman | Ziel, frei | 6.372.529 | Alternative zu Muheim (Bremen-Klumpenrisiko mit Lynen) | 2026-07-27 |
+| 3 (Bank-Option) | Deman | Ziel, frei | 6.372.529 | Alternative zu Muheim - mit Stage waeren das 2 von 3 erlaubten Bremer Spielern, unproblematisch | 2026-07-27 |
 
 **Verworfen**: Pieper (Rang 3, Startelf-Sicherheit unsicher), Svensson (MD:
 "Abgangsrisiko, zu teuer pro Punkt"). Raum (MDs urspr. Top-Priorität) ist
@@ -63,7 +73,7 @@ inzwischen bei Thommi Kessler im Kader - kein Ziel mehr.
 | Slot | Spieler | Status | Preis/Gebot | Anmerkung | geprüft am |
 |---|---|---|---|---|---|
 | 1 | Leweling | eigener Kader | – | **Fixer Kern**, Signal 0,62 bewusst akzeptiert (Premium-Preis für Top-Spieler) | 2026-07-25 |
-| 2 | Lynen | Ziel, frei | 6.133.729 | Rang 1, Schnitt 71, bestes Signal (1,92) der günstigen Optionen | 2026-07-27 |
+| 2 | Fellhauer | Ziel, frei | 6.620.979 | Rang 1, Schnitt 65 - ersetzt Lynen (waere mit Stage 2x Bremen gewesen, siehe Liga-Regel oben). Augsburg (2. Spieler dort neben Matsima, unproblematisch) | 2026-07-27 |
 | 3 | Krauß | Ziel, frei | 4.760.230 | Rang 2, Schnitt 56, günstig - bewusst behalten statt gegen kostenlose Bank-Option (Tella) zu tauschen, obwohl das Budget entlasten würde | 2026-07-27 |
 | 4 | Stage | Gebot platziert | 16.200.000 | MD: "höchste geprüfte Startplatzsicherheit" | 2026-07-27 |
 | Bank | Tella | eigener Kader | – | behalten statt verkauft (Rang 3, Schnitt 68) - kostenneutrale Bank-Option | 2026-07-27 |
@@ -97,28 +107,48 @@ Managerangebot möglich).
 Gratis-Starter), Tella + Scherhant (kostenneutrale Bank), Günther (bleibt
 Stammspieler-Slot 1).
 
-## Budget (Stand 27.07.2026, 2. Runde)
+## Budget (Stand 27.07.2026, 3. Runde)
 
 - Pool: Cash 87.832.916 + Verkaufserlöse (Chaves, Urbig, Funk, Stange,
   Suleiman, Katic) ≈ 125.434.830.
-- Eingeplant (Matsima-Variante, ohne Muheim/Deman-Kauf): ≈ 129.654.155.
-- **Fehlbetrag ≈ 4,22 Mio., bewusst offen gelassen** - der 5%-Aufschlag
+- **Login-Prämie bis Saisonstart (28.08.2026)**: live bestätigt 10.000
+  (25.07.) → 20.000 (27.07.), also +10.000/Tag - Hochrechnung unter der
+  (unbestätigten) Annahme "Deckel bei 100.000/Tag": ~32 verbleibende Tage
+  ≈ **+2.920.000**. Setzt eine ununterbrochene tägliche Login-Streak
+  voraus - bei einem verpassten Tag entsprechend niedriger.
+- Neuer Pool inkl. Login-Prämie: ≈ 128.354.830.
+- Eingeplant (Matsima-Variante, Fellhauer statt Lynen, ohne Muheim/Deman-Kauf):
+  ≈ 130.141.405.
+- **Fehlbetrag ≈ 1,79 Mio., bewusst offen gelassen** - der 5%-Aufschlag
   in der Kalkulationsregel ist eine konservative Schätzung; manche Ziele
   (v.a. Systemangebote ohne Konkurrenz) könnten günstiger als geschätzt
-  landen. Falls sich die Lücke real bestätigt: zuerst Scherhant zusätzlich
-  verkaufen (4,50 Mio., schließt die Lücke fast vollständig), erst danach
-  Lienhart/Undav nochmal überdenken.
+  landen. Falls sich die Lücke real bestätigt: Scherhant zusätzlich
+  verkaufen (4,50 Mio.) schließt sie vollständig.
 - Fällt Matsima wegen Fitness durch (Muheim/Deman-Kauf nötig, +6-6,4 Mio.),
   vergrößert sich die Lücke entsprechend - dann ist ein zusätzlicher
   Verkauf (Scherhant und/oder Günther) nicht mehr optional.
 
+## Liga-Regel: maximal 3 Spieler pro Verein
+
+Liga-eigene Regel (nicht Kickbase-Plattform-Standard) - vor jedem Kauf
+gegenchecken, wie viele Spieler eines Vereins schon im Kader/Plan stehen:
+
+- **Bremen**: nur noch Stage (1/3) nach dem Lynen->Fellhauer-Tausch. Deman
+  als Abwehr-Backup waere 2/3, unproblematisch.
+- **Freiburg**: Lienhart + Scherhant (2/3), Matanović waere die 3. -
+  bewusst akzeptiert (Cap erreicht, aber nicht überschritten). Keine
+  weiteren Freiburg-Spieler mehr möglich danach.
+- **Augsburg**: Matsima + Fellhauer (2/3) nach dem Tausch.
+- **Union Berlin**: Rönnow + Klaus (2/3).
+- **Stuttgart**: Leweling + Undav (2/3, siehe Cluster-Risiken unten).
+
 ## Cluster-Risiken
 
-- Leweling + Undav: beide Stuttgart (nicht aktiv vermieden, nur als
-  Hinweis notiert).
+- Leweling + Undav: beide Stuttgart (2/3 des Liga-Caps, nicht aktiv
+  vermieden, nur als Hinweis notiert).
 - Beier + Guirassy wären beide Dortmund gewesen → Guirassy deshalb verworfen.
-- Lynen + Deman wären beide Bremen gewesen → bei Abwehr-Slot 3 deshalb
-  Muheim vor Deman priorisiert (nur relevant falls Matsima ausfällt).
+- Lynen + Stage wären beide Bremen gewesen → Lynen durch Fellhauer (Augsburg)
+  ersetzt. Deman bliebe als Abwehr-Backup bei 2/3 Bremen, unproblematisch.
 
 ## Offene Punkte
 
@@ -132,6 +162,12 @@ Stammspieler-Slot 1).
    Gebot wo möglich noch gegenchecken.
 4. Marktbeobachtung für die "frei"-Ziele ist zeitkritisch (2-Stunden-
    Rotation) - aktuell kein automatischer Abgleich im Tool.
-5. Ob sich die 4,22-Mio.-Lücke real schließt, hängt von den tatsächlichen
+5. Ob sich die 1,79-Mio.-Lücke real schließt, hängt von den tatsächlichen
    Gebotspreisen ab - beim naechsten Dashboard-Lauf/Kaderplan-Update
    gegenchecken.
+6. Login-Prämien-Deckel (angenommen 100.000/Tag) ist unbestätigt - nur 2
+   echte Datenpunkte (10.000, 20.000). Bei jedem Update gegenchecken, ob
+   die Progression weiter +10.000/Tag folgt und wo sie kappt.
+7. Vor jedem weiteren Kauf die Verein-Zaehlung (siehe Abschnitt oben)
+   gegenchecken, besonders bei Freiburg (schon 2/3) und Bremen/Augsburg/
+   Union Berlin/Stuttgart (je 2/3 nach aktuellem Stand).
