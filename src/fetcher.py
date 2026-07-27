@@ -84,6 +84,11 @@ def _squad_item_to_row(item: dict, team_names_by_id: dict) -> dict:
         "total_points": item.get("p"),
         "team_id": team_id,
         "team_name": team_names_by_id.get(team_id),
+        # Roher Kickbase-Rang ("prob"), UNBESTAETIGT: Musterbeobachtung an
+        # echten Teamprofil-Beispielen (27.07.2026) spricht fuer einen
+        # Startelf-Rang (1 = wahrscheinlichster Stammspieler seiner Position,
+        # hoehere Werte unwahrscheinlicher) - keine offizielle Bestaetigung.
+        "starting_rank": item.get("prob"),
     }
 
 
@@ -151,6 +156,7 @@ def _market_item_to_row(
         "leading_bid_username": leading_bid_username,
         "leading_bid_price": leading_bid_price,
         "is_own_leading_bid": 1 if is_own_leading_bid else 0,
+        "starting_rank": item.get("prob"),
     }
 
 

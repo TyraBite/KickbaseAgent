@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS own_squad (
     total_points INTEGER,
     team_id TEXT,
     team_name TEXT,
+    starting_rank INTEGER,
     PRIMARY KEY (fetched_at, player_id)
 );
 
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS market_listings (
     leading_bid_username TEXT,
     leading_bid_price INTEGER,
     is_own_leading_bid INTEGER,
+    starting_rank INTEGER,
     PRIMARY KEY (fetched_at, player_id)
 );
 
@@ -109,10 +111,22 @@ CREATE TABLE IF NOT EXISTS manager_budgets (
 """
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: str) -> None:
+    """Fuegt eine Spalte nachtraeglich hinzu, falls sie in einer bereits
+    committeten DB (data/kickbase.db) noch fehlt - CREATE TABLE IF NOT EXISTS
+    aendert ein bestehendes Schema nicht."""
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
+    _ensure_column(conn, "own_squad", "starting_rank", "INTEGER")
+    _ensure_column(conn, "market_listings", "starting_rank", "INTEGER")
+    conn.commit()
     return conn
 
 
@@ -134,12 +148,12 @@ def replace_own_squad(conn: sqlite3.Connection, fetched_at: str, players: list[d
             fetched_at, player_id, name, position, status_code, status_label,
             market_value, market_value_trend, market_value_change_7d,
             market_value_low_92d, market_value_high_92d, market_value_in_drop_phase,
-            average_points, total_points, team_id, team_name
+            average_points, total_points, team_id, team_name, starting_rank
         ) VALUES (
             :fetched_at, :player_id, :name, :position, :status_code, :status_label,
             :market_value, :market_value_trend, :market_value_change_7d,
             :market_value_low_92d, :market_value_high_92d, :market_value_in_drop_phase,
-            :average_points, :total_points, :team_id, :team_name
+            :average_points, :total_points, :team_id, :team_name, :starting_rank
         )
         """,
         [{**p, "fetched_at": fetched_at} for p in players],
@@ -157,14 +171,14 @@ def replace_market_listings(conn: sqlite3.Connection, fetched_at: str, listings:
             market_value_high_92d, market_value_in_drop_phase,
             price, price_delta_pct, average_points, total_points, team_id, team_name,
             offering_user_id, offering_username, is_system_offer, pending_offers_count,
-            leading_bid_username, leading_bid_price, is_own_leading_bid
+            leading_bid_username, leading_bid_price, is_own_leading_bid, starting_rank
         ) VALUES (
             :fetched_at, :player_id, :name, :position, :status_code, :status_label,
             :market_value, :market_value_change_7d, :market_value_low_92d,
             :market_value_high_92d, :market_value_in_drop_phase,
             :price, :price_delta_pct, :average_points, :total_points, :team_id, :team_name,
             :offering_user_id, :offering_username, :is_system_offer, :pending_offers_count,
-            :leading_bid_username, :leading_bid_price, :is_own_leading_bid
+            :leading_bid_username, :leading_bid_price, :is_own_leading_bid, :starting_rank
         )
         """,
         [{**listing, "fetched_at": fetched_at} for listing in listings],

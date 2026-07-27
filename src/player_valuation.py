@@ -27,9 +27,12 @@ werden statt sie aus Gesamt-/Schnittpunkten zurueckzurechnen.
 from __future__ import annotations
 
 import concurrent.futures
+import datetime
+import json
 import os
 import statistics
 import sys
+from pathlib import Path
 
 from src.kickbase_client import (
     KickbaseError,
@@ -44,6 +47,8 @@ MIN_APPEARANCE_RATE = 0.85
 MIN_MARKET_VALUE = 500_000
 MIN_POSITION_SAMPLE = 4
 MATCHDAYS_PER_SEASON = 34
+
+CALIBRATION_PATH = Path(__file__).resolve().parent.parent / "data" / "valuation_k.json"
 
 # Aus MDs/methodik.md, kalibriert an 3 Datenpunkten aus einem stark
 # verzerrten 68-Spieler-Dump (2026-07-25) - Referenz fuer den Konsistenz-Check
@@ -185,6 +190,42 @@ def calibrate(reference_set: list[dict]) -> dict:
     return {"global_k": global_k, "n": len(reference_set), "position_k": position_k}
 
 
+def save_calibration(calibration: dict, path: Path = CALIBRATION_PATH) -> None:
+    """Persistiert das Kalibrierungsergebnis, damit src/dashboard_export.py
+    nicht jeden Tag neu 450 Spieler scannen muss (K aendert sich langsam,
+    siehe MDs/methodik.md). Kleine, von Hand lesbare JSON-Datei statt
+    DB-Schema fuer einen einzigen Kalibrierungsstand."""
+    payload = {
+        "calibrated_at": datetime.date.today().isoformat(),
+        "n": calibration["n"],
+        "global_k": calibration["global_k"],
+        "position_k": calibration["position_k"],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_calibration(path: Path = CALIBRATION_PATH) -> dict | None:
+    """Liest den letzten gespeicherten Kalibrierungsstand, oder None wenn
+    noch nie kalibriert wurde - Aufrufer (dashboard_export.py) muessen das
+    als 'nicht kalibriert' behandeln, nicht als Fehler."""
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def k_for_position(calibration: dict | None, position: str) -> float | None:
+    """Liefert das Positions-K falls genug Datenpunkte vorhanden waren
+    (siehe calibrate()), sonst Fallback auf globales K, sonst None (nie
+    kalibriert)."""
+    if calibration is None:
+        return None
+    position_info = calibration.get("position_k", {}).get(position)
+    if position_info and position_info.get("k") is not None:
+        return position_info["k"]
+    return calibration.get("global_k")
+
+
 def _find_anchor(rows: list[dict], name: str) -> dict | None:
     matches = [r for r in rows if r.get("name") == name]
     if len(matches) > 1:
@@ -259,3 +300,5 @@ if __name__ == "__main__":
     reference_set = build_reference_set(dataset)
     calibration = calibrate(reference_set)
     _print_report(dataset, calibration)
+    save_calibration(calibration)
+    print(f"\nKalibrierung gespeichert: {CALIBRATION_PATH}")

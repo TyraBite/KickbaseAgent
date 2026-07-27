@@ -87,6 +87,20 @@ def get_squad(token: str, league_id: str) -> list[dict]:
     return response.json().get("it", [])
 
 
+def get_manager_squad(token: str, league_id: str, manager_id: str) -> dict:
+    """Kader eines ANDEREN Liga-Managers (bestaetigt 27.07.2026, gleiche
+    Feldform wie get_squad() fuer den eigenen Account). Gibt das komplette
+    Response-Dict zurueck (nicht nur 'it'), weil 'nps' (Kadergroesse) fuer
+    src/dashboard_export.py gebraucht wird."""
+    response = requests.get(
+        f"{BASE_URL}/v4/leagues/{league_id}/managers/{manager_id}/squad",
+        headers=_headers(token),
+        timeout=TIMEOUT,
+    )
+    _raise_for_status(response)
+    return response.json()
+
+
 def get_market(token: str, league_id: str) -> dict:
     """Gibt das komplette Response-Dict zurueck (nicht nur 'it'!), da die
     Top-Level-Felder day/dt/mvud fuer die Saisonphase gebraucht werden

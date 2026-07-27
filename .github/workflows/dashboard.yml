@@ -1,0 +1,35 @@
+name: Dashboard Export
+
+on:
+  schedule:
+    - cron: '15 21 * * *' # ~21:15 UTC, nach Kickbases 22:00-Uhr-Marktwert-Update in CET wie CEST (Drift akzeptiert)
+  workflow_dispatch: {}
+
+jobs:
+  dashboard-export:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch data, build dashboard
+        env:
+          KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
+          KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
+        run: python -m src.dashboard_export
+
+      - name: Commit updated dashboard and snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/kickbase.db docs/dashboard.html
+          git diff --cached --quiet || git commit -m "Dashboard-Update $(date -u +%F' '%H:%M)"
+          git push
