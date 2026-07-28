@@ -160,6 +160,34 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   margin-bottom: 8px;
 }
 .budget-grid > div { white-space: nowrap; }
+.wk-add-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 8px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.wk-add-form input, .wk-add-form select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.wk-name-input {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  width: 100%;
+}
 </style>
 </head>
 <body>
@@ -594,6 +622,12 @@ function suggestReplacements(target, count = 3) {
 
 let wunschkaderEditState = null; // lokale Arbeitskopie von DATA.wunschkader_raw.targets waehrend des Editierens
 
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
 function renderWunschkader() {
   const rows = DATA.wunschkader || [];
   const container = document.getElementById("tab-wunschkader");
@@ -607,22 +641,27 @@ function renderWunschkader() {
     const computed = rows.find((r) => r.name === t.name) || {};
     return `<tr>
       <td>${t.position}</td>
-      <td><input type="text" data-idx="${idx}" class="wk-name-input" value="${t.name}"></td>
+      <td><input type="text" data-idx="${idx}" class="wk-name-input" value="${escapeHtml(t.name)}"></td>
       <td>${t.role}</td>
       <td>${wunschStatusPill(computed.status || "unbekannt")}</td>
       <td class="num">${fmtNum(computed.market_value)}</td>
+      <td class="num">${fmtNum(computed.planned_price)}${computed.is_estimate ? ' <span class="muted">(gesch.)</span>' : ""}</td>
       <td class="num">${fmtNum(computed.points_avg)}</td>
+      <td class="num">${signalPill(computed.signal)}</td>
+      <td class="num">${mlCell(computed.ml_prediction)}</td>
+      <td class="num">${computed.starting_rank ?? '<span class="muted">n/v</span>'}</td>
+      <td class="muted">${escapeHtml(computed.note ?? "")}</td>
       <td><button type="button" class="wk-wechsel-btn" data-idx="${idx}">Wechsel</button></td>
       <td><button type="button" class="wk-remove-btn" data-idx="${idx}">Entfernen</button></td>
     </tr>
-    <tr class="wk-suggestions" data-idx="${idx}" style="display:none;"><td colspan="8"></td></tr>`;
+    <tr class="wk-suggestions" data-idx="${idx}" style="display:none;"><td colspan="13"></td></tr>`;
   }).join("");
 
   container.innerHTML = `
     <p class="section-hint">Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung.
-      Aenderungen wirken sich erst nach dem naechsten Pipeline-Lauf (alle 2h) auf Status/Fairwert/ML-Prognose aus.</p>
+      Aenderungen wirken sich erst nach dem naechsten Pipeline-Lauf (alle 2h) auf Status/Fairwert/ML-Prognose/Budget-Planung aus.</p>
     <table>
-      <thead><tr><th>Pos.</th><th>Spieler</th><th>Rolle</th><th>Status</th><th>Marktwert</th><th>Schnitt</th><th></th><th></th></tr></thead>
+      <thead><tr><th>Pos.</th><th>Spieler</th><th>Rolle</th><th>Status</th><th>Marktwert</th><th>Geplant</th><th>Schnitt</th><th>Signal</th><th>ML-Prognose</th><th>Rang</th><th>Notiz</th><th></th><th></th></tr></thead>
       <tbody id="wk-edit-body">${editRows}</tbody>
     </table>
     <div class="wk-add-form">
@@ -667,7 +706,7 @@ function renderWunschkader() {
       const suggestions = suggestReplacements({ ...target, market_value: computed.market_value, points_avg: computed.points_avg });
       suggestionsRow.querySelector("td").innerHTML = suggestions.length
         ? "Vorschlaege: " + suggestions.map((s) =>
-            `<button type="button" class="wk-pick-btn" data-idx="${idx}" data-name="${s.name}">${s.name} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`
+            `<button type="button" class="wk-pick-btn" data-idx="${idx}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`
           ).join(" ")
         : "Keine freien Alternativen gleicher Position gefunden.";
       suggestionsRow.style.display = "";
@@ -696,9 +735,12 @@ function renderWunschkader() {
     const statusEl = document.getElementById("wk-save-status");
     statusEl.textContent = "Speichere...";
     try {
-      await setDoc(doc(db, "wunschkader", "current"), { targets: wunschkaderEditState }, { merge: true });
+      const updatedAt = new Date().toISOString().slice(0, 10);
+      await setDoc(doc(db, "wunschkader", "current"), { targets: wunschkaderEditState, updated_at: updatedAt }, { merge: true });
       if (DATA.wunschkader_raw) DATA.wunschkader_raw.targets = wunschkaderEditState;
-      statusEl.textContent = "Gespeichert. Aenderungen erscheinen im naechsten Pipeline-Lauf (~2h).";
+      DATA.wunschkader_updated_at = updatedAt;
+      renderWunschkader();
+      document.getElementById("wk-save-status").textContent = "Gespeichert. Aenderungen erscheinen im naechsten Pipeline-Lauf (~2h).";
     } catch (err) {
       statusEl.textContent = "Fehler beim Speichern: " + err.message;
     }
@@ -743,17 +785,17 @@ function renderAlleSpieler() {
   </tr>`;
 
   const filterBar = `<div class="filter-bar">
-    <select id="alle-spieler-filter-position">
+    <label>Position <select id="alle-spieler-filter-position">
       <option value="all">Alle Positionen</option>
       ${positions.map((p) => `<option value="${p}">${p}</option>`).join("")}
-    </select>
-    <select id="alle-spieler-filter-verfuegbarkeit">
+    </select></label>
+    <label>Verfuegbarkeit <select id="alle-spieler-filter-verfuegbarkeit">
       <option value="all">Alle</option>
       <option value="frei">Nur freie</option>
       <option value="eigen">Nur eigene</option>
       <option value="andere">Nur bei anderen Managern</option>
-    </select>
-    <input type="search" id="alle-spieler-filter-search" placeholder="Suche Spieler/Verein...">
+    </select></label>
+    <label>Suche <input type="search" id="alle-spieler-filter-search" placeholder="Spieler/Verein"></label>
     <span id="alle-spieler-filter-count" class="muted"></span>
   </div>`;
 
