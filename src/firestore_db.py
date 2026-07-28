@@ -13,7 +13,8 @@ Dokument-Id-Konvention (laut Spec): `{fetched_at}_{player_id}` bzw.
 `{fetched_at}` wenn es maximal eine Zeile pro Tag gibt (season_context,
 own_budget_history). `ml_prediction_log` (neue Collection, kein SQLite-
 Pendant - dort liegt die Historie in data/ml_prediction_log.jsonl) nutzt
-`{date}_{player_id}`.
+`{date}_{player_id}_{model_type}` (seit Phase 4: beide Modell-Kandidaten
+werden taeglich geloggt, nicht nur der Tagessieger).
 """
 
 from google.cloud import firestore
@@ -74,11 +75,18 @@ def replace_manager_budgets(client: firestore.Client, fetched_at: str, rows: lis
 
 def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict]) -> None:
     """Firestore-Pendant zu data/ml_prediction_log.jsonl (kein SQLite-Original -
-    neue Collection laut Spec). Doc-Id `{date}_{player_id}` macht Re-Laeufe
-    desselben Tages idempotent, analog zur Dedup-Logik in
-    market_predictor._save_prediction_log()."""
-    docs = {f"{e['date']}_{e['player_id']}": e for e in entries}
+    neue Collection laut Spec). Doc-Id `{date}_{player_id}_{model_type}` macht
+    Re-Laeufe desselben Tages idempotent (pro Modell-Kandidat), analog zur
+    Dedup-Logik in market_predictor._save_prediction_log()."""
+    docs = {f"{e['date']}_{e['player_id']}_{e['model_type']}": e for e in entries}
     _write_in_batches(client, "ml_prediction_log", docs)
+
+
+def get_prediction_log_entries(client: firestore.Client) -> list[dict]:
+    """Liest die komplette ml_prediction_log-Collection - keine Datumsfilterung
+    noetig, Datenmenge bleibt ueberschaubar (~450 Spieler x 2 Modelle x
+    max. ~1 Jahr Trailing-Retention)."""
+    return [doc.to_dict() for doc in client.collection("ml_prediction_log").stream()]
 
 
 def upsert_dashboard_snapshot(client: firestore.Client, data: dict) -> None:

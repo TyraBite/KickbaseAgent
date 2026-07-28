@@ -138,18 +138,18 @@ class UpsertSeasonContextTests(unittest.TestCase):
 
 
 class UpsertPredictionLogEntriesTests(unittest.TestCase):
-    def test_writes_docs_keyed_by_date_and_player_id(self):
+    def test_writes_docs_keyed_by_date_and_player_id_and_model_type(self):
         client = MagicMock()
         batch = client.batch.return_value
         entries = [
-            {"date": "2026-07-27", "player_id": "p1", "predicted_delta": 15000},
-            {"date": "2026-07-27", "player_id": "p2", "predicted_delta": -3000},
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 15000},
+            {"date": "2026-07-27", "player_id": "p2", "model_type": "HistGradientBoosting", "predicted_delta": -3000},
         ]
 
         firestore_db.upsert_prediction_log_entries(client, entries)
 
         client.collection.assert_any_call("ml_prediction_log")
-        self.assertEqual(_doc_ids(client), ["2026-07-27_p1", "2026-07-27_p2"])
+        self.assertEqual(_doc_ids(client), ["2026-07-27_p1_RandomForest", "2026-07-27_p2_HistGradientBoosting"])
         payloads = _batch_set_payloads(batch)
         self.assertEqual(payloads[0]["predicted_delta"], 15000)
         self.assertEqual(payloads[1]["player_id"], "p2")
@@ -207,3 +207,29 @@ class UpsertWunschkaderTests(unittest.TestCase):
         client.collection.assert_any_call("wunschkader")
         client.collection.return_value.document.assert_called_once_with("current")
         client.collection.return_value.document.return_value.set.assert_called_once_with(data)
+
+
+class GetPredictionLogEntriesTests(unittest.TestCase):
+    def test_returns_all_documents_as_dicts(self):
+        client = MagicMock()
+        doc1, doc2 = MagicMock(), MagicMock()
+        doc1.to_dict.return_value = {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100}
+        doc2.to_dict.return_value = {"date": "2026-07-27", "player_id": "p1", "model_type": "HistGradientBoosting", "predicted_delta": 90}
+        client.collection.return_value.stream.return_value = [doc1, doc2]
+
+        result = firestore_db.get_prediction_log_entries(client)
+
+        client.collection.assert_any_call("ml_prediction_log")
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["model_type"], "RandomForest")
+
+
+class UpsertPredictionLogEntriesModelTypeDocIdTests(unittest.TestCase):
+    def test_doc_id_includes_model_type(self):
+        client = MagicMock()
+        entries = [{"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100}]
+
+        firestore_db.upsert_prediction_log_entries(client, entries)
+
+        doc_ids = _doc_ids(client)
+        self.assertIn("2026-07-27_p1_RandomForest", doc_ids)
