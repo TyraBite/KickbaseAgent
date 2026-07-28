@@ -86,16 +86,24 @@ def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict])
     _write_in_batches(client, "ml_prediction_log", docs)
 
 
-def get_recent_prediction_log_entries(client: firestore.Client, since_date: str) -> list[dict]:
-    """Liest NUR ml_prediction_log-Eintraege ab since_date (inklusive,
-    serverseitig gefiltert via FieldFilter) - die Collection waechst
-    taeglich um ~900 Rohdaten-Dokumente (450 Spieler x 2 Modelle), ein
-    ungefiltertes Voll-Scan bei jedem der 12 taeglichen Laeufe wuerde
-    Firestores Read-Quota sprengen (siehe HANDOFF.md, Quota-Vorfall
-    2026-07-28). `ml_prediction_log` ist seit Phase-4-Quota-Fix nur noch
-    eine kurzlebige Staging-Zone fuer NEUE, noch nicht ausgewertete
+def get_recent_prediction_log_entries(client: firestore.Client, since_date: str, before_date: str) -> list[dict]:
+    """Liest NUR ml_prediction_log-Eintraege im Bereich [since_date,
+    before_date) - serverseitig per Doppel-Range-Filter auf demselben Feld
+    (kein Composite-Index noetig). Die Collection waechst taeglich um
+    ~900 Rohdaten-Dokumente (450 Spieler x 2 Modelle), ein ungefiltertes
+    Voll-Scan bei jedem der 12 taeglichen Laeufe wuerde Firestores
+    Read-Quota sprengen (siehe HANDOFF.md, Quota-Vorfall 2026-07-28).
+    `before_date` (exklusiv, typischerweise "heute") spart zusaetzlich die
+    Eintraege des laufenden Tages, die ohnehin noch nicht auswertbar sind
+    (kein Folgetag-Marktwert bekannt) und sonst gelesen und sofort
+    verworfen wuerden. `ml_prediction_log` ist seit Phase-4-Quota-Fix nur
+    noch eine kurzlebige Staging-Zone fuer NEUE, noch nicht ausgewertete
     Prognosen - siehe market_predictor.EVALUATION_LOOKBACK_DAYS."""
-    query = client.collection("ml_prediction_log").where(filter=FieldFilter("date", ">=", since_date))
+    query = (
+        client.collection("ml_prediction_log")
+        .where(filter=FieldFilter("date", ">=", since_date))
+        .where(filter=FieldFilter("date", "<", before_date))
+    )
     return [doc.to_dict() for doc in query.stream()]
 
 

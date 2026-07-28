@@ -210,16 +210,17 @@ class UpsertWunschkaderTests(unittest.TestCase):
 
 
 class GetRecentPredictionLogEntriesTests(unittest.TestCase):
-    def test_filters_by_date_server_side(self):
+    def test_filters_by_date_range_server_side(self):
         client = MagicMock()
         doc1 = MagicMock()
         doc1.to_dict.return_value = {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100}
-        client.collection.return_value.where.return_value.stream.return_value = [doc1]
+        client.collection.return_value.where.return_value.where.return_value.stream.return_value = [doc1]
 
-        result = firestore_db.get_recent_prediction_log_entries(client, "2026-07-25")
+        result = firestore_db.get_recent_prediction_log_entries(client, "2026-07-25", "2026-07-28")
 
         client.collection.assert_any_call("ml_prediction_log")
         client.collection.return_value.where.assert_called_once()
+        client.collection.return_value.where.return_value.where.assert_called_once()
         self.assertEqual(len(result), 1)
 
 

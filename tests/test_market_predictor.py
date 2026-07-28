@@ -30,6 +30,21 @@ class LoadRecentPredictionLogTests(unittest.TestCase):
             _load_recent_prediction_log("2026-07-28")
         mock_get.assert_called_once()
         self.assertEqual(mock_get.call_args.args[1], "2026-07-25")  # today - EVALUATION_LOOKBACK_DAYS(3)
+        self.assertEqual(mock_get.call_args.args[2], "2026-07-28")  # exklusive Obergrenze: heute noch nicht auswertbar
+
+    @patch("src.market_predictor.firestore_db.get_recent_prediction_log_entries")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_falls_back_to_local_file_filtered_by_range_on_firestore_error(self, mock_connect, mock_get):
+        mock_get.side_effect = RuntimeError("Firestore down")
+        with patch("src.market_predictor._load_local_prediction_log") as mock_local:
+            mock_local.return_value = [
+                {"date": "2026-07-20", "player_id": "p0", "model_type": "RandomForest", "predicted_delta": 1},
+                {"date": "2026-07-26", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 2},
+                {"date": "2026-07-28", "player_id": "p2", "model_type": "RandomForest", "predicted_delta": 3},
+            ]
+            with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+                result = _load_recent_prediction_log("2026-07-28")
+        self.assertEqual([e["player_id"] for e in result], ["p1"])
 
 
 class SelectLiveModelTests(unittest.TestCase):

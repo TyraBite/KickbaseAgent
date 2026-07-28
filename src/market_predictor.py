@@ -545,13 +545,13 @@ def _load_recent_prediction_log(today: str) -> list[dict]:
     since = (datetime.date.fromisoformat(today) - datetime.timedelta(days=EVALUATION_LOOKBACK_DAYS)).isoformat()
     if os.environ.get("FIRESTORE_ENABLED"):
         try:
-            return firestore_db.get_recent_prediction_log_entries(firestore_db.connect(), since)
+            return firestore_db.get_recent_prediction_log_entries(firestore_db.connect(), since, today)
         except Exception as exc:
             print(
                 f"Warnung: ml_prediction_log-Lesezugriff fehlgeschlagen, nutze lokale Datei: {exc}",
                 file=sys.stderr,
             )
-    return [e for e in _load_local_prediction_log() if e["date"] >= since]
+    return [e for e in _load_local_prediction_log() if since <= e["date"] < today]
 
 
 def _save_prediction_log(entries: list[dict]) -> None:
