@@ -114,10 +114,40 @@ Client-JS). Durchgefuehrt:
 - Vollstaendiger Code-Review des Diffs (Spalten-/Zellen-Anzahl je Zeile
   gegengecheckt, keine `data-idx`-Altlasten mehr im Code).
 
-**Noch offen (braucht echten Login, kann im Sandbox nicht ausgefuehrt
-werden)**: manueller Browser-Check mit echtem Firebase-Login — DevTools-
-Mobile-Emulation auf allen 7 Tabs (keine horizontalen Scrollbalken mehr,
-Tab-Leiste scrollt statt zu brechen), Wunschkader-Flow (Sortieren, Name
-aendern, Wechsel-Vorschlaege, Entfernen, Hinzufuegen, Speichern —
-inklusive Pruefung, dass `_uid` NICHT im gespeicherten Firestore-Dokument
-landet), Desktop-Breite als Regressionscheck, Dark Mode im Card-Layout.
+**Update**: der User hat den echten Browser-Check durchgefuehrt (Sandbox
+selbst kann das mangels Login/Browser nicht) und dabei 3 Probleme
+gefunden — siehe "Nacharbeit nach echtem Mobile-Test" unten.
+
+## Nacharbeit nach echtem Mobile-Test
+
+Drei vom User im echten Browser gefundene Probleme, alle in `index.html`
+behoben:
+
+1. **Card-Modus hatte keine Sortier-Moeglichkeit mehr**: `thead` wurde
+   komplett versteckt (`position: absolute; top: -9999px`). Fix: `thead`
+   bleibt sichtbar, wird aber im Breakpoint zu einer horizontal
+   scrollbaren Pill-Leiste (`display:flex`, jedes `th` eine Pille). Reine
+   CSS-Aenderung — die bestehende Klick-zum-Sortieren-Logik in
+   `makeSortable()` (inkl. `th.sorted::after`-Pfeil) greift unveraendert.
+   Spalten ohne sinnvollen Sortier-Key (`th[data-key=""]`, die generisch
+   angehaengte leere Details-Toggle-`th` ohne `data-key`) werden in der
+   Pill-Leiste ausgeblendet.
+2. **Wunschkader-Name war ein editierbares `<input>`**, dadurch oft nicht
+   komplett lesbar — und laut User ohnehin ueberfluessig, weil der
+   "Wechsel"-Button das Ersetzen schon abdeckt. Fix: Name-Zelle ist jetzt
+   reiner (escapeter) Text, `.wk-name-input`-CSS-Regel und der zugehoerige
+   delegierte `change`-Listener sind entfernt. Umbenennen geht nur noch
+   ueber "Wechsel" + Vorschlag.
+3. **Frisch per "Wechsel" gewaehlter Ersatzspieler zeigte keine Werte**:
+   `wkRenderRow()` suchte "computed"-Werte nur in `DATA.wunschkader` (dem
+   Snapshot vom letzten 2h-Pipeline-Lauf) — ein gerade erst client-seitig
+   gewaehlter Spieler stand dort naturgemaess noch nicht drin. Fix: neue
+   `computedFor(name)`-Hilfsfunktion in `renderWunschkader()` faellt bei
+   fehlendem Treffer auf `DATA.alle_spieler` zurueck (Marktwert, Schnitt,
+   Signal, Startelf-Rang, Status ueber `owner` — dieselbe Signal-Formel
+   wie serverseitig, siehe `_build_alle_spieler` vs. `_build_wunschkader`
+   in `src/dashboard_export.py`). Wird auch im "Wechsel"-Klick-Handler
+   selbst genutzt (fuer die Vorschlags-Distanzberechnung), nicht nur beim
+   Rendern. `planned_price`/`ml_prediction`/`note` bleiben bis zum
+   naechsten Pipeline-Lauf "n/v" — echte serverseitige Logik (Fairwert-
+   Gebotsschaetzung, ML-Modell), bewusst nicht client-seitig dupliziert.

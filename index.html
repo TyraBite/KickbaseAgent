@@ -183,15 +183,6 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   border-radius: 4px;
   padding: 3px 6px;
 }
-.wk-name-input {
-  font: inherit;
-  color: var(--text-primary);
-  background: var(--page);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 6px;
-  width: 100%;
-}
 .dropdown-check { position: relative; display: inline-block; }
 .dropdown-check-menu {
   position: absolute;
@@ -286,9 +277,28 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
     cursor: pointer;
     text-align: left;
   }
-  table, thead, tbody, tr, td { display: block; width: 100%; }
-  thead { position: absolute; top: -9999px; left: -9999px; }
+  table, tbody, tr, td { display: block; width: 100%; }
   table { border-collapse: separate; }
+  thead {
+    display: block;
+    position: static;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 8px;
+    white-space: nowrap;
+  }
+  thead tr { display: flex; gap: 6px; }
+  thead th {
+    display: inline-block;
+    flex: 0 0 auto;
+    position: static;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    background: var(--surface-1);
+  }
+  th.sorted { border-color: var(--accent); color: var(--accent); }
+  th[data-key=""], th:not([data-key]) { display: none; }
   tbody tr {
     margin-bottom: 10px;
     border: 1px solid var(--gridline);
@@ -832,11 +842,24 @@ function renderWunschkader() {
     { key: "starting_rank", label: "Rang", numeric: true, secondary: true },
     { key: "note", label: "Notiz", secondary: true },
   ];
+  function computedFor(name) {
+    const fromWunschkader = rows.find((r) => r.name === name);
+    if (fromWunschkader) return fromWunschkader;
+    const live = (DATA.alle_spieler || []).find((p) => p.name === name);
+    if (!live) return {};
+    return {
+      market_value: live.market_value,
+      points_avg: live.points_avg,
+      signal: live.signal,
+      starting_rank: live.starting_rank,
+      status: live.owner,
+    };
+  }
   const wkRenderRow = (t) => {
-    const computed = rows.find((r) => r.name === t.name) || {};
+    const computed = computedFor(t.name);
     return `<tr data-id="${t._uid}">
       <td>${t.position}</td>
-      <td><input type="text" data-id="${t._uid}" class="wk-name-input" value="${escapeHtml(t.name)}"></td>
+      <td>${escapeHtml(t.name)}</td>
       <td><button type="button" class="wk-wechsel-btn" data-id="${t._uid}">Wechsel</button></td>
       <td><button type="button" class="wk-remove-btn" data-id="${t._uid}">Entfernen</button></td>
       <td>${wunschStatusPill(computed.status || "unbekannt")}</td>
@@ -865,7 +888,7 @@ function renderWunschkader() {
     const wechselBtn = e.target.closest(".wk-wechsel-btn");
     if (wechselBtn) {
       const target = wunschkaderEditState.find((t) => String(t._uid) === wechselBtn.dataset.id);
-      const computed = rows.find((r) => r.name === target.name) || {};
+      const computed = computedFor(target.name);
       const suggestionsRow = tableContainer.querySelector(`.wk-suggestions[data-id="${wechselBtn.dataset.id}"]`);
       const suggestions = suggestReplacements({ ...target, market_value: computed.market_value, points_avg: computed.points_avg });
       suggestionsRow.querySelector("td").innerHTML = suggestions.length
@@ -884,13 +907,6 @@ function renderWunschkader() {
       delete t.note;
       redraw();
     }
-  });
-  tableContainer.addEventListener("change", (e) => {
-    if (!e.target.matches(".wk-name-input")) return;
-    const t = wunschkaderEditState.find((x) => String(x._uid) === e.target.dataset.id);
-    t.name = e.target.value;
-    delete t.actual_bid;
-    delete t.note;
   });
 
   document.getElementById("wk-add-btn").addEventListener("click", () => {
