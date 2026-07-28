@@ -502,8 +502,20 @@ def backfill_prediction_log(days: int = 90) -> dict:
             )
 
     if entries and os.environ.get("FIRESTORE_ENABLED"):
-        fs_client = firestore_db.connect()
-        firestore_db.upsert_prediction_log_entries(fs_client, entries)
+        try:
+            fs_client = firestore_db.connect()
+            firestore_db.upsert_prediction_log_entries(fs_client, entries)
+        except Exception as exc:  # z.B. Firestore-Schreib-Quota (Spark-Free-Tier)
+            # ausgeschoepft bei grossen `days`-Werten - _write_in_batches
+            # committet Batches sequentiell, ein Teil koennte also schon
+            # angekommen sein, bevor der Fehler auftrat. Kein Crash, damit
+            # der User den Backfill in kleineren Portionen/an einem
+            # Folgetag fortsetzen kann, statt komplett von vorn anzufangen.
+            print(
+                f"Warnung: Firestore-Schreibzugriff fuer Backfill fehlgeschlagen (evtl. Quota-Limit) - "
+                f"ein Teil der {len(entries)} Eintraege ist evtl. schon angekommen: {exc}",
+                file=sys.stderr,
+            )
 
     return {"folds_run": folds_run, "entries_written": len(entries)}
 
