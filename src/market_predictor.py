@@ -1,6 +1,7 @@
 """ML-Marktwertprognose: taeglich neu trainiertes Modell (RandomForest oder
-HistGradientBoosting, siehe _train_and_evaluate) auf Basis von Kickbase's
-eigener 365-Tage-Marktwert- und Performance-Historie.
+HistGradientBoosting, siehe _train_and_evaluate fuer die Kandidaten,
+_select_live_model fuer die tatsaechliche Live-Auswahl) auf Basis von
+Kickbase's eigener 365-Tage-Marktwert- und Performance-Historie.
 
 Kein eigenes Langzeit-Tracking noetig - Kickbase liefert die Historie selbst
 (bestaetigt am 27.07.2026, auch fuer Spieler ausserhalb des eigenen Kaders/
@@ -20,12 +21,17 @@ aber bewusst abgewandelt:
   sqrt())
 
 Vollstaendig transient - kein DB-Schreiben, Modell wird jeden Lauf neu
-trainiert (kein persistiertes Modell-File). Einzige Ausnahme:
-data/ml_prediction_log.jsonl protokolliert taegliche Prognosen (Datum,
-Spieler, prognostizierte Aenderung), damit die tatsaechliche Tag-fuer-Tag-
-Genauigkeit rueckwirkend berechnet werden kann - der Corpus liefert die
-echte Wertaenderung dafuer bereits mit, kein zweiter Log fuer "was
-tatsaechlich passiert ist" noetig.
+trainiert (kein persistiertes Modell-File). Einzige Ausnahme: taegliche
+Prognosen (Datum, Spieler, prognostizierte Aenderung) werden kurzlebig
+geloggt (`ml_prediction_log`/lokale data/ml_prediction_log.jsonl als
+Fallback), damit die tatsaechliche Tag-fuer-Tag-Genauigkeit rueckwirkend
+berechnet werden kann - der Corpus liefert die echte Wertaenderung dafuer
+bereits mit, kein zweiter Log fuer "was tatsaechlich passiert ist" noetig.
+Seit dem Firestore-Read-Quota-Fix (2026-07-28) ist die eigentliche,
+langfristige Historie NICHT mehr diese Rohdaten-Collection, sondern die
+aggregierte `ml_accuracy_daily`-Collection (2 Dokumente/Tag statt ~900) -
+siehe _build_daily_accuracy_updates/_realized_by_model_from_daily/
+_trend_from_daily.
 """
 
 from __future__ import annotations
@@ -382,7 +388,7 @@ def _train_and_evaluate(history_df: pd.DataFrame):
 
 def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
     """Beantwortet direkt "wie waere die Prognose damals gewesen" - ohne wie
-    beim Live-Log (_evaluate_realized_accuracy) tage-/wochenlang auf echte
+    beim Live-Log (_realized_by_model_from_daily) tage-/wochenlang auf echte
     Folgetage warten zu muessen. history_df enthaelt fuer JEDEN historischen
     Tag bereits das bekannte Ergebnis (mv_target); es reicht also, mehrere
     Cutoff-Tage rueckwirkend durchzugehen: Training nur auf Zeilen VOR dem

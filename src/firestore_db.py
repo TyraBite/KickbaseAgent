@@ -12,9 +12,12 @@ Dokument-Id-Konvention (laut Spec): `{fetched_at}_{player_id}` bzw.
 `{fetched_at}_{user_id}` fuer Tabellen mit mehreren Zeilen/Tag, nur
 `{fetched_at}` wenn es maximal eine Zeile pro Tag gibt (season_context,
 own_budget_history). `ml_prediction_log` (neue Collection, kein SQLite-
-Pendant - dort liegt die Historie in data/ml_prediction_log.jsonl) nutzt
-`{date}_{player_id}_{model_type}` (seit Phase 4: beide Modell-Kandidaten
-werden taeglich geloggt, nicht nur der Tagessieger).
+Pendant) nutzt `{date}_{player_id}_{model_type}` (seit Phase 4: beide
+Modell-Kandidaten werden taeglich geloggt, nicht nur der Tagessieger) -
+ist seit dem Read-Quota-Fix (2026-07-28) nur noch eine KURZLEBIGE
+Staging-Zone (siehe get_recent_prediction_log_entries), NICHT mehr die
+Historie-Quelle. Die eigentliche, langfristige Historie liegt in
+`ml_accuracy_daily` (`{date}_{model_type}`, aggregiert, ~2 Dokumente/Tag).
 """
 
 from google.cloud import firestore
