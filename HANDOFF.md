@@ -1,12 +1,13 @@
-# Handoff: KickbaseAgent Dashboard — Phase 5 (Mobile/UX) implementiert, Live-Check offen
+# Handoff: KickbaseAgent Dashboard — Phase 5 (Mobile/UX), 1. Nacharbeitsrunde committed
 
-**Generated**: 2026-07-28 (Ende der Session)
+**Generated**: 2026-07-28 (Ende der Session, 2. Update)
 **Branch**: main
 **Status**: In Progress — Phase 1-4 fertig & live (unveraendert seit letztem
-Handoff). Phase 5 (Mobile/UX) diese Session komplett implementiert und
-lokal committed (`c458b35`), aber NUR statisch geprueft (Sandbox hat
-keinen Browser und keinen Firebase-Login) — echter Browser-Check ist der
-naechste Schritt.
+Handoff). Phase 5 (Mobile/UX) implementiert (`c458b35`), User hat danach
+ECHT im Browser getestet und 3 Probleme gefunden — alle behoben und
+committed (`dbac469`). Diese 3 Fixes sind selbst NOCH NICHT erneut im
+echten Browser verifiziert (Sandbox hat weiterhin keinen Browser/Login) —
+das ist der naechste Schritt.
 
 ## Goal
 
@@ -53,15 +54,35 @@ fokussiert auf Phase 5 + die zwei noch offenen Punkte aus Phase 4.
   Card-Modus (siehe Spec-Doc fuer die genaue Spaltenaufteilung).
 - [x] **Commit** `c458b35` (lokal, NICHT gepusht) — `index.html` +
   neues Spec-Doc.
+- [x] **1. Nacharbeitsrunde nach echtem Mobile-Test** (User-Feedback, per
+  Plan Mode neu geplant und umgesetzt, Commit `dbac469`, lokal, NICHT
+  gepusht):
+  1. Card-Modus-Sortierung: `thead` bleibt sichtbar (statt komplett
+     versteckt), wird im Breakpoint zu einer horizontal scrollbaren
+     Pill-Leiste (`display:flex`, jedes `th` eine Pille). Reine
+     CSS-Aenderung, bestehende Sortier-Logik greift unveraendert.
+     Sinnlose Pills (Wunschkader-Button-Spalten `key:""`, leere
+     Details-Toggle-`th`) werden ausgeblendet.
+  2. Wunschkader-Name ist kein `<input>` mehr, sondern reiner Text
+     (`.wk-name-input`-CSS + zugehoeriger `change`-Listener entfernt) —
+     Umbenennen nur noch ueber "Wechsel"+Vorschlag.
+  3. Neue `computedFor(name)`-Hilfsfunktion in `renderWunschkader()`:
+     faellt bei fehlendem Treffer in `DATA.wunschkader` auf
+     `DATA.alle_spieler` zurueck (Marktwert/Schnitt/Signal/Rang/Status),
+     damit ein frisch per "Wechsel" gewaehlter Spieler sofort Werte
+     zeigt statt komplett leer zu sein. `planned_price`/`ml_prediction`/
+     `note` bleiben bewusst "n/v" bis zum naechsten Pipeline-Lauf (echte
+     serverseitige Logik, nicht dupliziert).
 
 ## Not Yet Done
 
-- [ ] **Echter Browser-Check von Phase 5** (naechster Schritt, siehe
-  Resume Instructions) — Sandbox konnte nur `node --check` auf die zwei
-  `<script type="module">`-Bloecke laufen lassen (syntaktisch gruen) und
-  den Diff manuell durchlesen (Spalten-/Zellen-Zahl je Zeile
-  gegengecheckt, keine `data-idx`-Altlasten mehr). Kein echter Login,
-  kein echtes Rendering, kein Mobile-Screenshot passiert bisher.
+- [ ] **Echter Browser-Check der 3 Nacharbeit-Fixes** (naechster Schritt,
+  siehe Resume Instructions) — User hatte die erste Phase-5-Version schon
+  echt getestet und 3 Probleme gefunden (Card-Modus ohne Sortierung,
+  editierbarer Wunschkader-Name, Wechsel-Vorschlag ohne Werte, siehe
+  Completed unten fuer die Fixes). Die Fixes selbst (`dbac469`) sind
+  bisher nur per `node --check` + manuellem Diff-Review geprueft, noch
+  NICHT im echten Browser nachverifiziert.
 - [ ] **Quota-Fix (Read-Seite) sauber isoliert live verifizieren** (aus
   Phase 4, unveraendert offen): der einzige reale Versuch war durch
   Write-Quota-Erschoepfung vom selben Tag ueberlagert. An einem Tag OHNE
@@ -150,29 +171,34 @@ const targets = wunschkaderEditState.map(({ _uid, ...rest }) => rest);
 
 ## Resume Instructions
 
-1. **Sofort: Phase 5 im echten Browser verifizieren** (braucht User oder
-   eine Session mit echtem Firebase-Login):
+1. **Sofort: die 3 Nacharbeit-Fixes im echten Browser verifizieren**
+   (braucht User oder eine Session mit echtem Firebase-Login):
    - Lokal oeffnen (`index.html` direkt oder `python -m http.server` im
      Repo-Root), einloggen.
-   - DevTools-Mobile-Emulation (~375px, z.B. iPhone-Preset): alle 7 Tabs
-     durchklicken.
-     - Erwartet: keine horizontalen Scrollbalken mehr auf Tabellen,
-       Tab-Leiste scrollt statt zu brechen, Karten mit Label-ueber-Wert
-       statt Tabellen-Header.
-   - Wunschkader-Tab: Spalte antippen (sortiert), Name aendern, "Wechsel"
-     → Vorschlag waehlen, "Entfernen", neuen Eintrag hinzufuegen,
-     "Speichern".
-     - Erwartet: kein Fehler, `wk-save-status` zeigt Erfolg, Liste bleibt
-       nach jeder Aktion in der zuletzt gewaehlten Sortierung.
-     - Danach im gespeicherten Firestore-Dokument (`wunschkader/current`)
-       pruefen: KEINE `_uid`-Felder in den `targets`.
-     - Falls etwas nicht greift: zuerst `annotateCardRows()`/
-       `makeSortable()` in `index.html` gegenchecken (siehe Code Context
-       oben), dann Event-Delegation-Selektoren (`.wk-remove-btn` etc.)
-       auf Tippfehler pruefen.
-   - Desktop-Breite (>640px): unveraendertes Tabellen-Layout, keine
-     Regression.
-   - Dark Mode: Karten-Layout dort ebenfalls gegenchecken.
+   - DevTools-Mobile-Emulation (~375px, z.B. iPhone-Preset), irgendeinen
+     Tab mit Tabelle oeffnen:
+     - Erwartet: Kopfzeile ist jetzt eine horizontal scrollbare Pill-
+       Leiste (statt komplett unsichtbar), Antippen einer Pille sortiert
+       wie gehabt (Pfeil erscheint auf der Pille). Wunschkader-Button-
+       Spalten und die leere Details-Toggle-Spalte tauchen NICHT als
+       leere Pills auf.
+   - Wunschkader-Tab, Desktop-Breite: Name ist jetzt Klartext (kein
+     Eingabefeld mehr), komplett lesbar.
+   - Wunschkader-Tab: "Wechsel" → einen Vorschlag waehlen.
+     - Erwartet: die Zeile zeigt SOFORT Marktwert/Schnitt/Signal/
+       Startelf-Rang/Status des neuen Spielers (nicht mehr komplett
+       leer). "Geplant"/"ML-Prognose"/"Notiz" bleiben erwartungsgemaess
+       "n/v" bis zum naechsten 2h-Pipeline-Lauf.
+     - Falls trotzdem leer: `computedFor()` in `renderWunschkader()`
+       gegenchecken (Namens-Abgleich ist exakter String-Vergleich —
+       bei abweichender Schreibweise zwischen Wunschkader-Target-Namen
+       und `DATA.alle_spieler`-Namen bleibt der Fallback leer).
+   - Weiter wie gehabt: "Entfernen", neuen Eintrag hinzufuegen,
+     "Speichern" (kein Fehler, `wk-save-status` zeigt Erfolg, danach im
+     gespeicherten Firestore-Dokument pruefen: KEINE `_uid`-Felder in den
+     `targets`).
+   - Desktop-Breite (>640px) und Dark Mode: kurzer Regressionscheck ueber
+     alle 7 Tabs.
 2. **Danach, bei Gelegenheit: Quota-Fix isoliert live nachverifizieren**
    und **Backfill-Fortsetzung** (aus Phase 4, siehe Not Yet Done oben für
    die genauen Befehle).
