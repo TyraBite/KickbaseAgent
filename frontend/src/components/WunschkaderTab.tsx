@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { AlleSpielerRow, DashboardSnapshot, RawWunschkaderTarget, WunschkaderRow } from "../types";
@@ -114,7 +114,11 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
 
   function replaceTarget(uid: number, replacement: AlleSpielerRow) {
     setEditState((prev) =>
-      prev.map((t) => (t._uid === uid ? { ...t, name: replacement.name, position: replacement.position } : t))
+      prev.map((t) => {
+        if (t._uid !== uid) return t;
+        const { note: _note, actual_bid: _bid, ...keep } = t;
+        return { ...keep, name: replacement.name, position: replacement.position };
+      })
     );
     setSelected(null);
   }
@@ -129,7 +133,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     setSaveStatus("Speichere…");
     try {
       const updatedAt = new Date().toISOString().slice(0, 10);
-      const targets = editState.map(({ _uid, ...rest }) => rest);
+      const targets = editState.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
       await setDoc(doc(db, "wunschkader", "current"), { targets, formation, updated_at: updatedAt }, { merge: true });
       setSaveStatus("Gespeichert. Änderungen erscheinen im nächsten Pipeline-Lauf (~2h).");
     } catch (err) {
@@ -318,6 +322,14 @@ function DetailModal({
   const [wechselOpen, setWechselOpen] = useState(false);
   const [search, setSearch] = useState("");
 
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
   const targetForSearch = { name: target.name, position: target.position, market_value: computed.market_value, points_avg: computed.points_avg };
   const suggestions = suggestReplacements(alleSpieler, targetForSearch);
   const searchResults = search.trim() ? searchReplacementPool(alleSpieler, targetForSearch, search.trim()) : [];
@@ -466,6 +478,14 @@ function AddTargetModal({
 }) {
   const [name, setName] = useState("");
   const [position, setPosition] = useState<Position>(presetPosition ?? "Sturm");
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();

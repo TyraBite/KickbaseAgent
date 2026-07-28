@@ -98,8 +98,16 @@ export default function App() {
         {loadState === "error" && (
           <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
         )}
-        {loadState === "ready" && data && activeTab === "spekulation" && <SpekulationTab rows={data.spekulation ?? []} />}
-        {loadState === "ready" && data && activeTab === "wunschkader" && <WunschkaderTab data={data} />}
+        {loadState === "ready" && data && (
+          <div className={activeTab === "spekulation" ? "" : "hidden"}>
+            <SpekulationTab rows={data.spekulation ?? []} />
+          </div>
+        )}
+        {loadState === "ready" && data && (
+          <div className={activeTab === "wunschkader" ? "" : "hidden"}>
+            <WunschkaderTab data={data} />
+          </div>
+        )}
       </main>
     </div>
   );
