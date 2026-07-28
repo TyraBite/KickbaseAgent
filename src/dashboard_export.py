@@ -634,6 +634,7 @@ def export() -> dict:
         "team_total_value": sum((p["market_value"] or 0) for p in own_squad),
         "calibration": calibration,
         "ml_metrics": predictions["metrics"] if predictions else None,
+        "ml_accuracy_trend": predictions["metrics"].get("accuracy_trend") if predictions else None,
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "transfermarkt": transfermarkt_rows,
         "eigenes_team_split": _split_eigenes_team(eigenes_team_rows, wunschkader_config),
