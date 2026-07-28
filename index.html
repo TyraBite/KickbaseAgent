@@ -183,6 +183,18 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   border-radius: 4px;
   padding: 3px 6px;
 }
+.wk-suggestions-quick { margin: 0 0 8px; }
+.wk-search-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wk-search-wrap input {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  flex: 0 1 240px;
+}
+.wk-search-results { display: flex; flex-wrap: wrap; gap: 6px; }
 .dropdown-check { position: relative; display: inline-block; }
 .dropdown-check-menu {
   position: absolute;
@@ -772,7 +784,7 @@ function renderBudgetPlan(bp) {
   </div>`;
 }
 
-function suggestReplacements(target, count = 3) {
+function scoreReplacementPool(target) {
   const pool = (DATA.alle_spieler || []).filter((p) =>
     p.position === target.position && p.name !== target.name && p.owner === "Frei"
   );
@@ -784,7 +796,17 @@ function suggestReplacements(target, count = 3) {
     return { ...p, distance: mvDist + ptsDist };
   });
   scored.sort((a, b) => a.distance - b.distance);
-  return scored.slice(0, count);
+  return scored;
+}
+function suggestReplacements(target, count = 3) {
+  return scoreReplacementPool(target).slice(0, count);
+}
+function searchReplacementPool(target, query) {
+  const q = query.toLowerCase();
+  return scoreReplacementPool(target).filter((p) => p.name.toLowerCase().includes(q)).slice(0, 20);
+}
+function pickBtnHtml(id, s) {
+  return `<button type="button" class="wk-pick-btn" data-id="${id}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`;
 }
 
 let wunschkaderEditState = null; // lokale Arbeitskopie von DATA.wunschkader_raw.targets waehrend des Editierens
@@ -887,15 +909,21 @@ function renderWunschkader() {
     }
     const wechselBtn = e.target.closest(".wk-wechsel-btn");
     if (wechselBtn) {
-      const target = wunschkaderEditState.find((t) => String(t._uid) === wechselBtn.dataset.id);
+      const id = wechselBtn.dataset.id;
+      const target = wunschkaderEditState.find((t) => String(t._uid) === id);
       const computed = computedFor(target.name);
-      const suggestionsRow = tableContainer.querySelector(`.wk-suggestions[data-id="${wechselBtn.dataset.id}"]`);
-      const suggestions = suggestReplacements({ ...target, market_value: computed.market_value, points_avg: computed.points_avg });
-      suggestionsRow.querySelector("td").innerHTML = suggestions.length
-        ? "Vorschlaege: " + suggestions.map((s) =>
-            `<button type="button" class="wk-pick-btn" data-id="${wechselBtn.dataset.id}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`
-          ).join(" ")
-        : "Keine freien Alternativen gleicher Position gefunden.";
+      const targetForSearch = { ...target, market_value: computed.market_value, points_avg: computed.points_avg };
+      const suggestions = suggestReplacements(targetForSearch);
+      const suggestionsRow = tableContainer.querySelector(`.wk-suggestions[data-id="${id}"]`);
+      const quickPicksHtml = suggestions.length
+        ? suggestions.map((s) => pickBtnHtml(id, s)).join(" ")
+        : '<span class="muted">Keine freien Alternativen gleicher Position gefunden.</span>';
+      suggestionsRow.querySelector("td").innerHTML = `
+        <div class="wk-suggestions-quick">Vorschlaege: ${quickPicksHtml}</div>
+        <div class="wk-search-wrap">
+          <input type="text" class="wk-wechsel-search" data-id="${id}" placeholder="Anderen freien Spieler gleicher Position suchen...">
+          <div class="wk-search-results" data-id="${id}"></div>
+        </div>`;
       suggestionsRow.style.display = "";
       return;
     }
@@ -907,6 +935,22 @@ function renderWunschkader() {
       delete t.note;
       redraw();
     }
+  });
+  tableContainer.addEventListener("input", (e) => {
+    if (!e.target.matches(".wk-wechsel-search")) return;
+    const id = e.target.dataset.id;
+    const resultsEl = tableContainer.querySelector(`.wk-search-results[data-id="${id}"]`);
+    const query = e.target.value.trim();
+    if (!query) {
+      resultsEl.innerHTML = "";
+      return;
+    }
+    const target = wunschkaderEditState.find((t) => String(t._uid) === id);
+    const computed = computedFor(target.name);
+    const results = searchReplacementPool({ ...target, market_value: computed.market_value, points_avg: computed.points_avg }, query);
+    resultsEl.innerHTML = results.length
+      ? results.map((s) => pickBtnHtml(id, s)).join(" ")
+      : '<span class="muted">Keine Treffer.</span>';
   });
 
   document.getElementById("wk-add-btn").addEventListener("click", () => {

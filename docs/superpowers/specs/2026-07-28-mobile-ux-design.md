@@ -151,3 +151,36 @@ behoben:
    Rendern. `planned_price`/`ml_prediction`/`note` bleiben bis zum
    naechsten Pipeline-Lauf "n/v" — echte serverseitige Logik (Fairwert-
    Gebotsschaetzung, ML-Modell), bewusst nicht client-seitig dupliziert.
+
+## Freitext-Suche fuer Wunschkader-Wechsel
+
+User-Feedback nach den 3 Fixes: die 3 automatischen Vorschlaege reichen
+nicht immer - man soll auch selbst nach einem Ersatzspieler suchen
+koennen, nicht nur aus den drei Top-Treffern waehlen muessen. Geklaerte
+Scope-Fragen (beide "Recommended"-Optionen bestaetigt): Suche bleibt auf
+dieselbe Position wie das Ziel UND auf freie Spieler (`owner === "Frei"`)
+beschraenkt - identisch zum Pool der 3 Auto-Vorschlaege, nur ohne
+Top-3-Limit.
+
+- `suggestReplacements()`s bisherige Pool-Filter- und Distanz-Scoring-
+  Logik ist in `scoreReplacementPool(target)` ausgelagert (gibt die volle
+  sortierte Liste zurueck, kein Slicing). `suggestReplacements(target,
+  count=3)` ist jetzt nur noch `scoreReplacementPool(target).slice(0,
+  count)` - unveraendertes Verhalten fuer die 3 Auto-Vorschlaege.
+- Neu: `searchReplacementPool(target, query)` - dieselbe Pool-Basis,
+  zusaetzlich per Name-Substring gefiltert (case-insensitive), auf 20
+  Treffer gedeckelt.
+- Neu: `pickBtnHtml(id, s)` - der Vorschlags-Button-HTML-Baustein war
+  vorher inline dupliziert (Auto-Vorschlaege), jetzt eine gemeinsame
+  Funktion fuer Auto-Vorschlaege UND Suchergebnisse (beide nutzen
+  dieselbe `.wk-pick-btn`-Klasse/Event-Delegation - kein neuer Klick-Pfad
+  noetig).
+- `renderWunschkader()`: der "Wechsel"-Klick baut die Vorschlagszeile jetzt
+  aus zwei Teilen - `.wk-suggestions-quick` (die bestehenden 3 Auto-
+  Vorschlaege) + `.wk-search-wrap` (Text-Input + `.wk-search-results`-
+  Container, anfangs leer). Ein neuer delegierter `input`-Listener auf
+  `#tab-wunschkader-table` (Suffix zum bestehenden `click`-Listener)
+  reagiert auf Tippen in `.wk-wechsel-search`, ruft `searchReplacementPool()`
+  auf und rendert Treffer als `.wk-pick-btn`-Buttons in `.wk-search-results`
+  - leeres Suchfeld zeigt keine Ergebnisse (vermeidet Redundanz mit den
+  3 Auto-Vorschlaegen direkt darueber).
