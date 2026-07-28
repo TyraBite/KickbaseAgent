@@ -209,19 +209,42 @@ class UpsertWunschkaderTests(unittest.TestCase):
         client.collection.return_value.document.return_value.set.assert_called_once_with(data)
 
 
-class GetPredictionLogEntriesTests(unittest.TestCase):
-    def test_returns_all_documents_as_dicts(self):
+class GetRecentPredictionLogEntriesTests(unittest.TestCase):
+    def test_filters_by_date_server_side(self):
         client = MagicMock()
-        doc1, doc2 = MagicMock(), MagicMock()
+        doc1 = MagicMock()
         doc1.to_dict.return_value = {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100}
-        doc2.to_dict.return_value = {"date": "2026-07-27", "player_id": "p1", "model_type": "HistGradientBoosting", "predicted_delta": 90}
-        client.collection.return_value.stream.return_value = [doc1, doc2]
+        client.collection.return_value.where.return_value.stream.return_value = [doc1]
 
-        result = firestore_db.get_prediction_log_entries(client)
+        result = firestore_db.get_recent_prediction_log_entries(client, "2026-07-25")
 
         client.collection.assert_any_call("ml_prediction_log")
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["model_type"], "RandomForest")
+        client.collection.return_value.where.assert_called_once()
+        self.assertEqual(len(result), 1)
+
+
+class UpsertAccuracyDailyTests(unittest.TestCase):
+    def test_doc_id_is_date_and_model_type(self):
+        client = MagicMock()
+        entries = [{"date": "2026-07-27", "model_type": "RandomForest", "n": 450, "sign_correct": 300, "abs_error_sum": 12345.0}]
+
+        firestore_db.upsert_accuracy_daily(client, entries)
+
+        doc_ids = _doc_ids(client)
+        self.assertIn("2026-07-27_RandomForest", doc_ids)
+
+
+class GetAccuracyDailyTests(unittest.TestCase):
+    def test_returns_all_documents(self):
+        client = MagicMock()
+        doc1 = MagicMock()
+        doc1.to_dict.return_value = {"date": "2026-07-27", "model_type": "RandomForest", "n": 450, "sign_correct": 300, "abs_error_sum": 12345.0}
+        client.collection.return_value.stream.return_value = [doc1]
+
+        result = firestore_db.get_accuracy_daily(client)
+
+        client.collection.assert_any_call("ml_accuracy_daily")
+        self.assertEqual(len(result), 1)
 
 
 class UpsertPredictionLogEntriesModelTypeDocIdTests(unittest.TestCase):

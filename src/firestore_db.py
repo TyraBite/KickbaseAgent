@@ -18,6 +18,7 @@ werden taeglich geloggt, nicht nur der Tagessieger).
 """
 
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 MAX_BATCH_OPS = 500
 
@@ -85,11 +86,35 @@ def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict])
     _write_in_batches(client, "ml_prediction_log", docs)
 
 
-def get_prediction_log_entries(client: firestore.Client) -> list[dict]:
-    """Liest die komplette ml_prediction_log-Collection - keine Datumsfilterung
-    noetig, Datenmenge bleibt ueberschaubar (~450 Spieler x 2 Modelle x
-    max. ~1 Jahr Trailing-Retention)."""
-    return [doc.to_dict() for doc in client.collection("ml_prediction_log").stream()]
+def get_recent_prediction_log_entries(client: firestore.Client, since_date: str) -> list[dict]:
+    """Liest NUR ml_prediction_log-Eintraege ab since_date (inklusive,
+    serverseitig gefiltert via FieldFilter) - die Collection waechst
+    taeglich um ~900 Rohdaten-Dokumente (450 Spieler x 2 Modelle), ein
+    ungefiltertes Voll-Scan bei jedem der 12 taeglichen Laeufe wuerde
+    Firestores Read-Quota sprengen (siehe HANDOFF.md, Quota-Vorfall
+    2026-07-28). `ml_prediction_log` ist seit Phase-4-Quota-Fix nur noch
+    eine kurzlebige Staging-Zone fuer NEUE, noch nicht ausgewertete
+    Prognosen - siehe market_predictor.EVALUATION_LOOKBACK_DAYS."""
+    query = client.collection("ml_prediction_log").where(filter=FieldFilter("date", ">=", since_date))
+    return [doc.to_dict() for doc in query.stream()]
+
+
+def upsert_accuracy_daily(client: firestore.Client, entries: list[dict]) -> None:
+    """Aggregierte Tages-/Modell-Genauigkeit (EIN Dokument pro (date,
+    model_type) statt Rohdaten pro Spieler) - Doc-Id `{date}_{model_type}`.
+    Ermoeglicht Trailing-Fenster-/Trend-Berechnung ueber lange Zeitraeume
+    mit nur ~2 Dokumenten pro Tag statt ~900 - der eigentliche Fix fuers
+    Quota-Problem. Idempotent (Ueberschreiben bei erneuter Auswertung
+    desselben Tages ist unproblematisch)."""
+    docs = {f"{e['date']}_{e['model_type']}": e for e in entries}
+    _write_in_batches(client, "ml_accuracy_daily", docs)
+
+
+def get_accuracy_daily(client: firestore.Client) -> list[dict]:
+    """Liest die komplette ml_accuracy_daily-Collection - unkritisch klein
+    (2 Dokumente pro Tag, auch nach einem Jahr nur ~730 Dokumente total,
+    verglichen mit ~164.000+ bei der alten Rohdaten-basierten Variante)."""
+    return [doc.to_dict() for doc in client.collection("ml_accuracy_daily").stream()]
 
 
 def upsert_dashboard_snapshot(client: firestore.Client, data: dict) -> None:
