@@ -1,13 +1,15 @@
-# Handoff: KickbaseAgent Dashboard — Phase 5 (Mobile/UX), 1. Nacharbeitsrunde committed
+# Handoff: KickbaseAgent Dashboard — Phase 5 (Mobile/UX) + Wechsel-Suche committed
 
 **Generated**: 2026-07-28 (Ende der Session, 2. Update)
 **Branch**: main
 **Status**: In Progress — Phase 1-4 fertig & live (unveraendert seit letztem
 Handoff). Phase 5 (Mobile/UX) implementiert (`c458b35`), User hat danach
 ECHT im Browser getestet und 3 Probleme gefunden — alle behoben und
-committed (`dbac469`). Diese 3 Fixes sind selbst NOCH NICHT erneut im
-echten Browser verifiziert (Sandbox hat weiterhin keinen Browser/Login) —
-das ist der naechste Schritt.
+committed (`dbac469`). Danach Feature-Wunsch: Freitext-Suche fuer den
+Wunschkader-"Wechsel"-Dialog (nicht nur die 3 Auto-Vorschlaege) —
+umgesetzt und committed (`342d29f`). WEDER die 3 Fixes NOCH die Suche
+sind bisher im echten Browser verifiziert (Sandbox hat weiterhin keinen
+Browser/Login) — das ist der naechste Schritt.
 
 ## Goal
 
@@ -73,6 +75,19 @@ fokussiert auf Phase 5 + die zwei noch offenen Punkte aus Phase 4.
      zeigt statt komplett leer zu sein. `planned_price`/`ml_prediction`/
      `note` bleiben bewusst "n/v" bis zum naechsten Pipeline-Lauf (echte
      serverseitige Logik, nicht dupliziert).
+- [x] **Freitext-Suche im Wunschkader-"Wechsel"-Dialog** (Commit
+  `342d29f`, lokal, NICHT gepusht): User wollte nicht nur aus den 3
+  Auto-Vorschlaegen waehlen koennen. Geklaert: Suche bleibt auf gleiche
+  Position + freie Spieler (`owner==="Frei"`) beschraenkt, wie die 3
+  Auto-Vorschlaege selbst. `suggestReplacements()`s Pool-/Scoring-Logik
+  ausgelagert nach `scoreReplacementPool()`, neue `searchReplacementPool
+  (target, query)` filtert zusaetzlich per Name-Substring (max. 20
+  Treffer). `pickBtnHtml()` als gemeinsamer Button-Baustein fuer Auto-
+  Vorschlaege UND Suchergebnisse (beide nutzen dieselbe `.wk-pick-btn`-
+  Klasse/Event-Delegation). Neues Suchfeld (`.wk-wechsel-search`) +
+  Ergebnis-Container (`.wk-search-results`) erscheinen neben den 3
+  Auto-Vorschlaegen im "Wechsel"-Aufklapper, per neuem delegierten
+  `input`-Listener auf `#tab-wunschkader-table`.
 
 ## Not Yet Done
 
@@ -171,8 +186,9 @@ const targets = wunschkaderEditState.map(({ _uid, ...rest }) => rest);
 
 ## Resume Instructions
 
-1. **Sofort: die 3 Nacharbeit-Fixes im echten Browser verifizieren**
-   (braucht User oder eine Session mit echtem Firebase-Login):
+1. **Sofort: die 3 Nacharbeit-Fixes + die neue Freitext-Suche im echten
+   Browser verifizieren** (braucht User oder eine Session mit echtem
+   Firebase-Login):
    - Lokal oeffnen (`index.html` direkt oder `python -m http.server` im
      Repo-Root), einloggen.
    - DevTools-Mobile-Emulation (~375px, z.B. iPhone-Preset), irgendeinen
@@ -193,6 +209,15 @@ const targets = wunschkaderEditState.map(({ _uid, ...rest }) => rest);
        gegenchecken (Namens-Abgleich ist exakter String-Vergleich —
        bei abweichender Schreibweise zwischen Wunschkader-Target-Namen
        und `DATA.alle_spieler`-Namen bleibt der Fallback leer).
+   - Im selben "Wechsel"-Aufklapper: ins neue Suchfeld tippen (Name
+     eines freien Spielers gleicher Position).
+     - Erwartet: Treffer erscheinen live unter dem Feld als klickbare
+       Buttons (max. 20), Auswahl funktioniert genau wie ein Klick auf
+       einen der 3 Auto-Vorschlaege. Leeres Suchfeld zeigt keine
+       Ergebnisse. Tippen eines Namens ohne Treffer zeigt "Keine Treffer.".
+     - Falls nichts erscheint: `searchReplacementPool()`/den neuen
+       `input`-Listener auf `#tab-wunschkader-table` in `index.html`
+       gegenchecken.
    - Weiter wie gehabt: "Entfernen", neuen Eintrag hinzufuegen,
      "Speichern" (kein Fehler, `wk-save-status` zeigt Erfolg, danach im
      gespeicherten Firestore-Dokument pruefen: KEINE `_uid`-Felder in den
