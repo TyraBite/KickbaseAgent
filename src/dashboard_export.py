@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 from src import db, fetcher, firestore_db, market_predictor, player_valuation
-from src.kickbase_client import KickbaseError, get_manager_squad, get_me, login
+from src.kickbase_client import KickbaseError, get_manager_squad, get_me, login, status_label
 
 # Toleranzband aus MDs/methodik.md, Abschnitt "Fairwert und Signal".
 SIGNAL_GOOD = 1.25
@@ -469,6 +469,37 @@ def _project_login_bonus(login_cfg: dict | None, season_start: str | None, fetch
     return total
 
 
+def _build_alle_spieler(
+    all_players: list[dict], owned_by: dict, own_squad_names: set, calibration: dict | None
+) -> list[dict]:
+    """Alle Liga-Spieler (~450) fuer den 'Alle Spieler'-Tab - reine
+    Umformung von player_valuation.fetch_all_players(), das export() ohnehin
+    schon fuer Wunschkader/Ligaanalyse laedt, keine neuen API-Calls."""
+    rows = []
+    for p in all_players:
+        fairwert, signal = _valuation(p["market_value"], p["points_avg"], p["position"], calibration)
+        if p["name"] in own_squad_names:
+            owner = "Eigener Kader"
+        else:
+            owner = owned_by.get(p["player_id"], "Frei")
+        rows.append(
+            {
+                "player_id": p["player_id"],
+                "name": p["name"],
+                "position": p["position"],
+                "team_name": p["team_name"],
+                "market_value": p["market_value"],
+                "points_avg": p["points_avg"],
+                "starting_rank": p["starting_rank"],
+                "status_label": status_label(p["status_code"]),
+                "owner": owner,
+                "fairwert": fairwert,
+                "signal": signal,
+            }
+        )
+    return rows
+
+
 def _build_budget_plan(
     wunschkader: dict,
     wunschkader_rows: list[dict],
@@ -567,16 +598,17 @@ def export() -> dict:
     now = datetime.datetime.now(datetime.timezone.utc)
     transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
 
+    own_name = own_budget_row["name"] if own_budget_row else None
+    owned_by = (
+        player_valuation.resolve_ownership(token, league_id, [dict(r) for r in ranking_rows], own_name)
+        if own_name
+        else {}
+    )
+    own_squad_names = {r["name"] for r in own_squad}
+
     wunschkader_config = _load_wunschkader()
     wunschkader_rows = []
     if wunschkader_config:
-        own_name = own_budget_row["name"] if own_budget_row else None
-        owned_by = (
-            player_valuation.resolve_ownership(token, league_id, [dict(r) for r in ranking_rows], own_name)
-            if own_name
-            else {}
-        )
-        own_squad_names = {r["name"] for r in own_squad}
         # transfermarkt_rows statt roher market_listings, damit auction_status
         # (echte Auktions-Restzeit) fuer die Watchlist-Notiz verfuegbar ist.
         market_by_name = {r["name"]: r for r in transfermarkt_rows}
@@ -613,6 +645,8 @@ def export() -> dict:
         "wunschkader_watchlist": wunschkader_watchlist,
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
         "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
+        "alle_spieler": _build_alle_spieler(all_players, owned_by, own_squad_names, calibration),
+        "wunschkader_raw": wunschkader_config,
         "budget_plan": budget_plan,
         "spekulation": _build_spekulation(transfermarkt_rows),
     }
