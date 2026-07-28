@@ -8,8 +8,6 @@ on:
 jobs:
   dashboard-export:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -31,11 +29,3 @@ jobs:
           FIRESTORE_ENABLED: '1'
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: python -m src.dashboard_export
-
-      - name: Commit updated dashboard and snapshot
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/kickbase.db
-          git diff --cached --quiet || git commit -m "Dashboard-Update $(date -u +%F' '%H:%M)"
-          git push
