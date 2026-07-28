@@ -775,12 +775,11 @@ function renderBudgetPlan(bp) {
     <div class="budget-grid">
       <div><span class="muted">Cash</span><br>${fmtNum(bp.cash)}</div>
       <div><span class="muted">+ Verkaufserlöse</span><br>${fmtNum(bp.sell_proceeds)}</div>
-      <div><span class="muted">+ Login-Prämie bis ${bp.season_start ?? "?"}</span><br>${fmtNum(bp.login_bonus_projection)}</div>
       <div><span class="muted">= Pool</span><br><b>${fmtNum(bp.pool)}</b></div>
       <div><span class="muted">- Eingeplant</span><br>${fmtNum(bp.committed)}</div>
       <div><span class="muted">= Rest</span><br><b class="${bp.remaining >= 0 ? "trend-up" : "trend-down"}">${fmtSigned(bp.remaining)}</b></div>
     </div>
-    <p class="section-hint">Verkauf eingeplant: ${sellList}. Login-Prämie ist eine Schätzung (Deckel unbestätigt, setzt tägliche Streak voraus, siehe MDs/kaderplan.md). "Eingeplant" zählt nur Starter/Backup, nicht die bedingten Bank-Optionen.</p>
+    <p class="section-hint">Verkauf eingeplant: ${sellList}. "Eingeplant" zählt nur Starter/Backup, nicht die bedingten Bank-Optionen.</p>
   </div>`;
 }
 
