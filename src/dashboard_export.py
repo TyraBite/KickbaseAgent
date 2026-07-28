@@ -361,16 +361,13 @@ def _load_wunschkader() -> dict | None:
     return firestore_db.get_wunschkader(firestore_db.connect())
 
 
-def _estimate_price(market_value: float | None, markup_rules: dict | None) -> float | None:
-    """Marktwert x Aufschlag - Topspieler (Marktwert >= Schwelle) bekommen
-    einen hoeheren Aufschlag als der Rest. Live verifiziert 27.07.2026 gegen
-    echte Trades (siehe markup_rules.note in wunschkader.json): Kimmich
-    (Topspieler) +8,86% ueber Marktwert, Jeltsch (Normalspieler) +4,94%."""
-    if not market_value or not markup_rules:
+def _estimate_price(market_value: float | None) -> float | None:
+    """Pauschaler 10%-Aufschlag auf den Marktwert - ersetzt das fruehere
+    2-Stufen-Topspieler-System (User-Wunsch 28.07.2026: eine schnell im
+    Kopf nachrechenbare Schaetzung statt Praezision)."""
+    if not market_value:
         return None
-    threshold = markup_rules.get("topspieler_threshold", 0)
-    markup = markup_rules.get("topspieler_markup" if market_value >= threshold else "normal_markup", 0)
-    return round(market_value * (1 + markup))
+    return round(market_value * 1.10)
 
 
 def _build_wunschkader(
@@ -383,7 +380,6 @@ def _build_wunschkader(
     predictions: dict | None,
 ) -> list[dict]:
     by_name = {p["name"]: p for p in all_players}
-    markup_rules = wunschkader.get("markup_rules")
     rows = []
     for target in wunschkader.get("targets", []):
         name = target["name"]
@@ -420,7 +416,7 @@ def _build_wunschkader(
         elif is_own:
             planned_price = 0
         else:
-            planned_price = _estimate_price(market_value, markup_rules)
+            planned_price = _estimate_price(market_value)
 
         rows.append(
             {
@@ -445,32 +441,6 @@ def _build_wunschkader(
             }
         )
     return rows
-
-
-def _project_login_bonus(login_cfg: dict | None, season_start: str | None, fetched_at: str) -> int:
-    """Projiziert die verbleibende Login-Praemie bis Saisonstart (nur
-    zukuenftige Tage, der heutige/vergangene Betrag steckt schon im
-    aktuellen Kontostand). Setzt eine ununterbrochene taegliche
-    Login-Streak voraus - reine Schaetzung, siehe login_bonus.note in
-    wunschkader.json."""
-    if not login_cfg or not login_cfg.get("observed") or not season_start:
-        return 0
-    observed = sorted(login_cfg["observed"], key=lambda o: o["date"])
-    last_date = datetime.date.fromisoformat(observed[-1]["date"])
-    amount = observed[-1]["amount"]
-    increment = login_cfg.get("daily_increment", 0)
-    cap = login_cfg.get("assumed_cap", amount)
-    season_start_date = datetime.date.fromisoformat(season_start)
-    today = datetime.date.fromisoformat(fetched_at)
-
-    total = 0
-    current_date = last_date
-    while current_date < season_start_date:
-        current_date += datetime.timedelta(days=1)
-        amount = min(amount + increment, cap)
-        if current_date > today:
-            total += amount
-    return total
 
 
 def _build_alle_spieler(
@@ -509,7 +479,6 @@ def _build_budget_plan(
     wunschkader_rows: list[dict],
     own_squad: list,
     own_budget_exact: float | None,
-    fetched_at: str,
 ) -> dict:
     own_squad_by_name = {r["name"]: r for r in own_squad}
     sell_rows = [
@@ -519,12 +488,8 @@ def _build_budget_plan(
     ]
     sell_proceeds = sum((r["market_value"] or 0) for r in sell_rows)
 
-    login_bonus_projection = _project_login_bonus(
-        wunschkader.get("login_bonus"), wunschkader.get("season_start"), fetched_at
-    )
-
     cash = own_budget_exact or 0
-    pool = cash + sell_proceeds + login_bonus_projection
+    pool = cash + sell_proceeds
 
     # Bank/Backup-Option-Rollen sind nur bedingter Bedarf, nicht fest verplant.
     # Schon im Kader befindliche Ziele (is_own) nicht mitzaehlen - deren Kauf
@@ -543,8 +508,6 @@ def _build_budget_plan(
         "cash": cash,
         "sell_rows": sell_rows,
         "sell_proceeds": sell_proceeds,
-        "login_bonus_projection": login_bonus_projection,
-        "season_start": wunschkader.get("season_start"),
         "pool": pool,
         "committed": committed,
         "remaining": pool - committed,
@@ -623,7 +586,7 @@ def export() -> dict:
 
     budget_plan = (
         _build_budget_plan(
-            wunschkader_config, wunschkader_rows, own_squad, own_budget_row["estimated_budget"] if own_budget_row else None, fetched_at
+            wunschkader_config, wunschkader_rows, own_squad, own_budget_row["estimated_budget"] if own_budget_row else None
         )
         if wunschkader_config
         else None

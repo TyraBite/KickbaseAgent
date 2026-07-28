@@ -3,7 +3,14 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.dashboard_export import _build_alle_spieler, _build_spekulation, _build_transfermarkt, _load_wunschkader
+from src.dashboard_export import (
+    _build_alle_spieler,
+    _build_budget_plan,
+    _build_spekulation,
+    _build_transfermarkt,
+    _estimate_price,
+    _load_wunschkader,
+)
 
 
 class BuildAlleSpielerTests(unittest.TestCase):
@@ -82,6 +89,40 @@ class BuildTransfermarktTests(unittest.TestCase):
         rows = _build_transfermarkt([listing], calibration=None, predictions=None, own_available_budget=None, now=now)
 
         self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
+
+
+class EstimatePriceTests(unittest.TestCase):
+    def test_flat_ten_percent_markup(self):
+        self.assertEqual(_estimate_price(10_000_000), 11_000_000)
+
+    def test_returns_none_without_market_value(self):
+        self.assertIsNone(_estimate_price(None))
+
+    def test_returns_none_for_zero_market_value(self):
+        self.assertIsNone(_estimate_price(0))
+
+
+class BuildBudgetPlanTests(unittest.TestCase):
+    def test_pool_has_no_login_bonus(self):
+        wunschkader = {"sell_list": []}
+
+        result = _build_budget_plan(wunschkader, wunschkader_rows=[], own_squad=[], own_budget_exact=1_000_000)
+
+        self.assertEqual(result["pool"], 1_000_000)
+        self.assertNotIn("login_bonus_projection", result)
+        self.assertNotIn("season_start", result)
+
+    def test_committed_excludes_bank_backup_and_own_targets(self):
+        wunschkader = {"sell_list": []}
+        wunschkader_rows = [
+            {"planned_price": 5_000_000, "role": "Starter", "is_own": False},
+            {"planned_price": 3_000_000, "role": "Bank/Backup-Option", "is_own": False},
+            {"planned_price": 9_000_000, "role": "Starter", "is_own": True},
+        ]
+
+        result = _build_budget_plan(wunschkader, wunschkader_rows, own_squad=[], own_budget_exact=0)
+
+        self.assertEqual(result["committed"], 5_000_000)
 
 
 class LoadWunschkaderTests(unittest.TestCase):
