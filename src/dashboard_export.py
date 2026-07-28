@@ -22,19 +22,15 @@ das haelt diesen Lauf schnell/billig, K aendert sich ohnehin langsam.
 from __future__ import annotations
 
 import datetime
-import json
 import os
 import sqlite3
 import sys
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
 from src import db, fetcher, firestore_db, market_predictor, player_valuation
 from src.kickbase_client import KickbaseError, get_manager_squad, get_me, login
-
-WUNSCHKADER_PATH = Path(__file__).resolve().parent.parent / "data" / "wunschkader.json"
 
 # Toleranzband aus MDs/methodik.md, Abschnitt "Fairwert und Signal".
 SIGNAL_GOOD = 1.25
@@ -346,12 +342,19 @@ def _build_ligaanalyse(
 
 
 def _load_wunschkader() -> dict | None:
-    """Handgepflegte Zielspieler-Liste (siehe MDs/kaderplan.md fuer die
-    Begruendungen), NICHT automatisch generiert - bei jeder Aenderung des
-    Kaderplans auch diese Datei nachziehen."""
-    if not WUNSCHKADER_PATH.exists():
+    """Wunschkader lebt komplett in Firestore (wunschkader/current, siehe
+    MDs/kaderplan.md fuer die Begruendungen der Eintraege) - der Browser
+    kann targets direkt editieren (Alle-Spieler/Wunschkader-Feature).
+    Ohne Firestore-Zugriff (kein FIRESTORE_ENABLED lokal) gibt es keinen
+    Fallback mehr - Aufrufer behandeln None wie bisher (kein Wunschkader
+    hinterlegt)."""
+    if not os.environ.get("FIRESTORE_ENABLED"):
         return None
-    return json.loads(WUNSCHKADER_PATH.read_text(encoding="utf-8"))
+    try:
+        return firestore_db.get_wunschkader(firestore_db.connect())
+    except Exception as exc:
+        print(f"Warnung: Wunschkader-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
+        return None
 
 
 def _estimate_price(market_value: float | None, markup_rules: dict | None) -> float | None:

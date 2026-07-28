@@ -579,7 +579,7 @@ function renderWunschkader() {
   const rows = DATA.wunschkader;
   if (!rows || !rows.length) {
     document.getElementById("tab-wunschkader").innerHTML =
-      '<p class="section-hint">Kein Wunschkader hinterlegt (data/wunschkader.json fehlt oder ist leer).</p>';
+      '<p class="section-hint">Kein Wunschkader hinterlegt.</p>';
     return;
   }
   const formation = DATA.wunschkader_formation ? ` (${DATA.wunschkader_formation})` : "";
