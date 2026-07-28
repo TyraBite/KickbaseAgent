@@ -70,6 +70,7 @@ _EPOCH = datetime.date(1970, 1, 1)
 PREDICTION_LOG_PATH = Path(__file__).resolve().parent.parent / "data" / "ml_prediction_log.jsonl"
 LOG_RETENTION_DAYS = 90
 ACCURACY_WINDOWS_DAYS = (7, 30)
+MIN_REALIZED_SAMPLES_FOR_SELECTION = 14
 
 # Anzahl rollierender Trainingsschnitte fuer den Walk-Forward-Backtest (siehe
 # _walk_forward_backtest) - bewusst klein gehalten, jeder Fold trainiert beide
@@ -514,13 +515,17 @@ def _summarize_window(evaluated: list[dict], today: str, days: int) -> dict | No
     return {"n": len(window), "sign_accuracy": round(sign_accuracy, 1), "mae": round(mae, 2)}
 
 
-def _evaluate_realized_accuracy(log_entries: list[dict], mv_lookup: dict, today: str) -> dict:
-    """Prueft alle Log-Eintraege, fuer die inzwischen ein echtes Ergebnis
-    bekannt ist (Datum vor 'today' UND Folgetag im Corpus vorhanden), gegen
-    die tatsaechliche Wertaenderung - echte Tag-fuer-Tag-Genauigkeit statt
-    nur des synthetischen Zeit-Splits aus _train_and_evaluate()."""
-    evaluated = []
+def _evaluate_realized_accuracy_by_model(log_entries: list[dict], mv_lookup: dict, today: str) -> dict[str, dict]:
+    """Wie zuvor, aber getrennt pro model_type - ermoeglicht echten
+    Kopf-an-Kopf-Vergleich ueber die Zeit statt nur 'der jeweilige
+    Tagessieger, egal welches Modell das war'. Log-Eintraege ohne
+    model_type (altes Schema, vor Phase 4) werden uebersprungen statt
+    einen KeyError zu werfen - bewusst keine Migration noetig."""
+    evaluated_by_model: dict[str, list[dict]] = {"RandomForest": [], "HistGradientBoosting": []}
     for entry in log_entries:
+        model_type = entry.get("model_type")
+        if model_type not in evaluated_by_model:
+            continue
         date = entry["date"]
         if date >= today:
             continue
@@ -530,7 +535,7 @@ def _evaluate_realized_accuracy(log_entries: list[dict], mv_lookup: dict, today:
         if mv_then is None or mv_next is None:
             continue
         actual_delta = mv_next - mv_then
-        evaluated.append(
+        evaluated_by_model[model_type].append(
             {
                 "date": date,
                 "sign_correct": np.sign(entry["predicted_delta"]) == np.sign(actual_delta),
@@ -538,8 +543,27 @@ def _evaluate_realized_accuracy(log_entries: list[dict], mv_lookup: dict, today:
             }
         )
     return {
-        f"realized_{days}d": _summarize_window(evaluated, today, days) for days in ACCURACY_WINDOWS_DAYS
+        name: {f"realized_{days}d": _summarize_window(evaluated, today, days) for days in ACCURACY_WINDOWS_DAYS}
+        for name, evaluated in evaluated_by_model.items()
     }
+
+
+def _select_live_model(realized_by_model: dict[str, dict], synthetic_winner: str) -> tuple[str, str]:
+    """Waehlt das Modell fuer die tatsaechliche Live-Prognose. Bevorzugt echte
+    Trailing-30d-sign_accuracy sobald BEIDE Modelle genug Realdaten haben
+    (MIN_REALIZED_SAMPLES_FOR_SELECTION), sonst Fallback auf den heutigen
+    synthetischen Split (bisheriges Verhalten) - vermeidet eine Entscheidung
+    auf Basis von 1-2 verrauschten Datenpunkten in der Kaltstart-Phase."""
+    rf_window = realized_by_model.get("RandomForest", {}).get("realized_30d")
+    hgb_window = realized_by_model.get("HistGradientBoosting", {}).get("realized_30d")
+    if (
+        rf_window and hgb_window
+        and rf_window["n"] >= MIN_REALIZED_SAMPLES_FOR_SELECTION
+        and hgb_window["n"] >= MIN_REALIZED_SAMPLES_FOR_SELECTION
+    ):
+        winner = "RandomForest" if rf_window["sign_accuracy"] >= hgb_window["sign_accuracy"] else "HistGradientBoosting"
+        return winner, "realized_trailing_30d"
+    return synthetic_winner, "synthetic_split_fallback"
 
 
 def _append_todays_predictions(today_df: pd.DataFrame, predictions: dict[str, float]) -> None:
