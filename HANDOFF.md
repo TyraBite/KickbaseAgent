@@ -88,10 +88,34 @@ zerlegt. Voller Kontext + Roadmap:
   entfernt (Verein/Position werden gar nicht mehr angezeigt). Deutsche
   Umlaute durchgaengig in allen `frontend/`-Dateien (UI-Texte + Kommentare).
 
-## Nacharbeit Runde 2 — IMPLEMENTIERT (Commit `d888431`, lokal, NICHT gepusht), NOCH NICHT im Browser verifiziert
+## Nacharbeit Runde 2 — IMPLEMENTIERT (Commits `d888431`+`7058daa`, lokal, NICHT gepusht), User hat live getestet, 2 Nachbesserungen
 
 Alle 8 Punkte sind umgesetzt. Stand pro Punkt (Original-Plan darunter
 weiterhin als Referenz, u.a. fuer die verwendeten Schwellenwerte):
+
+**User hat danach ECHT im Browser getestet** (`npm run dev`) und 2
+kleine Nachbesserungen direkt im Chat gegeben (beide committed, lokal,
+NICHT gepusht):
+- **Pfeil-Farbe** (`frontend/src/format.ts`, `trendArrow()`): User sah
+  `▲`/`▼` (Geometric-Shapes-Dreiecke) immer gruen dargestellt, unabhaengig
+  von Richtung — Font-Rendering-Problem (Dreiecke folgen auf manchen
+  Systemfonts nicht `currentColor`). Fix 1 (Commit `65e2993`): auf reine
+  Pfeil-Glyphen `↑`/`↓` gewechselt. **User-Folge-Feedback**: dann sahen
+  NUR die 45°-Pfeile (`↗`/`↘`) farbig aus ("weisser Pfeil im blauen
+  Quadrat", offizielle Emoji-Darstellung), der Rest blieb einfarbiger
+  Text. Fix 2 (Commit `f48246a`, **finaler Stand**): alle 5 Stufen auf
+  offizielle Pfeil-Emoji MIT explizitem Variation-Selector `️`
+  umgestellt (`⬆️`/`↗️`/`➡️`/`↘️`/`⬇️`) — User hat das bestaetigt ("sieht
+  besser aus").
+- **Vereinswappen-Fallback-Badge** (Commit, siehe naechster Push — Session
+  noch offen beim Schreiben dieses Updates): User wollte statt der ersten
+  2 Buchstaben des Vereinsnamens die ECHTEN 3-Buchstaben-TV-Kuerzel
+  (Sky/Kicker-Uebertragungsstil, z.B. "BVB", "FCB"). `TEAM_ABBR`-Mapping
+  in `SpekulationTab.tsx` ergaenzt, `team_id`-Liste dafuer per Live-DB-
+  Abfrage (`own_squad`+`market_listings`, alle `fetched_at`) auf 18
+  Vereine erweitert (Bayern/`team_id=2` fehlte im urspruenglichen
+  17er-Snapshot). Unbekannte `team_id` fallen weiterhin auf die ersten 3
+  Buchstaben des Vereinsnamens zurueck (kein Hard-Fail bei neuen Vereinen).
 
 - **Punkt 1 (Wappen+Position im Header)**: `TeamCrest`-Komponente in
   `frontend/src/components/SpekulationTab.tsx` — laedt
@@ -310,10 +334,18 @@ Abstand aufgeraeumt). 3-Monats-Hoch/Tief bleibt "–" bis Push+Pipeline-Lauf.
 - [ ] **Nacharbeit Runde 2 ist implementiert + committed, aber NOCH NICHT
   im Browser verifiziert** — naechster Schritt ist User-seitiges Testen
   (Dev-Server neu starten), nicht mehr Implementierung.
-- [ ] **Vereinswappen-Bilddateien fehlen** — `frontend/public/crests/`
-  hat nur eine `README.md`, die ~17 SVGs muss der User besorgen (z.B.
-  Wikimedia Commons) und dort ablegen (Dateiname = `team_id.svg`).
-  Fallback (Initialen-Badge) funktioniert bis dahin.
+- [ ] **Vereinswappen-Bilddateien fehlen — MUSS DER USER HAENDISCH
+  BESORGEN, kein KI-Todo** (bestaetigt im Chat, 2026-07-28): diese
+  Sandbox hat kein Binaer-Download-Tool (`WebFetch` liefert nur Text/
+  Markdown), Bilddateien koennen hier grundsaetzlich NICHT heruntergeladen
+  werden — auch eine kuenftige Session mit demselben Tool-Zugriff kann das
+  nicht automatisch nachholen, ausser die Sandbox bekommt ein
+  Bild-Download-Tool. `frontend/public/crests/` hat nur eine `README.md`,
+  die 18 SVGs (siehe dortige Liste, jetzt inkl. `2.svg` fuer Bayern) muss
+  der User selbst besorgen (z.B. Wikimedia Commons) und dort ablegen
+  (Dateiname = `{team_id}.svg`). Fallback bis dahin: TV-Kuerzel-Badge
+  (`TEAM_ABBR` in `SpekulationTab.tsx`, z.B. "BVB", "FCB") statt Initialen -
+  funktioniert unveraendert, kein Blocker fuer alles andere.
 - [ ] **GitHub-Pages-Source umstellen**: Repo-Settings -> Pages -> Source
   von "Deploy from a branch" auf "GitHub Actions" — einmaliger manueller
   Schritt, macht der User selbst im Browser (wie bei frueherem Pages-Setup

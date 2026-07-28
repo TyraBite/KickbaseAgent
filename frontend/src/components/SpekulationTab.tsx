@@ -260,16 +260,47 @@ function AuctionValue({ row, now }: { row: SpekulationRow; now: number }) {
   return <>{auctionLabel(row, now)}</>;
 }
 
+// Offizielle 3-Buchstaben-Kuerzel (DFL/TV-Uebertragung, z.B. Sky/Kicker) -
+// live aus data/kickbase.db ermittelte team_ids (own_squad + market_listings,
+// alle fetched_at), nicht geraten. Unbekannte team_id (neuer Verein, noch
+// nicht in dieser DB gesehen) faellt auf die ersten 3 Buchstaben des
+// Vereinsnamens zurueck.
+const TEAM_ABBR: Record<string, string> = {
+  "2": "FCB", // Bayern
+  "13": "FCA", // Augsburg
+  "10": "SVW", // Bremen
+  "3": "BVB", // Dortmund
+  "77": "SVE", // Elversberg
+  "4": "SGE", // Frankfurt
+  "5": "SCF", // Freiburg
+  "6": "HSV", // Hamburg
+  "14": "TSG", // Hoffenheim
+  "28": "KOE", // Köln
+  "43": "RBL", // Leipzig
+  "7": "B04", // Leverkusen
+  "15": "BMG", // M'gladbach
+  "18": "M05", // Mainz
+  "29": "SCP", // Paderborn
+  "8": "S04", // Schalke
+  "9": "VFB", // Stuttgart
+  "40": "FCU", // Union Berlin
+};
+
+function teamAbbr(teamId: string | null, teamName: string | null): string {
+  if (teamId && TEAM_ABBR[teamId]) return TEAM_ABBR[teamId];
+  return (teamName ?? "???").slice(0, 3).toUpperCase();
+}
+
 // Kickbase liefert selbst keine Logo-URL - Wappen liegen self-hosted unter
 // public/crests/{team_id}.svg (vom User zu besorgen). Fehlt eine Datei
-// (noch), faellt die Kachel auf einen Initialen-Badge zurueck statt ein
+// (noch), faellt die Kachel auf das TV-Kuerzel-Badge zurueck statt ein
 // kaputtes Bild-Icon zu zeigen - Wappen koennen nach und nach ergaenzt werden.
 function TeamCrest({ teamId, teamName }: { teamId: string | null; teamName: string | null }) {
   const [failed, setFailed] = useState(false);
   if (!teamId || failed) {
     return (
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-        {(teamName ?? "?").slice(0, 2).toUpperCase()}
+      <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-slate-200 px-1 text-[9px] font-semibold tracking-tight text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+        {teamAbbr(teamId, teamName)}
       </span>
     );
   }
