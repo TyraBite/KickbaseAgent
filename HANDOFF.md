@@ -1,8 +1,9 @@
 # Handoff: Firestore-Migration Phase 4-5 + Dashboard-Erweiterungen (Alle-Spieler/Wunschkader-Edit)
 
-**Generated**: 2026-07-28 (Ende der Session, Phase 1-3 fertig)
+**Generated**: 2026-07-28 (Ende der Session, Phase 1-3 + beide Feature-Requests fertig)
 **Branch**: main
-**Status**: In Progress — Phase 1-3 done, Phase 4-5 noch zu planen/umzusetzen, danach zwei neue Feature-Requests (bereits geplant, noch nicht umgesetzt)
+**Status**: In Progress — Phase 1-3 done, Alle-Spieler-Tab + editierbarer
+Wunschkader done (Firestore-only), Phase 4-5 stehen als naechstes an
 
 ## Goal
 
@@ -12,10 +13,10 @@ umbauen (ersetzt den alten Discord-Daily-Report komplett). 5-Phasen-
 Architektur, komplett spezifiziert in
 `docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md`.
 **Phase 1-3 sind fertig; Phase 4 (ML-Historie), Phase 5 (Mobile/UX)**
-stehen noch aus. Danach zwei neue Dashboard-Features (Alle-Spieler-Tab +
-editierbarer Wunschkader mit Firestore-Schreibzugriff aus dem Browser) —
-**diese kommen NACH Phase 4-5 dran, nicht davor** (expliziter User-Wunsch,
-siehe Resume Instructions).
+stehen noch aus. Die zwei Dashboard-Features (Alle-Spieler-Tab +
+editierbarer Wunschkader mit Firestore-Schreibzugriff aus dem Browser)
+wurden entgegen der urspruenglichen Reihenfolge-Vorgabe bereits VOR
+Phase 4-5 umgesetzt und sind **fertig** — Details siehe Completed.
 
 ## Completed (diese und letzte Session)
 
@@ -39,9 +40,10 @@ siehe Resume Instructions).
   getestet, `update_time` in Firestore matcht Action-Log-Timestamp exakt —
   bestaetigt echter End-to-End-Write aus der Action.
 - [x] **Nicht-kategorisiert-Fallback entfernt** (`_split_eigenes_team`):
-  Spieler, die nicht in `wunschkader.json`s `targets` stehen, landen jetzt
-  direkt bei Verkaufskandidaten statt in einem separaten Bucket
-  (User-Entscheidung, siehe Key Decisions).
+  Spieler, die nicht in den Wunschkader-`targets` stehen (damals noch
+  `data/wunschkader.json`, heute Firestore `wunschkader/current` — siehe
+  unten), landen jetzt direkt bei Verkaufskandidaten statt in einem
+  separaten Bucket (User-Entscheidung, siehe Key Decisions).
 - [x] **Phase 3** (Hosting/Deploy):
   - Repo `TyraBite/KickbaseAgent` ist **public** (Security-Audit vorher:
     komplette Git-History auf Secrets gescannt, nichts gefunden).
@@ -58,6 +60,28 @@ siehe Resume Instructions).
 - [x] **Kaderplanung (Torwart)**: Rönnow-Gebot verloren — an **Fassii**,
   fuer 7.900.558. **Zentner** (Mainz, Rang 1, 9.68M) als Plan-A. **Noch
   keine Kaufentscheidung final umgesetzt.**
+- [x] **Feature-Request 1 — Alle-Spieler-Tab** (Plan
+  `docs/superpowers/plans/2026-07-28-alle-spieler-wunschkader-firestore.md`,
+  Tasks 1-6, alle committed, review clean): neuer Dashboard-Tab zeigt alle
+  ~450 Liga-Spieler aus `DATA.alle_spieler`, filterbar (Position/Team/Owner/
+  Name-Suche). `dashboard_export.py` liefert `alle_spieler` jetzt als Teil
+  des Snapshots.
+- [x] **Feature-Request 2 — Editierbarer Wunschkader** (selber Plan, Tasks
+  1-6): kompletter Wunschkader-Datensatz (`targets`, `sell_list`,
+  `markup_rules`, `login_bonus`, `formation`, `season_start`) ist aus
+  `data/wunschkader.json` **komplett nach Firestore umgezogen**
+  (`wunschkader/current`, EIN Dokument) — die lokale Datei existiert nicht
+  mehr. `src/firestore_db.py` hat neue `get_wunschkader()`/
+  `upsert_wunschkader()`; `dashboard_export.py` liest von dort und exportiert
+  den vollen Rohinhalt zusaetzlich als `wunschkader_raw` im Snapshot, damit
+  der Browser beim Speichern den unveraenderten Rest mitschreiben kann.
+  `firestore.rules` erlaubt der einen autorisierten UID Schreibzugriff auf
+  `wunschkader/current`. Im Wunschkader-Tab des Dashboards jetzt: Namen
+  ersetzen, Eintraege entfernen, neue Targets hinzufuegen, "Wechsel"-Button
+  mit Vorschlaegen (freie Spieler gleicher Position, Marktwert-/Punkte-Naehe),
+  echtes Speichern per `setDoc` direkt aus dem Browser. Alle 39 Tests gruen,
+  Migration und Rules-Deploy live gegen echtes Firestore-Projekt verifiziert
+  (nicht nur Unit-Tests).
 
 ## Not Yet Done
 
@@ -66,15 +90,10 @@ siehe Resume Instructions).
   datengetriebene Modell-/Hyperparameter-Wahl.
 - [ ] **Phase 5** (Mobile/UI-UX): braucht laut Spec einen dedizierten
   User-Interview-Schritt VOR dem Design — noch nicht begonnen.
-- [ ] **Feature-Request 1 — Alle-Spieler-Tab**: neuer Dashboard-Tab mit
-  allen ~450 Liga-Spielern, filterbar. Plan fertig, siehe Files to Know.
-- [ ] **Feature-Request 2 — Editierbarer Wunschkader**: Zielspieler direkt
-  im Dashboard ersetzen/entfernen/hinzufuegen, echter Client-Firestore-
-  Schreibpfad. Plan fertig, siehe Files to Know.
-  **Explizite Reihenfolge-Vorgabe: erst NACH Phase 4-5.**
 - [ ] **Torwart-Kaufentscheidung**: Zentner tatsaechlich bieten/kaufen,
-  `data/wunschkader.json`s Rönnow-Eintrag (`targets[0]`) noch NICHT auf
-  "verloren an Fassii" aktualisiert.
+  der Rönnow-Eintrag (`targets[0]`) in Firestore (`wunschkader/current`,
+  ehemals `data/wunschkader.json`) noch NICHT auf "verloren an Fassii"
+  aktualisiert.
 
 ## Failed Approaches (Don't Repeat These)
 
@@ -112,17 +131,22 @@ siehe Resume Instructions).
 | Repo public + GitHub Pages vom Root | User-Freigabe nach Security-Audit (keine Secrets je in Git-History) |
 | Ruleset-Bypass fuer Repo-Owner statt Ruleset deaktivieren | User wollte den Schutz behalten, nur sich selbst als Ausnahme |
 | **Ab jetzt: Commits lokal lassen, NICHT pushen, keine Feature-Branches** | Expliziter User-Wunsch nach dem PR-Vorfall — nur User+Claude entwickeln hier, User pusht selbst (nutzt eigenen Ruleset-Bypass) |
+| Kompletter Wunschkader-Datensatz (nicht nur `targets`) lebt komplett in Firestore (`wunschkader/current`), kein Git-Spiegel mehr | User-Entscheidung 2026-07-28: Historie ist nur fuer ML-Ergebnisse relevant, kommt separat in Phase 4 (`ml_prediction_log`) — `data/wunschkader.json` wurde bewusst geloescht statt weiter als Fallback/Backup mitgefuehrt |
 
 ## Current State
 
 **Working**: Phase 1-3 komplett fertig und live verifiziert. Dashboard
 laeuft unter https://tyrabite.github.io/KickbaseAgent/, Login+Live-Read
 funktionieren, Firestore-Write laeuft automatisch alle 2h per GitHub
-Action. Alle 33 Unit-Tests gruen.
+Action. Alle-Spieler-Tab und editierbarer Wunschkader-Tab sind fertig und
+im Dashboard live (Ersetzen/Entfernen/Hinzufuegen/Wechsel/Speichern via
+`setDoc`). Wunschkader lebt komplett in Firestore (`wunschkader/current`),
+`data/wunschkader.json` existiert nicht mehr. Alle 39 Unit-Tests gruen.
 
 **Offen**:
-- `data/wunschkader.json`s Rönnow-Eintrag zeigt noch faelschlich "Gebot
-  fuehrend" — noch nicht auf "verloren an Fassii" aktualisiert.
+- Rönnow-Eintrag in Firestore (`wunschkader/current`, `targets[0]`) zeigt
+  noch faelschlich "Gebot fuehrend" — noch nicht auf "verloren an Fassii"
+  aktualisiert.
 - Torwart-Kaufentscheidung (Zentner?) noch nicht final getroffen.
 
 **Uncommitted lokal (Stand Session-Ende)**: Commit `f9ce868` (Cron 2h +
@@ -135,25 +159,28 @@ pusht das selbst (siehe Warnings).
 |------|----------------|
 | `docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md` | Die volle 5-Phasen-Architektur — Phase 4/5 stehen dort nur als Kurzabsatz, brauchen jeweils eigenen Plan->Umsetzungs-Zyklus |
 | `docs/superpowers/plans/2026-07-28-phase3-hosting-deploy.md` | Abgeschlossener Phase-3-Plan, als Referenz fuer Struktur/Vorgehen bei Phase 4/5 |
-| `/home/node/.claude/plans/hol-dir-den-rest-indexed-clover.md` | **Der fertige, freigegebene Plan fuer die zwei Feature-Requests** — kommt erst nach Phase 4-5 dran |
+| `docs/superpowers/plans/2026-07-28-alle-spieler-wunschkader-firestore.md` | Der umgesetzte Plan fuer Alle-Spieler-Tab + editierbaren Wunschkader (Tasks 1-6 fertig, Task 7 = dieser Handoff-Update) |
 | `index.html` | Handgepflegte Quelldatei (Repo-Root, nicht mehr `docs/`), NICHT generiert |
-| `firestore.rules` / `firebase.json` / `.firebaserc` | Live deployed per `firebase-tools` CLI, echte UID drin |
-| `data/wunschkader.json` | `targets[0]` (Rönnow) muss auf "verloren an Fassii, 7.900.558" aktualisiert werden |
+| `firestore.rules` / `firebase.json` / `.firebaserc` | Live deployed per `firebase-tools` CLI, echte UID drin — `wunschkader/current` jetzt zusaetzlich fuer diese UID schreibbar |
+| `src/firestore_db.py` | Neue `get_wunschkader()`/`upsert_wunschkader()` — Wunschkader-Collection, kein lokaler Fallback mehr |
+| **`data/wunschkader.json` existiert nicht mehr** | Kompletter Inhalt lebt jetzt in Firestore-Collection `wunschkader/current` (`targets[0]`/Rönnow muss dort noch auf "verloren an Fassii, 7.900.558" aktualisiert werden) |
 | `.github/workflows/dashboard.yml` | Laeuft alle 2h, schreibt nach Firestore. `daily.yml` existiert nicht mehr |
 
 ## Resume Instructions
 
-1. **Zuerst**: pruefen ob User Commit `f9ce868` schon gepusht hat
-   (`git log origin/main` vs. lokal) — falls nicht, daran denken dass
-   Push jetzt User-Sache ist, nicht automatisch machen.
+Die zwei Feature-Requests (Alle-Spieler-Tab, editierbarer Wunschkader)
+sind fertig — naechste Schritte sind wieder Phase 4/5 aus dem Haupt-Spec:
+
+1. **Zuerst**: pruefen ob der User offene lokale Commits (siehe `git log
+   origin/main` vs. lokal) schon gepusht hat — Push ist weiterhin
+   User-Sache, nicht automatisch machen.
 2. **Phase 4** planen (ML-Historie/Genauigkeits-Trend im Dashboard,
    `ml_prediction_log`-Collection nutzen) — eigener Plan->Umsetzungs-Zyklus.
 3. **Phase 5** danach (Mobile/UX, braucht User-Interview-Schritt zuerst).
-4. **Erst danach** die zwei Feature-Requests aus
-   `/home/node/.claude/plans/hol-dir-den-rest-indexed-clover.md` umsetzen.
-5. Torwart-Entscheidung mit User abschliessen (Zentner bieten?),
-   `data/wunschkader.json`s Rönnow-Eintrag korrigieren sobald final
-   entschieden.
+4. Torwart-Entscheidung mit User abschliessen (Zentner bieten?), Rönnow-
+   Eintrag in Firestore (`wunschkader/current`) korrigieren sobald final
+   entschieden — jetzt bequem direkt im Dashboard moeglich (editierbarer
+   Wunschkader-Tab), kein manuelles JSON-Editieren mehr noetig.
 
 ## Setup Required
 
