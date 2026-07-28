@@ -6,13 +6,9 @@ Sammelt Kader-, Liga-, Transfermarkt- und Punktedaten ueber die inoffizielle
 Kickbase-API (inkl. eingebautem Verletzt-/Gesperrt-Status und Startelf-Rang
 je Spieler), schaetzt die Budgets aller Liga-Manager aus dem Activity-Feed
 und prognostiziert Marktwertaenderungen per taeglich neu trainiertem
-RandomForest-Modell. Daraus entstehen zwei Ausgaben:
-
-1. Ein fertiger Analyse-Prompt (Aufstellung, Kauf-/Verkaufsempfehlungen pro
-   Spieler, Liga-Konkurrenzanalyse), per Discord-Webhook zugestellt und
-   manuell ins Claude-WebUI eingefuegt (MVP-Phase: keine Anthropic-API-Kosten).
-2. Ein lokales Dashboard (`docs/dashboard.html`) mit drei Ansichten:
-   Transfermarkt, Eigenes Team, Ligaanalyse.
+RandomForest-Modell. Daraus entsteht ein live gehostetes Dashboard
+(`index.html`, per GitHub Pages + Firebase Auth/Firestore) mit drei
+Ansichten: Transfermarkt, Eigenes Team, Ligaanalyse.
 
 Details siehe Plan-Dokument (Projektverlauf). Die manuelle Recherche-
 Methodik (Startelf-Einschaetzungen, Verletzungslage, Vereinskontext) liegt
@@ -45,7 +41,7 @@ copy .env.example .env  # Secrets lokal eintragen, .env nie committen
 
 - `KICKBASE_EMAIL`
 - `KICKBASE_PASSWORD`
-- `DISCORD_WEBHOOK_URL`
+- `FIREBASE_SERVICE_ACCOUNT` (JSON-Inhalt des Firebase-Service-Account-Keys, fuer den Firestore-Schreibpfad)
 
 ## Optionale Konfiguration
 
@@ -64,19 +60,13 @@ copy .env.example .env  # Secrets lokal eintragen, .env nie committen
 
 ## Ausfuehren
 
-**Taeglicher Discord-Report** (Fetch, Budget-Schaetzung, ML-Prognose, Prompt, Discord-Versand;
-laeuft automatisch per `.github/workflows/daily.yml`, 07:00 UTC):
-
-```bash
-python -m src.main
-```
-
 **Dashboard** (Transfermarkt/Eigenes Team/Ligaanalyse; laeuft automatisch per
-`.github/workflows/dashboard.yml`, 21:15 UTC - kurz nach Kickbases 22:00-Uhr-Marktwert-
-Update). Schreibt `docs/dashboard.html`, danach lokal im Browser oeffnen (`file://`):
+`.github/workflows/dashboard.yml`, alle 2h). Berechnet den Snapshot und schreibt ihn
+nach Firestore (`dashboard_snapshot/latest`), von wo `index.html` ihn live liest -
+`index.html` selbst ist eine handgepflegte Datei, wird nicht generiert:
 
 ```bash
-python -m src.dashboard_export
+FIRESTORE_ENABLED=1 GOOGLE_APPLICATION_CREDENTIALS=./firebase-service-account.json python -m src.dashboard_export
 ```
 
 **Fairwert/K-Punkt-Kalibrierung** (Referenzpreis je Position aus allen ~450 Liga-Spielern,
