@@ -1,8 +1,15 @@
+import datetime
 import os
 import unittest
 from unittest.mock import patch
 
-from src.dashboard_export import _build_alle_spieler, _build_spekulation, _load_wunschkader
+from src.dashboard_export import (
+    _build_alle_spieler,
+    _build_spekulation,
+    _build_transfermarkt,
+    _load_wunschkader,
+    _player_row,
+)
 
 
 class BuildAlleSpielerTests(unittest.TestCase):
@@ -60,6 +67,41 @@ class BuildSpekulationTests(unittest.TestCase):
         rows = _build_spekulation(transfermarkt_rows)
 
         self.assertEqual(rows[0]["team_id"], "9")
+        self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
+
+
+class PlayerRowTests(unittest.TestCase):
+    def test_includes_team_id(self):
+        row = {
+            "player_id": "p1", "name": "Kane", "position": "Sturm", "team_id": "2", "team_name": "Bayern",
+            "status_label": None, "starting_rank": 1, "market_value": 5_000_000,
+            "market_value_change_7d": 0, "market_value_low_92d": None, "market_value_high_92d": None,
+            "average_points": 200, "total_points": 400,
+        }
+
+        result = _player_row(row, calibration=None, predictions=None)
+
+        self.assertEqual(result["team_id"], "2")
+
+
+class BuildTransfermarktTests(unittest.TestCase):
+    def test_passes_through_auction_expires_at(self):
+        listing = {
+            "player_id": "p1", "name": "Woltemade", "position": "Sturm", "team_id": "9",
+            "team_name": "Stuttgart", "status_label": None, "starting_rank": 1,
+            "market_value": 10_000_000, "market_value_change_7d": 50_000,
+            "market_value_low_92d": 8_500_000, "market_value_high_92d": 10_200_000,
+            "average_points": 180, "total_points": 360,
+            "is_system_offer": True, "listed_at": "2026-07-27T10:00:00Z",
+            "expires_at": "2026-07-29T12:00:00Z", "expiry_is_estimate": False,
+            "price": 10_000_000, "price_delta_pct": 0.0, "offering_username": None,
+            "pending_offers_count": 0, "leading_bid_username": None, "leading_bid_price": None,
+            "is_own_leading_bid": False,
+        }
+        now = datetime.datetime(2026, 7, 28, tzinfo=datetime.timezone.utc)
+
+        rows = _build_transfermarkt([listing], calibration=None, predictions=None, own_available_budget=None, now=now)
+
         self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
 
 
