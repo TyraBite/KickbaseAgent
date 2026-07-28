@@ -302,12 +302,15 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def _train_and_evaluate(history_df: pd.DataFrame):
     """Trainiert zwei Modell-Kandidaten per Zeit-Split (75/25, kein Shuffle,
-    verhindert Data Leakage) und behaelt den Gewinner nach Test-R2 -
-    RandomForestRegressor (bisherige feste Parameter) gegen
-    HistGradientBoostingRegressor (eingebautes Early-Stopping, oft besser
-    bei Feature-Interaktionen). Gibt (model, metrics) oder None zurueck,
-    wenn zu wenig Daten fuer einen sinnvollen Split/Training vorhanden
-    sind. metrics["model_type"] zeigt, welcher Kandidat gewonnen hat."""
+    verhindert Data Leakage) - RandomForestRegressor (bisherige feste
+    Parameter) gegen HistGradientBoostingRegressor (eingebautes
+    Early-Stopping, oft besser bei Feature-Interaktionen). Gibt (models,
+    metrics) oder None zurueck, wenn zu wenig Daten fuer einen sinnvollen
+    Split/Training vorhanden sind. `models` enthaelt ALLE trainierten
+    Kandidaten (Phase 4: werden beide fuer die taegliche Prognose
+    gebraucht, um beide zu loggen), nicht mehr nur den Gewinner.
+    metrics["model_type"] zeigt, welcher Kandidat nach Test-R2 gewonnen
+    hat."""
     if len(history_df) < MIN_TRAINING_ROWS:
         return None
 
@@ -336,28 +339,32 @@ def _train_and_evaluate(history_df: pd.DataFrame):
         "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
     }
 
-    best_name, best_model, best_r2, best_pred = None, None, None, None
+    models: dict[str, object] = {}
+    per_model_metrics: dict[str, dict] = {}
     for name, candidate in candidates.items():
         candidate.fit(x_train, y_train)
         y_pred = candidate.predict(x_test)
         r2 = r2_score(y_test, y_pred)
-        if best_r2 is None or r2 > best_r2:
-            best_name, best_model, best_r2, best_pred = name, candidate, r2, y_pred
+        rmse = mean_squared_error(y_test, y_pred) ** 0.5
+        mae = mean_absolute_error(y_test, y_pred)
+        sign_accuracy = float(np.mean(np.sign(y_test) == np.sign(y_pred)) * 100)
+        models[name] = candidate
+        per_model_metrics[name] = {
+            "rmse": round(rmse, 2),
+            "mae": round(mae, 2),
+            "r2": round(r2, 3),
+            "sign_accuracy": round(sign_accuracy, 1),
+        }
 
-    rmse = mean_squared_error(y_test, best_pred) ** 0.5
-    mae = mean_absolute_error(y_test, best_pred)
-    sign_accuracy = float(np.mean(np.sign(y_test) == np.sign(best_pred)) * 100)
-
+    best_name = max(per_model_metrics, key=lambda name: per_model_metrics[name]["r2"])
     metrics = {
         "model_type": best_name,
-        "rmse": round(rmse, 2),
-        "mae": round(mae, 2),
-        "r2": round(best_r2, 3),
-        "sign_accuracy": round(sign_accuracy, 1),
+        **per_model_metrics[best_name],
         "train_rows": len(train),
         "test_rows": len(test),
+        "per_model": per_model_metrics,
     }
-    return best_model, metrics
+    return models, metrics
 
 
 def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
@@ -427,6 +434,18 @@ def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
 
 
 def _load_prediction_log() -> list[dict]:
+    """Liest bei FIRESTORE_ENABLED aus Firestore (persistiert ueber CI-Laeufe
+    hinweg, anders als die lokale Datei) - Firestore-Lesefehler faellt
+    zurueck auf die lokale Datei statt die Pipeline zu crashen. Ohne
+    FIRESTORE_ENABLED (lokaler Testlauf) bleibt alles wie bisher."""
+    if os.environ.get("FIRESTORE_ENABLED"):
+        try:
+            return firestore_db.get_prediction_log_entries(firestore_db.connect())
+        except Exception as exc:
+            print(
+                f"Warnung: ml_prediction_log-Lesezugriff fehlgeschlagen, nutze lokale Datei: {exc}",
+                file=sys.stderr,
+            )
     if not PREDICTION_LOG_PATH.exists():
         return []
     entries = []
