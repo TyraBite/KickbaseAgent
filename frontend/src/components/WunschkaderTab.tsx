@@ -111,7 +111,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
 
   function replaceTarget(uid: number, replacement: AlleSpielerRow) {
     setEditState((prev) =>
-      prev.map((t) => (t._uid === uid ? { name: replacement.name, position: replacement.position, role: t.role } : t))
+      prev.map((t) => (t._uid === uid ? { ...t, name: replacement.name, position: replacement.position } : t))
     );
     setSelected(null);
   }
