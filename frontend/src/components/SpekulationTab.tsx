@@ -260,34 +260,36 @@ function AuctionValue({ row, now }: { row: SpekulationRow; now: number }) {
   return <>{auctionLabel(row, now)}</>;
 }
 
-// Offizielle 3-Buchstaben-Kuerzel (DFL/TV-Uebertragung, z.B. Sky/Kicker) -
-// live aus data/kickbase.db ermittelte team_ids (own_squad + market_listings,
-// alle fetched_at), nicht geraten. Unbekannte team_id (neuer Verein, noch
-// nicht in dieser DB gesehen) faellt auf die ersten 3 Buchstaben des
-// Vereinsnamens zurueck.
+// Offizielle 3-Buchstaben-Kuerzel (DFL/TV-Uebertragung, z.B. Sky/Kicker),
+// per WebSearch gegengecheckt (siehe Konversation, 2026-07-28). Bewusst nach
+// team_name statt team_id geschluesselt: team_name steht schon seit Phase 1
+// in jeder Zeile (kein Firestore-Push/Cron-Lauf noetig, reines FE-Mapping) -
+// team_id ist nur fuer den Wappen-Bildpfad noetig (robuster gegen
+// Sonderzeichen wie "M'gladbach" als Dateiname), nicht fuer dieses Kuerzel.
+// Unbekannter Vereinsname faellt auf die ersten 3 Buchstaben zurueck.
 const TEAM_ABBR: Record<string, string> = {
-  "2": "FCB", // Bayern
-  "13": "FCA", // Augsburg
-  "10": "SVW", // Bremen
-  "3": "BVB", // Dortmund
-  "77": "SVE", // Elversberg
-  "4": "SGE", // Frankfurt
-  "5": "SCF", // Freiburg
-  "6": "HSV", // Hamburg
-  "14": "TSG", // Hoffenheim
-  "28": "KOE", // Köln
-  "43": "RBL", // Leipzig
-  "7": "B04", // Leverkusen
-  "15": "BMG", // M'gladbach
-  "18": "M05", // Mainz
-  "29": "SCP", // Paderborn
-  "8": "S04", // Schalke
-  "9": "VFB", // Stuttgart
-  "40": "FCU", // Union Berlin
+  Bayern: "FCB",
+  Augsburg: "FCA",
+  Bremen: "SVW",
+  Dortmund: "BVB",
+  Elversberg: "SVE",
+  Frankfurt: "SGE",
+  Freiburg: "SCF",
+  Hamburg: "HSV",
+  Hoffenheim: "TSG",
+  Köln: "KOE",
+  Leipzig: "RBL",
+  Leverkusen: "B04",
+  "M'gladbach": "BMG",
+  Mainz: "M05",
+  Paderborn: "SCP",
+  Schalke: "S04",
+  Stuttgart: "VFB",
+  "Union Berlin": "FCU",
 };
 
-function teamAbbr(teamId: string | null, teamName: string | null): string {
-  if (teamId && TEAM_ABBR[teamId]) return TEAM_ABBR[teamId];
+function teamAbbr(teamName: string | null): string {
+  if (teamName && TEAM_ABBR[teamName]) return TEAM_ABBR[teamName];
   return (teamName ?? "???").slice(0, 3).toUpperCase();
 }
 
@@ -300,7 +302,7 @@ function TeamCrest({ teamId, teamName }: { teamId: string | null; teamName: stri
   if (!teamId || failed) {
     return (
       <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-slate-200 px-1 text-[9px] font-semibold tracking-tight text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-        {teamAbbr(teamId, teamName)}
+        {teamAbbr(teamName)}
       </span>
     );
   }
