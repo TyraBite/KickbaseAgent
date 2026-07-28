@@ -271,6 +271,47 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   margin: 0 0 8px;
 }
 .viz-table-toggle:hover { color: var(--text-primary); }
+@media (max-width: 640px) {
+  nav.tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab-btn { flex: 0 0 auto; }
+  .filter-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+  button, input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; }
+  .row-toggle {
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--accent);
+    background: transparent;
+    border: none;
+    padding: 4px 0;
+    cursor: pointer;
+    text-align: left;
+  }
+  table, thead, tbody, tr, td { display: block; width: 100%; }
+  thead { position: absolute; top: -9999px; left: -9999px; }
+  table { border-collapse: separate; }
+  tbody tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--gridline);
+    border-radius: 8px;
+    padding: 6px 10px;
+  }
+  tbody tr:hover { background: none; }
+  td {
+    border-bottom: none;
+    white-space: normal;
+    padding: 6px 0;
+  }
+  td.num { text-align: left; }
+  td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  td[data-secondary="1"] { display: none; }
+  tr.expanded td[data-secondary="1"] { display: block; }
+}
 </style>
 </head>
 <body>
@@ -395,7 +436,24 @@ function renderMeta() {
   el.innerHTML = parts.join(" &nbsp;·&nbsp; ");
 }
 
-function makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultSortDir) {
+function annotateCardRows(tbody, columns) {
+  const hasSecondary = columns.some((c) => c.secondary);
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    if (tr.children.length !== columns.length) return;
+    Array.from(tr.children).forEach((td, i) => {
+      td.setAttribute("data-label", columns[i].label);
+      if (columns[i].secondary) td.setAttribute("data-secondary", "1");
+    });
+    if (hasSecondary && !tr.querySelector(".row-toggle")) {
+      const toggleTd = document.createElement("td");
+      toggleTd.innerHTML = '<button type="button" class="row-toggle">Details</button>';
+      toggleTd.querySelector(".row-toggle").addEventListener("click", () => tr.classList.toggle("expanded"));
+      tr.appendChild(toggleTd);
+    }
+  });
+}
+
+function makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultSortDir, columns) {
   let sortKey = defaultSortKey || null, sortDir = defaultSortDir || 1;
   function markSorted(th, dir) {
     table.querySelectorAll("th").forEach((h) => { h.classList.remove("sorted"); h.removeAttribute("data-dir"); });
@@ -414,6 +472,7 @@ function makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultS
       });
     }
     tbody.innerHTML = data.map(renderRow).join("");
+    if (columns) annotateCardRows(tbody, columns);
   }
   table.querySelectorAll("th[data-key]").forEach((th) => {
     th.addEventListener("click", () => {
@@ -434,13 +493,14 @@ function makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultS
 function buildTable(containerId, columns, getRows, renderRow, hint, filterBarHtml, defaultSortKey, defaultSortDir) {
   const container = document.getElementById(containerId);
   const hintHtml = hint ? `<p class="section-hint">${hint}</p>` : "";
+  const toggleTh = columns.some((c) => c.secondary) ? "<th></th>" : "";
   container.innerHTML = `${filterBarHtml || ""}${hintHtml}<table>
-    <thead><tr>${columns.map((c) => `<th data-key="${c.key}" class="${c.numeric ? 'num' : ''}">${c.label}</th>`).join("")}</tr></thead>
+    <thead><tr>${columns.map((c) => `<th data-key="${c.key}" class="${c.numeric ? 'num' : ''}">${c.label}</th>`).join("")}${toggleTh}</tr></thead>
     <tbody></tbody>
   </table>`;
   const table = container.querySelector("table");
   const tbody = container.querySelector("tbody");
-  return makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultSortDir);
+  return makeSortable(table, getRows, tbody, renderRow, defaultSortKey, defaultSortDir, columns);
 }
 
 function renderTransfermarkt() {
@@ -718,6 +778,7 @@ function suggestReplacements(target, count = 3) {
 }
 
 let wunschkaderEditState = null; // lokale Arbeitskopie von DATA.wunschkader_raw.targets waehrend des Editierens
+let wkNextUid = 0; // clientseitige stabile Zeilen-Id, ueberlebt Sortierung - nie mitspeichern
 
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
@@ -729,38 +790,15 @@ function renderWunschkader() {
   const rows = DATA.wunschkader || [];
   const container = document.getElementById("tab-wunschkader");
   if (!wunschkaderEditState) {
-    wunschkaderEditState = DATA.wunschkader_raw ? [...DATA.wunschkader_raw.targets] : [];
+    wunschkaderEditState = (DATA.wunschkader_raw ? DATA.wunschkader_raw.targets : []).map((t) => ({ ...t, _uid: wkNextUid++ }));
   }
   const formation = DATA.wunschkader_formation ? ` (${DATA.wunschkader_formation})` : "";
   const updated = DATA.wunschkader_updated_at ? `, Stand ${DATA.wunschkader_updated_at}` : "";
 
-  const editRows = wunschkaderEditState.map((t, idx) => {
-    const computed = rows.find((r) => r.name === t.name) || {};
-    return `<tr>
-      <td>${t.position}</td>
-      <td><input type="text" data-idx="${idx}" class="wk-name-input" value="${escapeHtml(t.name)}"></td>
-      <td><button type="button" class="wk-wechsel-btn" data-idx="${idx}">Wechsel</button></td>
-      <td><button type="button" class="wk-remove-btn" data-idx="${idx}">Entfernen</button></td>
-      <td>${t.role}</td>
-      <td>${wunschStatusPill(computed.status || "unbekannt")}</td>
-      <td class="num">${fmtNum(computed.market_value)}</td>
-      <td class="num">${fmtNum(computed.planned_price)}${computed.is_estimate ? ' <span class="muted">(gesch.)</span>' : ""}</td>
-      <td class="num">${fmtNum(computed.points_avg)}</td>
-      <td class="num">${signalPill(computed.signal)}</td>
-      <td class="num">${mlCell(computed.ml_prediction)}</td>
-      <td class="num">${computed.starting_rank ?? '<span class="muted">n/v</span>'}</td>
-      <td class="muted">${escapeHtml(computed.note ?? "")}</td>
-    </tr>
-    <tr class="wk-suggestions" data-idx="${idx}" style="display:none;"><td colspan="13"></td></tr>`;
-  }).join("");
-
   container.innerHTML = `
     <p class="section-hint">Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung.
       Aenderungen wirken sich erst nach dem naechsten Pipeline-Lauf (alle 2h) auf Status/Fairwert/ML-Prognose/Budget-Planung aus.</p>
-    <table>
-      <thead><tr><th>Pos.</th><th>Spieler</th><th></th><th></th><th>Rolle</th><th>Status</th><th>Marktwert</th><th>Geplant</th><th>Schnitt</th><th>Signal</th><th>ML-Prognose</th><th>Rang</th><th>Notiz</th></tr></thead>
-      <tbody id="wk-edit-body">${editRows}</tbody>
-    </table>
+    <div id="tab-wunschkader-table"></div>
     <div class="wk-add-form">
       <input type="text" id="wk-add-name" placeholder="Name">
       <select id="wk-add-position">
@@ -779,45 +817,82 @@ function renderWunschkader() {
     <div><button type="button" id="wk-save-btn">Speichern</button> <span id="wk-save-status" class="muted"></span></div>
     ${rows.length ? renderBudgetPlan(DATA.budget_plan) : ""}`;
 
-  container.querySelectorAll(".wk-name-input").forEach((el) => {
-    el.addEventListener("change", (e) => {
-      const idx = e.target.dataset.idx;
-      const t = wunschkaderEditState[idx];
-      t.name = e.target.value;
-      delete t.actual_bid;
-      delete t.note;
-    });
-  });
-  container.querySelectorAll(".wk-remove-btn").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      wunschkaderEditState.splice(e.target.dataset.idx, 1);
-      renderWunschkader();
-    });
-  });
-  container.querySelectorAll(".wk-wechsel-btn").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      const idx = e.target.dataset.idx;
-      const target = wunschkaderEditState[idx];
+  const wkColumns = [
+    { key: "position", label: "Pos." },
+    { key: "name", label: "Spieler" },
+    { key: "", label: "" },
+    { key: "", label: "" },
+    { key: "status", label: "Status" },
+    { key: "market_value", label: "Marktwert", numeric: true },
+    { key: "planned_price", label: "Geplant", numeric: true },
+    { key: "role", label: "Rolle", secondary: true },
+    { key: "points_avg", label: "Schnitt", numeric: true, secondary: true },
+    { key: "signal", label: "Signal", numeric: true, secondary: true },
+    { key: "ml_prediction", label: "ML-Prognose", numeric: true, secondary: true },
+    { key: "starting_rank", label: "Rang", numeric: true, secondary: true },
+    { key: "note", label: "Notiz", secondary: true },
+  ];
+  const wkRenderRow = (t) => {
+    const computed = rows.find((r) => r.name === t.name) || {};
+    return `<tr data-id="${t._uid}">
+      <td>${t.position}</td>
+      <td><input type="text" data-id="${t._uid}" class="wk-name-input" value="${escapeHtml(t.name)}"></td>
+      <td><button type="button" class="wk-wechsel-btn" data-id="${t._uid}">Wechsel</button></td>
+      <td><button type="button" class="wk-remove-btn" data-id="${t._uid}">Entfernen</button></td>
+      <td>${wunschStatusPill(computed.status || "unbekannt")}</td>
+      <td class="num">${fmtNum(computed.market_value)}</td>
+      <td class="num">${fmtNum(computed.planned_price)}${computed.is_estimate ? ' <span class="muted">(gesch.)</span>' : ""}</td>
+      <td>${t.role}</td>
+      <td class="num">${fmtNum(computed.points_avg)}</td>
+      <td class="num">${signalPill(computed.signal)}</td>
+      <td class="num">${mlCell(computed.ml_prediction)}</td>
+      <td class="num">${computed.starting_rank ?? '<span class="muted">n/v</span>'}</td>
+      <td class="muted">${escapeHtml(computed.note ?? "")}</td>
+    </tr>
+    <tr class="wk-suggestions" data-id="${t._uid}" style="display:none;"><td colspan="14"></td></tr>`;
+  };
+  const redraw = buildTable("tab-wunschkader-table", wkColumns, () => wunschkaderEditState, wkRenderRow);
+  const tableContainer = document.getElementById("tab-wunschkader-table");
+
+  tableContainer.addEventListener("click", (e) => {
+    const removeBtn = e.target.closest(".wk-remove-btn");
+    if (removeBtn) {
+      const idx = wunschkaderEditState.findIndex((t) => String(t._uid) === removeBtn.dataset.id);
+      if (idx !== -1) wunschkaderEditState.splice(idx, 1);
+      redraw();
+      return;
+    }
+    const wechselBtn = e.target.closest(".wk-wechsel-btn");
+    if (wechselBtn) {
+      const target = wunschkaderEditState.find((t) => String(t._uid) === wechselBtn.dataset.id);
       const computed = rows.find((r) => r.name === target.name) || {};
-      const suggestionsRow = container.querySelector(`.wk-suggestions[data-idx="${idx}"]`);
+      const suggestionsRow = tableContainer.querySelector(`.wk-suggestions[data-id="${wechselBtn.dataset.id}"]`);
       const suggestions = suggestReplacements({ ...target, market_value: computed.market_value, points_avg: computed.points_avg });
       suggestionsRow.querySelector("td").innerHTML = suggestions.length
         ? "Vorschlaege: " + suggestions.map((s) =>
-            `<button type="button" class="wk-pick-btn" data-idx="${idx}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`
+            `<button type="button" class="wk-pick-btn" data-id="${wechselBtn.dataset.id}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`
           ).join(" ")
         : "Keine freien Alternativen gleicher Position gefunden.";
       suggestionsRow.style.display = "";
-      suggestionsRow.querySelectorAll(".wk-pick-btn").forEach((btn) => {
-        btn.addEventListener("click", (ev) => {
-          const t = wunschkaderEditState[ev.target.dataset.idx];
-          t.name = ev.target.dataset.name;
-          delete t.actual_bid;
-          delete t.note;
-          renderWunschkader();
-        });
-      });
-    });
+      return;
+    }
+    const pickBtn = e.target.closest(".wk-pick-btn");
+    if (pickBtn) {
+      const t = wunschkaderEditState.find((x) => String(x._uid) === pickBtn.dataset.id);
+      t.name = pickBtn.dataset.name;
+      delete t.actual_bid;
+      delete t.note;
+      redraw();
+    }
   });
+  tableContainer.addEventListener("change", (e) => {
+    if (!e.target.matches(".wk-name-input")) return;
+    const t = wunschkaderEditState.find((x) => String(x._uid) === e.target.dataset.id);
+    t.name = e.target.value;
+    delete t.actual_bid;
+    delete t.note;
+  });
+
   document.getElementById("wk-add-btn").addEventListener("click", () => {
     const name = document.getElementById("wk-add-name").value.trim();
     if (!name) return;
@@ -825,19 +900,20 @@ function renderWunschkader() {
       name,
       position: document.getElementById("wk-add-position").value,
       role: document.getElementById("wk-add-role").value,
+      _uid: wkNextUid++,
     });
-    renderWunschkader();
+    redraw();
   });
   document.getElementById("wk-save-btn").addEventListener("click", async () => {
     const statusEl = document.getElementById("wk-save-status");
     statusEl.textContent = "Speichere...";
     try {
       const updatedAt = new Date().toISOString().slice(0, 10);
-      await setDoc(doc(db, "wunschkader", "current"), { targets: wunschkaderEditState, updated_at: updatedAt }, { merge: true });
-      if (DATA.wunschkader_raw) DATA.wunschkader_raw.targets = wunschkaderEditState;
+      const targets = wunschkaderEditState.map(({ _uid, ...rest }) => rest);
+      await setDoc(doc(db, "wunschkader", "current"), { targets, updated_at: updatedAt }, { merge: true });
+      if (DATA.wunschkader_raw) DATA.wunschkader_raw.targets = targets;
       DATA.wunschkader_updated_at = updatedAt;
-      renderWunschkader();
-      document.getElementById("wk-save-status").textContent = "Gespeichert. Aenderungen erscheinen im naechsten Pipeline-Lauf (~2h).";
+      statusEl.textContent = "Gespeichert. Aenderungen erscheinen im naechsten Pipeline-Lauf (~2h).";
     } catch (err) {
       statusEl.textContent = "Fehler beim Speichern: " + err.message;
     }
@@ -1211,24 +1287,24 @@ function renderSpekulation() {
   const columns = [
     { key: "name", label: "Spieler" },
     { key: "position", label: "Pos." },
-    { key: "team_name", label: "Verein" },
     { key: "price", label: "Preis", numeric: true },
-    { key: "market_value_change_7d", label: "Trend 7T", numeric: true },
-    { key: "ml_prediction", label: "ML-Prognose", numeric: true },
     { key: "roi_pct", label: "Rendite%", numeric: true },
-    { key: "average_points", label: "Schnitt", numeric: true },
     { key: "auction_remaining_seconds", label: "Auktion", numeric: true },
+    { key: "team_name", label: "Verein", secondary: true },
+    { key: "market_value_change_7d", label: "Trend 7T", numeric: true, secondary: true },
+    { key: "ml_prediction", label: "ML-Prognose", numeric: true, secondary: true },
+    { key: "average_points", label: "Schnitt", numeric: true, secondary: true },
   ];
   const renderRow = (r) => `<tr>
     <td>${r.name}${r.is_hype_gipfel ? ' <span class="pill pill-crit">Hype-Gipfel</span>' : ""}${r.near_floor ? ' <span class="pill pill-good">Boden-Schutz</span>' : ""}</td>
     <td>${r.position}</td>
-    <td>${r.team_name ?? ""}</td>
     <td class="num">${fmtNum(r.price)}</td>
+    <td class="num">${r.roi_pct.toFixed(1)}%</td>
+    <td>${r.auction_urgent ? `<span class="pill pill-crit">${r.auction_status}</span>` : (r.auction_status ?? '<span class="muted">unbekannt</span>')}</td>
+    <td>${r.team_name ?? ""}</td>
     <td class="num">${fmtSigned(r.market_value_change_7d)}</td>
     <td class="num">${mlCell(r.ml_prediction)}</td>
-    <td class="num">${r.roi_pct.toFixed(1)}%</td>
     <td class="num">${fmtNum(r.average_points)}</td>
-    <td>${r.auction_urgent ? `<span class="pill pill-crit">${r.auction_status}</span>` : (r.auction_status ?? '<span class="muted">unbekannt</span>')}</td>
   </tr>`;
   const filterBar = `<div class="filter-bar">
     <label>Suche <input type="text" id="spek-filter-search" placeholder="Spieler/Verein"></label>
