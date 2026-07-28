@@ -4,6 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import Login from "./components/Login";
 import SpekulationTab from "./components/SpekulationTab";
+import WunschkaderTab from "./components/WunschkaderTab";
 import type { DashboardSnapshot } from "./types";
 
 type LoadState = "loading" | "error" | "ready";
@@ -18,15 +19,16 @@ const TABS = [
   { key: "ml-genauigkeit", label: "ML-Genauigkeit" },
 ];
 
-// Sub-Projekt 1 (Pilot): nur Spekulation ist migriert, alle anderen Tabs
-// bleiben bis zu ihrem eigenen Sub-Projekt (siehe Phase-6-Plan) deaktiviert.
-const ACTIVE_TAB = "spekulation";
+// Sub-Projekt 1+2: Spekulation und Wunschkader sind migriert, alle anderen
+// Tabs bleiben bis zu ihrem eigenen Sub-Projekt (siehe Phase-6-Plan) deaktiviert.
+const ACTIVE_TABS = new Set(["spekulation", "wunschkader"]);
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [data, setData] = useState<DashboardSnapshot | null>(null);
+  const [activeTab, setActiveTab] = useState("spekulation");
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
 
@@ -67,16 +69,20 @@ export default function App() {
       </header>
       <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950">
         {TABS.map((tab) => {
-          const isActive = tab.key === ACTIVE_TAB;
+          const isActive = ACTIVE_TABS.has(tab.key);
+          const isSelected = tab.key === activeTab;
           return (
             <button
               key={tab.key}
               type="button"
               disabled={!isActive}
+              onClick={() => isActive && setActiveTab(tab.key)}
               className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors ${
-                isActive
+                isSelected
                   ? "border-brand-500 font-semibold text-slate-900 dark:text-slate-50"
-                  : "cursor-not-allowed border-transparent text-slate-400 dark:text-slate-600"
+                  : isActive
+                    ? "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-50"
+                    : "cursor-not-allowed border-transparent text-slate-400 dark:text-slate-600"
               }`}
             >
               {tab.label}
@@ -92,7 +98,8 @@ export default function App() {
         {loadState === "error" && (
           <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
         )}
-        {loadState === "ready" && data && <SpekulationTab rows={data.spekulation ?? []} />}
+        {loadState === "ready" && data && activeTab === "spekulation" && <SpekulationTab rows={data.spekulation ?? []} />}
+        {loadState === "ready" && data && activeTab === "wunschkader" && <WunschkaderTab data={data} />}
       </main>
     </div>
   );

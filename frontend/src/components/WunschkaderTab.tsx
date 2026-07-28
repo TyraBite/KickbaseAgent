@@ -1,4 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { doc, setDoc } from "firebase/firestore";
+import { db } from "../firebase";
 import type { AlleSpielerRow, DashboardSnapshot, RawWunschkaderTarget, WunschkaderRow } from "../types";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
 import { Badge, POSITION_ABBR, Row, SignalBadge } from "./ui";
@@ -121,6 +123,20 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     setEditState((prev) => [...prev, { ...target, _uid: prev.length ? Math.max(...prev.map((t) => t._uid)) + 1 : 0 }]);
   }
 
+  const [saveStatus, setSaveStatus] = useState("");
+
+  async function handleSave() {
+    setSaveStatus("Speichere…");
+    try {
+      const updatedAt = new Date().toISOString().slice(0, 10);
+      const targets = editState.map(({ _uid, ...rest }) => rest);
+      await setDoc(doc(db, "wunschkader", "current"), { targets, formation, updated_at: updatedAt }, { merge: true });
+      setSaveStatus("Gespeichert. Änderungen erscheinen im nächsten Pipeline-Lauf (~2h).");
+    } catch (err) {
+      setSaveStatus("Fehler beim Speichern: " + (err as Error).message);
+    }
+  }
+
   const totalCount = editState.length;
 
   return (
@@ -145,6 +161,17 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
             {totalCount}/{MAX_SQUAD_SIZE} Kadergröße überschritten
           </Badge>
         )}
+      </div>
+
+      <div className="mb-6 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          Speichern
+        </button>
+        {saveStatus && <span className="text-sm text-slate-500 dark:text-slate-400">{saveStatus}</span>}
       </div>
 
       {POSITIONS.map((position) => {
