@@ -642,31 +642,33 @@ function renderAlleSpieler() {
       <option value="andere">Nur bei anderen Managern</option>
     </select>
     <input type="search" id="alle-spieler-filter-search" placeholder="Suche Spieler/Verein...">
+    <span id="alle-spieler-filter-count" class="muted"></span>
   </div>`;
 
-  function redraw() {
-    buildTable("tab-alle-spieler", columns, getRows, renderRow,
-      `${allRows.length} Liga-Spieler insgesamt, ${getRows().length} nach Filter sichtbar.`, filterBar);
-    wireFilters();
+  const redraw = buildTable("tab-alle-spieler", columns, getRows, renderRow,
+    `${allRows.length} Liga-Spieler insgesamt.`, filterBar);
+
+  const container = document.getElementById("tab-alle-spieler");
+  const countEl = container.querySelector("#alle-spieler-filter-count");
+  function updateCount() {
+    countEl.textContent = `${getRows().length} nach Filter sichtbar`;
   }
-  function wireFilters() {
-    document.getElementById("alle-spieler-filter-position").value = filters.position;
-    document.getElementById("alle-spieler-filter-position").addEventListener("change", (e) => {
-      filters.position = e.target.value;
-      redraw();
-    });
-    document.getElementById("alle-spieler-filter-verfuegbarkeit").value = filters.verfuegbarkeit;
-    document.getElementById("alle-spieler-filter-verfuegbarkeit").addEventListener("change", (e) => {
-      filters.verfuegbarkeit = e.target.value;
-      redraw();
-    });
-    document.getElementById("alle-spieler-filter-search").value = filters.search;
-    document.getElementById("alle-spieler-filter-search").addEventListener("input", (e) => {
-      filters.search = e.target.value.trim().toLowerCase();
-      redraw();
-    });
-  }
-  redraw();
+  container.querySelector("#alle-spieler-filter-position").addEventListener("change", (e) => {
+    filters.position = e.target.value;
+    redraw();
+    updateCount();
+  });
+  container.querySelector("#alle-spieler-filter-verfuegbarkeit").addEventListener("change", (e) => {
+    filters.verfuegbarkeit = e.target.value;
+    redraw();
+    updateCount();
+  });
+  container.querySelector("#alle-spieler-filter-search").addEventListener("input", (e) => {
+    filters.search = e.target.value.trim().toLowerCase();
+    redraw();
+    updateCount();
+  });
+  updateCount();
 }
 
 function renderSpekulation() {
