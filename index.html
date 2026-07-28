@@ -188,6 +188,20 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   padding: 2px 6px;
   width: 100%;
 }
+.dropdown-check { position: relative; display: inline-block; }
+.dropdown-check-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.dropdown-check-menu label { display: flex; align-items: center; gap: 6px; padding: 2px 0; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -642,6 +656,8 @@ function renderWunschkader() {
     return `<tr>
       <td>${t.position}</td>
       <td><input type="text" data-idx="${idx}" class="wk-name-input" value="${escapeHtml(t.name)}"></td>
+      <td><button type="button" class="wk-wechsel-btn" data-idx="${idx}">Wechsel</button></td>
+      <td><button type="button" class="wk-remove-btn" data-idx="${idx}">Entfernen</button></td>
       <td>${t.role}</td>
       <td>${wunschStatusPill(computed.status || "unbekannt")}</td>
       <td class="num">${fmtNum(computed.market_value)}</td>
@@ -651,8 +667,6 @@ function renderWunschkader() {
       <td class="num">${mlCell(computed.ml_prediction)}</td>
       <td class="num">${computed.starting_rank ?? '<span class="muted">n/v</span>'}</td>
       <td class="muted">${escapeHtml(computed.note ?? "")}</td>
-      <td><button type="button" class="wk-wechsel-btn" data-idx="${idx}">Wechsel</button></td>
-      <td><button type="button" class="wk-remove-btn" data-idx="${idx}">Entfernen</button></td>
     </tr>
     <tr class="wk-suggestions" data-idx="${idx}" style="display:none;"><td colspan="13"></td></tr>`;
   }).join("");
@@ -661,7 +675,7 @@ function renderWunschkader() {
     <p class="section-hint">Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung.
       Aenderungen wirken sich erst nach dem naechsten Pipeline-Lauf (alle 2h) auf Status/Fairwert/ML-Prognose/Budget-Planung aus.</p>
     <table>
-      <thead><tr><th>Pos.</th><th>Spieler</th><th>Rolle</th><th>Status</th><th>Marktwert</th><th>Geplant</th><th>Schnitt</th><th>Signal</th><th>ML-Prognose</th><th>Rang</th><th>Notiz</th><th></th><th></th></tr></thead>
+      <thead><tr><th>Pos.</th><th>Spieler</th><th></th><th></th><th>Rolle</th><th>Status</th><th>Marktwert</th><th>Geplant</th><th>Schnitt</th><th>Signal</th><th>ML-Prognose</th><th>Rang</th><th>Notiz</th></tr></thead>
       <tbody id="wk-edit-body">${editRows}</tbody>
     </table>
     <div class="wk-add-form">
@@ -749,7 +763,13 @@ function renderWunschkader() {
 
 function renderAlleSpieler() {
   const allRows = DATA.alle_spieler || [];
-  const filters = { position: "all", verfuegbarkeit: "all", search: "" };
+  const availableRanks = [...new Set(allRows.map((r) => r.starting_rank).filter((r) => r != null))].sort((a, b) => a - b);
+  const maxMarketValue = Math.max(500000, ...allRows.map((r) => r.market_value || 0));
+  const filters = {
+    position: "all", verfuegbarkeit: "all", search: "",
+    ranks: new Set(),
+    marketValueMin: 500000, marketValueMax: maxMarketValue,
+  };
   const positions = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
   function getRows() {
     return allRows.filter((r) => {
@@ -757,6 +777,8 @@ function renderAlleSpieler() {
       if (filters.verfuegbarkeit === "frei" && r.owner !== "Frei") return false;
       if (filters.verfuegbarkeit === "eigen" && r.owner !== "Eigener Kader") return false;
       if (filters.verfuegbarkeit === "andere" && (r.owner === "Frei" || r.owner === "Eigener Kader")) return false;
+      if (filters.ranks.size && !filters.ranks.has(r.starting_rank)) return false;
+      if ((r.market_value ?? 0) < filters.marketValueMin || (r.market_value ?? 0) > filters.marketValueMax) return false;
       if (filters.search && !`${r.name} ${r.team_name ?? ""}`.toLowerCase().includes(filters.search)) return false;
       return true;
     });
@@ -795,6 +817,14 @@ function renderAlleSpieler() {
       <option value="eigen">Nur eigene</option>
       <option value="andere">Nur bei anderen Managern</option>
     </select></label>
+    <div class="dropdown-check" id="alle-spieler-filter-rang-wrap">
+      <button type="button" id="alle-spieler-filter-rang-btn">Startelf-Rang ▾</button>
+      <div class="dropdown-check-menu" id="alle-spieler-filter-rang-menu" style="display:none;">
+        ${availableRanks.map((rank) => `<label><input type="checkbox" class="rang-checkbox" value="${rank}"> Rang ${rank}</label>`).join("")}
+      </div>
+    </div>
+    <label>Marktwert min <input type="number" id="alle-spieler-filter-mv-min" min="500000" step="100000" value="500000"></label>
+    <label>Marktwert max <input type="number" id="alle-spieler-filter-mv-max" min="500000" step="100000" value="${maxMarketValue}"></label>
     <label>Suche <input type="search" id="alle-spieler-filter-search" placeholder="Spieler/Verein"></label>
     <span id="alle-spieler-filter-count" class="muted"></span>
   </div>`;
@@ -814,6 +844,33 @@ function renderAlleSpieler() {
   });
   container.querySelector("#alle-spieler-filter-verfuegbarkeit").addEventListener("change", (e) => {
     filters.verfuegbarkeit = e.target.value;
+    redraw();
+    updateCount();
+  });
+  const rangBtn = container.querySelector("#alle-spieler-filter-rang-btn");
+  const rangMenu = container.querySelector("#alle-spieler-filter-rang-menu");
+  rangBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    rangMenu.style.display = rangMenu.style.display === "none" ? "" : "none";
+  });
+  document.addEventListener("click", (e) => {
+    if (!rangMenu.contains(e.target) && e.target !== rangBtn) rangMenu.style.display = "none";
+  });
+  container.querySelectorAll(".rang-checkbox").forEach((cb) => {
+    cb.addEventListener("change", (e) => {
+      const rank = Number(e.target.value);
+      if (e.target.checked) filters.ranks.add(rank); else filters.ranks.delete(rank);
+      redraw();
+      updateCount();
+    });
+  });
+  container.querySelector("#alle-spieler-filter-mv-min").addEventListener("change", (e) => {
+    filters.marketValueMin = Number(e.target.value) || 500000;
+    redraw();
+    updateCount();
+  });
+  container.querySelector("#alle-spieler-filter-mv-max").addEventListener("change", (e) => {
+    filters.marketValueMax = Number(e.target.value) || maxMarketValue;
     redraw();
     updateCount();
   });
