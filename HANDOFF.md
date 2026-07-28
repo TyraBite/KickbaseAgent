@@ -1,14 +1,20 @@
-# Handoff: KickbaseAgent Dashboard — Phase 6 Sub-Projekt 1 (React-Pilot) committed, ungetestet
+# Handoff: KickbaseAgent Dashboard — Phase 6 Sub-Projekt 1 (React-Pilot) committed, Build-Verifikation läuft
 
-**Generated**: 2026-07-28 (Ende der Session)
+**Generated**: 2026-07-28 (Ende der Session, 2. Update)
 **Branch**: main
 **Status**: In Progress — Phase 1-5 fertig & live (Details: `git log -p --
 HANDOFF.md` fuer die volle Vorgeschichte, oder frueherer Commit
-`233fd4d^:HANDOFF.md` fuer den letzten Phase-5-Stand). NEU diese Session:
-Phase 6 begonnen — grundlegende Frontend-Rearchitektur-Entscheidung
-getroffen, Sub-Projekt 1 (React/Vite/Tailwind-Pilot fuer den
-Spekulation-Tab) implementiert und committed (`0ef19f0`), aber NOCH NICHT
-gebaut/getestet (kein npm in dieser Sandbox, siehe Warnings).
+`233fd4d^:HANDOFF.md` fuer den letzten Phase-5-Stand). Phase 6 begonnen —
+Frontend-Rearchitektur-Entscheidung getroffen, Sub-Projekt 1 (React/Vite/
+Tailwind-Pilot fuer den Spekulation-Tab) implementiert (`0ef19f0`), nach
+erstem User-Feedback ueberarbeitet (Kickbase-angelehntes Theme, Detail-
+Modal statt Tab-weitem Umschalter, 3-Monats-Hoch/Tief, deutsche Umlaute,
+`e3e1a9c`). **Wichtiges Signal**: `frontend/node_modules` + `package-lock.json`
+sind waehrend der Session real aufgetaucht (User hat vermutlich selbst
+`npm install` auf seinem Windows-Rechner laufen lassen, geteilter DrvFs-
+Mount) — `package.json`/`package-lock.json` stimmen exakt ueberein,
+Dependency-Aufloesung war erfolgreich. Ein echter `npm run build`/`npm run
+dev` ist aber noch nicht nachgewiesen (kein `dist/`-Ordner bisher).
 
 ## Goal
 
@@ -56,14 +62,34 @@ zerlegt. Voller Kontext + Roadmap:
   es NEBEN der unveraenderten `index.html` unter einem `/preview/`-
   Unterpfad. Trivialer Nebenpunkt erledigt: Zeilen-Zaehler neben den
   Tab-Namen (`updateTabBadges()`) aus der alten `index.html` entfernt.
+- [x] **Nacharbeit nach erstem Feedback** (Commit `e3e1a9c`, lokal, NICHT
+  gepusht): Kickbase-angelehntes Theme (neue `brand`-Gruenskala in
+  `tailwind.config.js`, `slate` statt `neutral`, kein offizieller Marken-
+  Hex verifizierbar — `brand.kickbase.com` blockiert automatisierte
+  Abrufe, bewusst als Annaeherung markiert). Sortier-Dropdown deckt jetzt
+  alle 6 Datenfelder ab (vorher 3). Klick auf eine Kachel oeffnet ein
+  Detail-Modal (ersetzt den urspruenglich geplanten globalen Quick/
+  Detail-Umschalter fuer diesen Tab — User-Entscheidung nach dem ersten
+  Blick auf den Piloten). Modal zeigt zusaetzlich 3-Monats-Tief/-Hoch
+  (`market_value_low_92d`/`_high_92d`) — dafuer `_build_spekulation()` in
+  `src/dashboard_export.py` erweitert (Felder existierten serverseitig
+  schon, wurden nur nicht durchgereicht), neuer Unit-Test dafuer gruen
+  (`python3 -m unittest tests.test_dashboard_export`). Verein-Suche
+  entfernt (Verein/Position werden gar nicht mehr angezeigt). Deutsche
+  Umlaute durchgaengig in allen `frontend/`-Dateien (UI-Texte + Kommentare).
 
 ## Not Yet Done
 
-- [ ] **Sub-Projekt 1 ist komplett UNGETESTET** — in dieser Sandbox gibt
-  es kein `npm`/keinen Build (bewusst, siehe Warnings), also nur
-  Code-Review + Klammer-Balance-Check + YAML-Syntax-Check gemacht, NIE
-  `npm install`/`npm run build` ausgefuehrt. Naechster Schritt siehe Resume
-  Instructions.
+- [ ] **Sub-Projekt 1 ist immer noch nicht GEBAUT/im Browser getestet** —
+  in dieser Sandbox gibt es kein `npm`/keinen Build (bewusst, siehe
+  Warnings), also nur Code-Review + Klammer-Balance-Check + YAML-Syntax-
+  Check gemacht. **Aber**: `frontend/node_modules`+`package-lock.json`
+  sind waehrend der Session real entstanden (vermutlich User hat selbst
+  `npm install` auf seinem Windows-Rechner laufen lassen, geteilter
+  DrvFs-Mount) — `package.json` und `package-lock.json` stimmen exakt
+  ueberein, Dependency-Aufloesung war also erfolgreich. Ein `npm run
+  build`/`npm run dev` ist noch nicht nachgewiesen (kein `dist/`-Ordner
+  bisher). Naechster Schritt siehe Resume Instructions.
 - [ ] **GitHub-Pages-Source umstellen**: Repo-Settings -> Pages -> Source
   von "Deploy from a branch" auf "GitHub Actions" — einmaliger manueller
   Schritt, macht der User selbst im Browser (wie bei frueherem Pages-Setup
