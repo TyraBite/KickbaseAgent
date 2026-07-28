@@ -434,6 +434,80 @@ def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
     return {"n_folds": folds_run, "per_model": per_model}
 
 
+def backfill_prediction_log(days: int = 90) -> dict:
+    """Einmalige Utility (dauerhaft im Code, nicht Teil des taeglichen Laufs):
+    baut denselben Corpus wie ein normaler Lauf, aber statt nur der letzten
+    BACKTEST_FOLDS Cutoffs werden bis zu `days` rollierende historische
+    Cutoffs durchlaufen (begrenzt durch verfuegbare Kickbase-Historie UND
+    genug Trainingszeilen je Cutoff - fruehe Tage im ~365-Tage-Fenster
+    fallen typischerweise raus). Pro Fold werden ECHTE Pro-Spieler-
+    predicted_delta-Werte fuer BEIDE Modelle gesammelt (nicht nur
+    aggregiertes Hit/Miss wie _walk_forward_backtest) und als
+    ml_prediction_log-Eintraege nach Firestore geschrieben - schliesst die
+    Kaltstart-Luecke fuer die Trailing-30d-Live-Auswahl, ohne 90 echte
+    Kalendertage abwarten zu muessen. Wiederverwendbar, falls die
+    Firestore-Historie je zurueckgesetzt werden muss."""
+    email = os.environ.get("KICKBASE_EMAIL")
+    password = os.environ.get("KICKBASE_PASSWORD")
+    if not email or not password:
+        print("Warnung: KICKBASE_EMAIL/KICKBASE_PASSWORD fehlen, Backfill uebersprungen.", file=sys.stderr)
+        return {"folds_run": 0, "entries_written": 0}
+
+    token, _user, leagues = login(email, password)
+    league_id = leagues[0]["id"]
+    me = get_me(token, league_id)
+    competition_id = me.get("cpi") or "1"
+    corpus = _build_corpus(token, league_id, competition_id)
+    history_df, _today_df = _engineer_features(corpus)
+
+    dates = sorted(history_df["date"].unique())
+    cutoffs = dates[-days:] if len(dates) > days else dates
+
+    entries = []
+    folds_run = 0
+    for cutoff in cutoffs:
+        train = history_df[history_df["date"] < cutoff]
+        test = history_df[history_df["date"] == cutoff]
+        if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
+            continue
+        folds_run += 1
+
+        x_train, y_train = train[FEATURES], train[TARGET]
+        x_test = test[FEATURES]
+        cutoff_date = pd.Timestamp(cutoff).date().isoformat()
+
+        candidates = {
+            "RandomForest": RandomForestRegressor(
+                n_estimators=200,
+                max_depth=20,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                max_features="sqrt",
+                n_jobs=-1,
+                random_state=RANDOM_STATE,
+            ),
+            "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+        }
+        for model_type, candidate in candidates.items():
+            candidate.fit(x_train, y_train)
+            y_pred = candidate.predict(x_test)
+            entries.extend(
+                {
+                    "date": cutoff_date,
+                    "player_id": player_id,
+                    "model_type": model_type,
+                    "predicted_delta": round(float(pred)),
+                }
+                for player_id, pred in zip(test["player_id"], y_pred)
+            )
+
+    if entries and os.environ.get("FIRESTORE_ENABLED"):
+        fs_client = firestore_db.connect()
+        firestore_db.upsert_prediction_log_entries(fs_client, entries)
+
+    return {"folds_run": folds_run, "entries_written": len(entries)}
+
+
 def _load_prediction_log() -> list[dict]:
     """Liest bei FIRESTORE_ENABLED aus Firestore (persistiert ueber CI-Laeufe
     hinweg, anders als die lokale Datei) - Firestore-Lesefehler faellt
@@ -703,14 +777,24 @@ def predict_market_value_changes() -> dict | None:
 
 
 if __name__ == "__main__":
+    import argparse
+
     from dotenv import load_dotenv
 
     load_dotenv()
-    result = predict_market_value_changes()
-    if result is None:
-        print("Keine Prognose verfuegbar (siehe Warnungen oben).")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backfill", type=int, default=None, metavar="DAYS")
+    args = parser.parse_args()
+
+    if args.backfill is not None:
+        result = backfill_prediction_log(args.backfill)
+        print(f"Backfill: {result['folds_run']} Folds, {result['entries_written']} Eintraege geschrieben.")
     else:
-        print("Metriken:", result["metrics"])
-        print(f"Anzahl Spieler mit Prognose: {len(result['predictions'])}")
-        sample = list(result["predictions"].items())[:10]
-        print("Beispiele:", sample)
+        result = predict_market_value_changes()
+        if result is None:
+            print("Keine Prognose verfuegbar (siehe Warnungen oben).")
+        else:
+            print("Metriken:", result["metrics"])
+            print(f"Anzahl Spieler mit Prognose: {len(result['predictions'])}")
+            sample = list(result["predictions"].items())[:10]
+            print("Beispiele:", sample)

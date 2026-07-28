@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from src.market_predictor import _load_prediction_log
 from src.market_predictor import _select_live_model, _evaluate_realized_accuracy_by_model
+from src.market_predictor import backfill_prediction_log
 
 
 class LoadPredictionLogTests(unittest.TestCase):
@@ -62,3 +63,10 @@ class EvaluateRealizedAccuracyByModelTests(unittest.TestCase):
             result["RandomForest"]["realized_7d"]["sign_accuracy"],
             result["HistGradientBoosting"]["realized_7d"]["sign_accuracy"],
         )
+
+
+class BackfillPredictionLogTests(unittest.TestCase):
+    def test_returns_zero_without_credentials(self):
+        with patch.dict(os.environ, {}, clear=True):
+            result = backfill_prediction_log(90)
+        self.assertEqual(result, {"folds_run": 0, "entries_written": 0})
