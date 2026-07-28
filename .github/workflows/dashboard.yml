@@ -2,7 +2,7 @@ name: Dashboard Export
 
 on:
   schedule:
-    - cron: '15 21 * * *' # ~21:15 UTC, nach Kickbases 22:00-Uhr-Marktwert-Update in CET wie CEST (Drift akzeptiert)
+    - cron: '15 */2 * * *' # alle 2h zur Minute :15 (Drift zwischen CET/CEST akzeptiert, wie bisher)
   workflow_dispatch: {}
 
 jobs:
