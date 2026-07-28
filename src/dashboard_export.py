@@ -210,24 +210,21 @@ def _build_eigenes_team(own_squad, calibration, predictions) -> list[dict]:
 
 def _split_eigenes_team(eigenes_team_rows: list[dict], wunschkader_config: dict | None) -> dict:
     """Teilt den eigenen Kader in Verkaufskandidaten (sell_list aus
-    wunschkader.json) und Spieler, die im Kader bleiben sollen
+    wunschkader.json plus alle Spieler, die nicht in den Wunschkader-
+    Zielen stehen) und Spieler, die im Kader bleiben sollen
     (Wunschkader-Ziele) - reine Umsortierung bestehender Zeilen, keine
-    neuen Daten/Calls. Spieler in keiner der beiden Listen landen sichtbar
-    in 'unkategorisiert' statt zu verschwinden (z.B. gerade neu erworben,
-    wunschkader.json noch nicht nachgezogen)."""
+    neuen Daten/Calls."""
     sell_names = set(wunschkader_config.get("sell_list", [])) if wunschkader_config else set()
     target_names = {t["name"] for t in wunschkader_config.get("targets", [])} if wunschkader_config else set()
 
-    verkaufen, bleibt, unkategorisiert = [], [], []
+    verkaufen, bleibt = [], []
     for row in eigenes_team_rows:
-        if row["name"] in sell_names:
-            sell_signal = "halten" if (row.get("ml_prediction") or 0) > 0 else "verkaufen"
-            verkaufen.append({**row, "sell_signal": sell_signal})
-        elif row["name"] in target_names:
+        if row["name"] in target_names:
             bleibt.append(row)
         else:
-            unkategorisiert.append(row)
-    return {"verkaufen": verkaufen, "bleibt": bleibt, "unkategorisiert": unkategorisiert}
+            sell_signal = "halten" if (row["name"] in sell_names and (row.get("ml_prediction") or 0) > 0) else "verkaufen"
+            verkaufen.append({**row, "sell_signal": sell_signal})
+    return {"verkaufen": verkaufen, "bleibt": bleibt}
 
 
 HYPE_CHANGE_THRESHOLD = 1_500_000

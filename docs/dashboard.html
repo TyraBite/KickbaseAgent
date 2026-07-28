@@ -403,15 +403,12 @@ function renderTransfermarkt() {
 }
 
 function renderTeam() {
-  const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [], unkategorisiert: [] };
+  const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [] };
   const watchlist = DATA.wunschkader_watchlist || [];
   const container = document.getElementById("tab-team");
   let html = `<h3>Verkaufskandidaten (Hoehepunkt abwarten)</h3><div id="tab-team-verkaufen"></div>`;
   html += `<h3>Watchlist (Wunschkader-Ziele, noch nicht im Kader)</h3><div id="tab-team-watchlist"></div>`;
   html += `<h3>Bleibt im Kader</h3><div id="tab-team-bleibt"></div>`;
-  if (split.unkategorisiert && split.unkategorisiert.length) {
-    html += `<h3>Nicht kategorisiert - data/wunschkader.json aktualisieren</h3><div id="tab-team-unkategorisiert"></div>`;
-  }
   container.innerHTML = html;
 
   const columns = [
@@ -480,11 +477,6 @@ function renderTeam() {
 
   buildTable("tab-team-bleibt", columns, () => split.bleibt, renderRow,
     "Spieler, die laut Wunschkader (MDs/kaderplan.md) im Kader bleiben sollen. Signal/ML-Prognose sind Zusatzsignale, kein Ersatz fuer die Startelf-Recherche.");
-
-  if (split.unkategorisiert && split.unkategorisiert.length) {
-    buildTable("tab-team-unkategorisiert", columns, () => split.unkategorisiert, renderRow,
-      "Diese Spieler stehen weder in der Verkaufs- noch der Wunschkader-Liste in data/wunschkader.json - dort ergaenzen.");
-  }
 }
 
 function renderLiga() {
@@ -659,8 +651,8 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 });
 
 function updateTabBadges() {
-  const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [], unkategorisiert: [] };
-  const teamCount = split.verkaufen.length + split.bleibt.length + (split.unkategorisiert || []).length
+  const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [] };
+  const teamCount = split.verkaufen.length + split.bleibt.length
     + (DATA.wunschkader_watchlist || []).length;
   const counts = {
     transfermarkt: (DATA.transfermarkt || []).length,
