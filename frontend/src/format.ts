@@ -34,7 +34,10 @@ export function formatDurationMs(ms: number): string {
 
 // 5-stufiger Pfeil: Vorzeichen = Richtung, Betrag ueber `flat`/`strong` = Stufe.
 // Aufrufer uebergeben feldspezifische Schwellen (siehe SpekulationTab), keine
-// hartkodierte Zahlendopplung hier.
+// hartkodierte Zahlendopplung hier. Bewusst alle 5 Glyphen aus dem gleichen
+// Unicode-Arrows-Block (U+2190-2199) statt der Geometric-Shapes-Dreiecke
+// (▲/▼) - Dreiecke rendern auf manchen Systemfonts fest-farbig statt der
+// CSS-Textfarbe zu folgen (User-Feedback: ▲/▼ blieben immer gruen).
 export function trendArrow(
   n: number | null | undefined,
   { flat, strong }: { flat: number; strong: number }
@@ -43,6 +46,6 @@ export function trendArrow(
   const abs = Math.abs(n);
   const up = n > 0;
   if (abs < flat) return "→";
-  if (abs > strong) return up ? "▲" : "▼";
+  if (abs > strong) return up ? "↑" : "↓";
   return up ? "↗" : "↘";
 }
