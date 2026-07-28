@@ -388,7 +388,7 @@ function renderMeta() {
     parts.push(`K-Kalibrierung: <b class="muted">nie gelaufen</b> (python -m src.player_valuation)`);
   }
   if (DATA.ml_metrics) {
-    parts.push(`ML-Modell: R²=${DATA.ml_metrics.r2}, Richtung korrekt ${DATA.ml_metrics.sign_accuracy}%`);
+    parts.push(`ML-Modell (synth. Split, ${DATA.ml_metrics.synthetic_winner ?? DATA.ml_metrics.model_type}): R²=${DATA.ml_metrics.r2}, Richtung korrekt ${DATA.ml_metrics.sign_accuracy}%`);
   } else {
     parts.push(`ML-Modell: <b class="muted">keine Prognose verfuegbar</b>`);
   }
