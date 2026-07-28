@@ -1382,7 +1382,6 @@ function renderSpekulation() {
 }
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
-  btn.dataset.label = btn.textContent;
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
     document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
@@ -1390,24 +1389,6 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
   });
 });
-
-function updateTabBadges() {
-  const split = DATA.eigenes_team_split || { verkaufen: [], bleibt: [] };
-  const teamCount = split.verkaufen.length + split.bleibt.length
-    + (DATA.wunschkader_watchlist || []).length;
-  const counts = {
-    transfermarkt: (DATA.transfermarkt || []).length,
-    spekulation: (DATA.spekulation || []).length,
-    team: teamCount,
-    wunschkader: (DATA.wunschkader || []).length,
-    "alle-spieler": (DATA.alle_spieler || []).length,
-    "ml-genauigkeit": (DATA.ml_accuracy_trend || []).length,
-  };
-  document.querySelectorAll(".tab-btn").forEach((btn) => {
-    const count = counts[btn.dataset.tab];
-    if (count !== undefined) btn.textContent = `${btn.dataset.label} (${count})`;
-  });
-}
 
 function renderAll() {
   renderMeta();
@@ -1418,7 +1399,6 @@ function renderAll() {
   renderAlleSpieler();
   renderLiga();
   renderMlGenauigkeit();
-  updateTabBadges();
 }
 
 const { auth, db, signInWithEmailAndPassword, onAuthStateChanged, doc, getDoc, setDoc } = window.__kickbaseAuth;
