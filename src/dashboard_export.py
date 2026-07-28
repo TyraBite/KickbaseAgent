@@ -345,16 +345,16 @@ def _load_wunschkader() -> dict | None:
     """Wunschkader lebt komplett in Firestore (wunschkader/current, siehe
     MDs/kaderplan.md fuer die Begruendungen der Eintraege) - der Browser
     kann targets direkt editieren (Alle-Spieler/Wunschkader-Feature).
-    Ohne Firestore-Zugriff (kein FIRESTORE_ENABLED lokal) gibt es keinen
-    Fallback mehr - Aufrufer behandeln None wie bisher (kein Wunschkader
-    hinterlegt)."""
+    Ohne FIRESTORE_ENABLED (lokaler Testlauf) gibt es bewusst None zurueck
+    (kein Wunschkader in diesem Modus). Ein echter Lesefehler wird NICHT
+    abgefangen - soll export() komplett abbrechen lassen (der Firestore-
+    Write des Dashboard-Snapshots passiert erst am Ende von export(), ein
+    fehlgeschlagener Wunschkader-Read darf also nie zu einem kaputt
+    veroeffentlichten Snapshot fuehren, lieber bleibt der alte Snapshot
+    stehen)."""
     if not os.environ.get("FIRESTORE_ENABLED"):
         return None
-    try:
-        return firestore_db.get_wunschkader(firestore_db.connect())
-    except Exception as exc:
-        print(f"Warnung: Wunschkader-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
-        return None
+    return firestore_db.get_wunschkader(firestore_db.connect())
 
 
 def _estimate_price(market_value: float | None, markup_rules: dict | None) -> float | None:

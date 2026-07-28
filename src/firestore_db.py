@@ -99,8 +99,8 @@ def get_wunschkader(client: firestore.Client) -> dict | None:
 
 
 def upsert_wunschkader(client: firestore.Client, data: dict) -> None:
-    """Ueberschreibt den kompletten Wunschkader-Datensatz. Wird sowohl von
-    der Pipeline (Migration/Bootstrap) als auch vom Browser (Speichern-
-    Button im Dashboard) aufgerufen - client-seitig per Firestore Client-
-    SDK, hier nur der Admin-SDK-Pfad."""
+    """Ueberschreibt den kompletten Wunschkader-Datensatz. Aktuell nur aus
+    Tests/einmaligen Ad-hoc-Migrationen aufgerufen - der laufende
+    Schreibpfad ist der Browser (Client-SDK, setDoc mit merge:true auf nur
+    targets), nicht diese Admin-SDK-Funktion."""
     client.collection("wunschkader").document("current").set(data)

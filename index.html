@@ -595,14 +595,10 @@ function suggestReplacements(target, count = 3) {
 let wunschkaderEditState = null; // lokale Arbeitskopie von DATA.wunschkader_raw.targets waehrend des Editierens
 
 function renderWunschkader() {
-  const rows = DATA.wunschkader;
+  const rows = DATA.wunschkader || [];
   const container = document.getElementById("tab-wunschkader");
   if (!wunschkaderEditState) {
     wunschkaderEditState = DATA.wunschkader_raw ? [...DATA.wunschkader_raw.targets] : [];
-  }
-  if (!rows || !rows.length) {
-    container.innerHTML = '<p class="section-hint">Kein Wunschkader hinterlegt.</p>';
-    return;
   }
   const formation = DATA.wunschkader_formation ? ` (${DATA.wunschkader_formation})` : "";
   const updated = DATA.wunschkader_updated_at ? `, Stand ${DATA.wunschkader_updated_at}` : "";
@@ -645,11 +641,15 @@ function renderWunschkader() {
       <button type="button" id="wk-add-btn">Hinzufuegen</button>
     </div>
     <div><button type="button" id="wk-save-btn">Speichern</button> <span id="wk-save-status" class="muted"></span></div>
-    ${renderBudgetPlan(DATA.budget_plan)}`;
+    ${rows.length ? renderBudgetPlan(DATA.budget_plan) : ""}`;
 
   container.querySelectorAll(".wk-name-input").forEach((el) => {
     el.addEventListener("change", (e) => {
-      wunschkaderEditState[e.target.dataset.idx].name = e.target.value;
+      const idx = e.target.dataset.idx;
+      const t = wunschkaderEditState[idx];
+      t.name = e.target.value;
+      delete t.actual_bid;
+      delete t.note;
     });
   });
   container.querySelectorAll(".wk-remove-btn").forEach((el) => {
@@ -662,8 +662,9 @@ function renderWunschkader() {
     el.addEventListener("click", (e) => {
       const idx = e.target.dataset.idx;
       const target = wunschkaderEditState[idx];
+      const computed = rows.find((r) => r.name === target.name) || {};
       const suggestionsRow = container.querySelector(`.wk-suggestions[data-idx="${idx}"]`);
-      const suggestions = suggestReplacements(target);
+      const suggestions = suggestReplacements({ ...target, market_value: computed.market_value, points_avg: computed.points_avg });
       suggestionsRow.querySelector("td").innerHTML = suggestions.length
         ? "Vorschlaege: " + suggestions.map((s) =>
             `<button type="button" class="wk-pick-btn" data-idx="${idx}" data-name="${s.name}">${s.name} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`
@@ -672,7 +673,10 @@ function renderWunschkader() {
       suggestionsRow.style.display = "";
       suggestionsRow.querySelectorAll(".wk-pick-btn").forEach((btn) => {
         btn.addEventListener("click", (ev) => {
-          wunschkaderEditState[ev.target.dataset.idx].name = ev.target.dataset.name;
+          const t = wunschkaderEditState[ev.target.dataset.idx];
+          t.name = ev.target.dataset.name;
+          delete t.actual_bid;
+          delete t.note;
           renderWunschkader();
         });
       });
@@ -692,9 +696,8 @@ function renderWunschkader() {
     const statusEl = document.getElementById("wk-save-status");
     statusEl.textContent = "Speichere...";
     try {
-      const updated = { ...DATA.wunschkader_raw, targets: wunschkaderEditState };
-      await setDoc(doc(db, "wunschkader", "current"), updated);
-      DATA.wunschkader_raw = updated;
+      await setDoc(doc(db, "wunschkader", "current"), { targets: wunschkaderEditState }, { merge: true });
+      if (DATA.wunschkader_raw) DATA.wunschkader_raw.targets = wunschkaderEditState;
       statusEl.textContent = "Gespeichert. Aenderungen erscheinen im naechsten Pipeline-Lauf (~2h).";
     } catch (err) {
       statusEl.textContent = "Fehler beim Speichern: " + err.message;
