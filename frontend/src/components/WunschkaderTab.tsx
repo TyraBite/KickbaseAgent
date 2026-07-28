@@ -44,6 +44,32 @@ function computedFor(name: string, wunschkader: WunschkaderRow[], alleSpieler: A
   };
 }
 
+// 1:1 portiert aus scoreReplacementPool()/suggestReplacements()/
+// searchReplacementPool() der bestehenden index.html.
+function scoreReplacementPool(alleSpieler: AlleSpielerRow[], target: { name: string; position: string; market_value: number | null; points_avg: number | null }) {
+  const pool = alleSpieler.filter((p) => p.position === target.position && p.name !== target.name && p.owner === "Frei");
+  const mv = target.market_value || 0;
+  const pts = target.points_avg || 0;
+  return pool
+    .map((p) => {
+      const mvDist = mv ? Math.abs((p.market_value || 0) - mv) / mv : 0;
+      const ptsDist = pts ? Math.abs((p.points_avg || 0) - pts) / pts : 0;
+      return { ...p, distance: mvDist + ptsDist };
+    })
+    .sort((a, b) => a.distance - b.distance);
+}
+
+function suggestReplacements(alleSpieler: AlleSpielerRow[], target: { name: string; position: string; market_value: number | null; points_avg: number | null }, count = 3) {
+  return scoreReplacementPool(alleSpieler, target).slice(0, count);
+}
+
+function searchReplacementPool(alleSpieler: AlleSpielerRow[], target: { name: string; position: string; market_value: number | null; points_avg: number | null }, query: string) {
+  const q = query.toLowerCase();
+  return scoreReplacementPool(alleSpieler, target)
+    .filter((p) => p.name.toLowerCase().includes(q))
+    .slice(0, 20);
+}
+
 export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
   const [formation, setFormation] = useState<FormationKey>(
     isFormationKey(data.wunschkader_formation) ? data.wunschkader_formation : DEFAULT_FORMATION
@@ -70,6 +96,26 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
   }, [editState]);
 
   const bench = useMemo(() => editState.filter(isBench), [editState]);
+
+  function toggleBench(uid: number) {
+    setEditState((prev) =>
+      prev.map((t) => (t._uid === uid ? { ...t, role: isBench(t) ? "Starter" : "Bank/Backup-Option" } : t))
+    );
+    setSelected((prev) => (prev && prev._uid === uid ? { ...prev, role: isBench(prev) ? "Starter" : "Bank/Backup-Option" } : prev));
+  }
+
+  function removeTarget(uid: number) {
+    setEditState((prev) => prev.filter((t) => t._uid !== uid));
+    setSelected(null);
+  }
+
+  function replaceTarget(uid: number, replacement: AlleSpielerRow) {
+    setEditState((prev) =>
+      prev.map((t) => (t._uid === uid ? { name: replacement.name, position: replacement.position, role: t.role } : t))
+    );
+    setSelected(null);
+  }
+
   const totalCount = editState.length;
 
   return (
@@ -147,7 +193,11 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
           target={selected}
           computed={computedFor(selected.name, wunschkader, alleSpieler)}
           thresholds={thresholds}
+          alleSpieler={alleSpieler}
           onClose={() => setSelected(null)}
+          onToggleBench={() => toggleBench(selected._uid)}
+          onRemove={() => removeTarget(selected._uid)}
+          onReplace={(replacement) => replaceTarget(selected._uid, replacement)}
         />
       )}
     </div>
@@ -206,13 +256,28 @@ function DetailModal({
   target,
   computed,
   thresholds,
+  alleSpieler,
   onClose,
+  onToggleBench,
+  onRemove,
+  onReplace,
 }: {
   target: EditTarget;
   computed: Computed;
   thresholds: DashboardSnapshot["signal_thresholds"];
+  alleSpieler: AlleSpielerRow[];
   onClose: () => void;
+  onToggleBench: () => void;
+  onRemove: () => void;
+  onReplace: (replacement: AlleSpielerRow) => void;
 }) {
+  const [wechselOpen, setWechselOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const targetForSearch = { name: target.name, position: target.position, market_value: computed.market_value, points_avg: computed.points_avg };
+  const suggestions = suggestReplacements(alleSpieler, targetForSearch);
+  const searchResults = search.trim() ? searchReplacementPool(alleSpieler, targetForSearch, search.trim()) : [];
+
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
       <div
@@ -233,7 +298,7 @@ function DetailModal({
             ✕
           </button>
         </div>
-        <dl className="space-y-2 text-sm">
+        <dl className="mb-4 space-y-2 text-sm">
           <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
           <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
           <Row label="Schnitt">{fmtNum(computed.points_avg)}</Row>
@@ -241,6 +306,75 @@ function DetailModal({
             <SignalBadge signal={computed.signal} thresholds={thresholds} />
           </Row>
         </dl>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onToggleBench}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            {isBench(target) ? "In Startelf verschieben" : "Auf Bank verschieben"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setWechselOpen((v) => !v)}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Wechsel
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+          >
+            Entfernen
+          </button>
+        </div>
+        {wechselOpen && (
+          <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vorschläge</div>
+            {suggestions.length ? (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.player_id}
+                    type="button"
+                    onClick={() => onReplace(s)}
+                    className="rounded-full border border-brand-300 bg-brand-50 px-3 py-1 text-xs text-brand-800 hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-300"
+                  >
+                    {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.points_avg)})
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">Keine freien Alternativen gleicher Position gefunden.</p>
+            )}
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Anderen freien Spieler gleicher Position suchen…"
+              className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            />
+            {search.trim() && (
+              <div className="flex flex-wrap gap-2">
+                {searchResults.length ? (
+                  searchResults.map((s) => (
+                    <button
+                      key={s.player_id}
+                      type="button"
+                      onClick={() => onReplace(s)}
+                      className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.points_avg)})
+                    </button>
+                  ))
+                ) : (
+                  <span className="text-xs text-slate-400 dark:text-slate-500">Keine Treffer.</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
