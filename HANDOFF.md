@@ -1,6 +1,6 @@
-# Handoff: KickbaseAgent Dashboard — Phase 6, Sub-Projekt 1 "Nacharbeit Runde 2" GEPLANT, NICHT implementiert
+# Handoff: KickbaseAgent Dashboard — Phase 6, Sub-Projekt 1 "Nacharbeit Runde 2" IMPLEMENTIERT, NICHT verifiziert/gepusht
 
-**Generated**: 2026-07-28 (Ende der Session, 3. Update)
+**Generated**: 2026-07-28 (Ende der Session, 4. Update)
 **Branch**: main
 **Status**: In Progress — Phase 1-5 fertig & live (Details: `git log -p --
 HANDOFF.md` fuer die volle Vorgeschichte, oder frueherer Commit
@@ -10,22 +10,21 @@ Tailwind-Pilot fuer den Spekulation-Tab) implementiert (`0ef19f0`), nach
 erstem User-Feedback ueberarbeitet (Kickbase-angelehntes Theme, Detail-
 Modal statt Tab-weitem Umschalter, 3-Monats-Hoch/Tief, deutsche Umlaute,
 `e3e1a9c`, **committed**). User hat danach echt mit `npm run dev`
-getestet und eine ZWEITE Runde Feedback gegeben (7 Punkte: Kachel-Header,
-Badges entfernen, Auktions-Zeit live statt eingefroren, 3-Monats-Daten
-fehlen im UI, Farbindikatoren fehlen, 5-stufige Pfeile, Grid/Abstand-
-Politur) — dafuer wurde recherchiert (Explore-Agent, echte Code-Zitate)
-und ein vollstaendiger Plan geschrieben (Plan Mode, siehe unten), **aber
-User wollte NICHT sofort implementieren lassen** ("Schreibe den Plan
-erstmal nur nieder und ergaenze dann die Infos fuer einen neuen Kontext
-in der handoff.md") - **Nacharbeit Runde 2 ist also nur GEPLANT, NULL
-Code dafuer wurde geschrieben.** Das ist der naechste Schritt fuer eine
-neue Session, komplett unten ausformuliert (Abschnitt "Nacharbeit Runde 2").
-**Wichtiges Signal aus dieser Session**: `frontend/node_modules` +
-`package-lock.json` sind waehrend der Session real aufgetaucht (User hat
-vermutlich selbst `npm install` auf seinem Windows-Rechner laufen lassen,
-geteilter DrvFs-Mount, dann auch `npm run dev` - siehe "echt getestet"
-oben) — `package.json`/`package-lock.json` stimmen exakt ueberein,
-Dependency-Aufloesung war erfolgreich.
+getestet und eine ZWEITE Runde Feedback gegeben (7 Punkte, spaeter auf 8
+verfeinert: Kachel-Header inkl. Vereinswappen, Badges entfernen,
+Auktions-Zeit live statt eingefroren, 3-Monats-Daten fehlen im UI,
+Farbindikatoren fehlen, 5-stufige Pfeile, Grid-Breakpoints,
+Label/Wert-Abstand) — dafuer wurde recherchiert (Explore-Agent, echte
+Code-Zitate, echte Schwellenwerte aus `data/kickbase.db`/
+`data/ml_prediction_log.jsonl`) und vollstaendig geplant. **In DIESER
+Session (neuer Kontext, per `/handoff:resume`) wurde der komplette Plan
+implementiert und committed (`d888431`, lokal, NICHT gepusht)** — siehe
+Abschnitt "Nacharbeit Runde 2" unten fuer den genauen Stand pro Punkt.
+**Wichtiges Signal aus einer fruehen Session**: `frontend/node_modules` +
+`package-lock.json` sind real aufgetaucht (User hat vermutlich selbst
+`npm install` auf seinem Windows-Rechner laufen lassen, geteilter
+DrvFs-Mount, dann auch `npm run dev`) — `package.json`/`package-lock.json`
+stimmen exakt ueberein, Dependency-Aufloesung war erfolgreich.
 
 ## Goal
 
@@ -89,13 +88,55 @@ zerlegt. Voller Kontext + Roadmap:
   entfernt (Verein/Position werden gar nicht mehr angezeigt). Deutsche
   Umlaute durchgaengig in allen `frontend/`-Dateien (UI-Texte + Kommentare).
 
-## Nacharbeit Runde 2 — GEPLANT, NOCH NICHT IMPLEMENTIERT (naechster Schritt!)
+## Nacharbeit Runde 2 — IMPLEMENTIERT (Commit `d888431`, lokal, NICHT gepusht), NOCH NICHT im Browser verifiziert
 
-User hat `npm run dev` echt getestet (siehe "Wichtiges Signal" oben) und
-7 Punkte Feedback gegeben, alle recherchiert + geklaert. **Volltext-Plan
-liegt auch in `/home/node/.claude/plans/ich-bin-kein-frontendler-async-koala.md`
-dieser Sandbox-Session, der aber in einer NEUEN Session/Sandbox evtl. nicht
-mehr existiert - deshalb hier vollstaendig dupliziert:**
+Alle 8 Punkte sind umgesetzt. Stand pro Punkt (Original-Plan darunter
+weiterhin als Referenz, u.a. fuer die verwendeten Schwellenwerte):
+
+- **Punkt 1 (Wappen+Position im Header)**: `TeamCrest`-Komponente in
+  `frontend/src/components/SpekulationTab.tsx` — laedt
+  `${BASE_URL}crests/{team_id}.svg`, faellt per `onError` auf
+  Initialen-Badge zurueck. `team_id` wird jetzt serverseitig durchgereicht
+  (`_player_row`/`_build_spekulation` in `src/dashboard_export.py`,
+  Unit-Test ergaenzt). **Offen**: Die eigentlichen SVG-Dateien fehlen noch
+  (`frontend/public/crests/` existiert nur mit einer `README.md` als
+  Mapping-Doku) — User muss die ~17 Wappen besorgen und dort ablegen,
+  siehe Resume Instructions.
+- **Punkt 2 (Badges entfernen)**: Hype-Gipfel/Boden-Schutz-Pills raus aus
+  Card+Modal, Hinweistext (`HINT`-Konstante) entsprechend gekuerzt.
+  Felder bleiben im Datenmodell (`types.ts`), nur nicht mehr gerendert.
+- **Punkt 3 (Live-Auktionszeit)**: `auction_expires_at` serverseitig
+  durchgereicht (`_build_transfermarkt`/`_build_spekulation`,
+  `src/dashboard_export.py`, Unit-Test ergaenzt). Frontend: `useNow(60_000)`-
+  Hook + `auctionLabel()`/`formatDurationMs()` (`format.ts`) berechnen die
+  Restzeit bei jedem Render + alle 60s neu. `auction_urgent` bleibt
+  server-berechnet (nicht dupliziert).
+- **Punkt 4 (3-Monats-Hoch/Tief)**: kein Code noetig (war schon korrekt),
+  nur Push + Pipeline-Lauf noetig — siehe Resume Instructions.
+- **Punkt 5 (Farbindikatoren + Schatten-Haertung)**: `trendClass()` war
+  schon korrekt (Tailwind-Cache-Verdacht) — User muss `npm run dev` NEU
+  STARTEN, um das zu verifizieren. Zusaetzlich gehaertet:
+  `shadow-[0_0_12px_theme(colors.brand.400)]` in `App.tsx`/`Login.tsx`
+  durch `shadow-md shadow-brand-500/50` ersetzt (native Tailwind-Utility
+  statt Arbitrary-Value mit verschachteltem `theme()`-Call).
+- **Punkt 6 (5-stufige Pfeile)**: `trendArrow(value, {flat, strong})` in
+  `format.ts`, mit den recherchierten echten Schwellen (Trend 7T:
+  200k/1,5M; ML-Prognose: 20k/100k) in `SpekulationTab.tsx` aufgerufen.
+- **Punkt 7 (Grid)**: `grid-cols-[repeat(auto-fill,minmax(260px,1fr))]`.
+- **Punkt 8 (Label/Wert-Abstand)**: `Row`-Komponente auf
+  `grid grid-cols-[auto_1fr] gap-x-3` umgestellt.
+
+**Verifikation in dieser Session**: `python3 -m unittest
+tests.test_dashboard_export` gruen (8 Tests, 2 neue fuer `team_id`/
+`auction_expires_at`). Klammer-Balance-Check (`(){}`[]`) fuer alle
+geaenderten `.tsx`/`.ts`-Dateien manuell gegengezaehlt (kein `tsc` ohne
+`node_modules` moeglich, siehe Warnings) — alle balanciert. **Kein echter
+Browser-Test, kein `tsc`/`npm run build` in dieser Sandbox.**
+
+**Volltext-Plan liegt auch in
+`/home/node/.claude/plans/ich-bin-kein-frontendler-async-koala.md` dieser
+Sandbox-Session, der aber in einer NEUEN Session/Sandbox evtl. nicht mehr
+existiert - deshalb hier weiterhin als Referenz dupliziert:**
 
 **1. Kachel-Header: Position-Abkuerzung + ECHTES Vereinswappen (Update
 nach Rueckfrage - nicht mehr Initialen-Badge).** Kickbase-API liefert
@@ -266,15 +307,13 @@ Abstand aufgeraeumt). 3-Monats-Hoch/Tief bleibt "–" bis Push+Pipeline-Lauf.
 
 ## Not Yet Done
 
-- [ ] **Nacharbeit Runde 2 (siehe eigener Abschnitt oben) ist NUR GEPLANT,
-  NULL Code geschrieben** — das ist der unmittelbar naechste Schritt,
-  User hat bewusst Implementierung noch nicht freigegeben, nur Plan +
-  Handoff angefordert.
-- [ ] **Sub-Projekt 1 ist ansonsten immer noch nicht vollstaendig im
-  Browser verifiziert** — User hat `npm run dev` laufen lassen und
-  echtes Feedback gegeben (siehe oben), also grundsaetzlich lauffaehig,
-  aber die in Runde 2 gefundenen Probleme (Farben, Layout etc.) sind
-  noch offen.
+- [ ] **Nacharbeit Runde 2 ist implementiert + committed, aber NOCH NICHT
+  im Browser verifiziert** — naechster Schritt ist User-seitiges Testen
+  (Dev-Server neu starten), nicht mehr Implementierung.
+- [ ] **Vereinswappen-Bilddateien fehlen** — `frontend/public/crests/`
+  hat nur eine `README.md`, die ~17 SVGs muss der User besorgen (z.B.
+  Wikimedia Commons) und dort ablegen (Dateiname = `team_id.svg`).
+  Fallback (Initialen-Badge) funktioniert bis dahin.
 - [ ] **GitHub-Pages-Source umstellen**: Repo-Settings -> Pages -> Source
   von "Deploy from a branch" auf "GitHub Actions" — einmaliger manueller
   Schritt, macht der User selbst im Browser (wie bei frueherem Pages-Setup
@@ -319,17 +358,22 @@ Abstand aufgeraeumt). 3-Monats-Hoch/Tief bleibt "–" bis Push+Pipeline-Lauf.
 https://tyrabite.github.io/KickbaseAgent/, inkl. aller Phase-5-Mobile-Fixes
 + Wechsel-Freitextsuche). NEU: `frontend/`-Verzeichnis mit komplettem
 React/Vite/Tailwind-Setup fuer den Spekulation-Piloten existiert im Repo,
-ist aber noch NIE gebaut/deployt worden.
+Runde-2-Nacharbeit ist mit implementiert, aber noch NIE gebaut/deployt
+worden.
 
 **Ungetestet/Unverifiziert**:
 - Ob `frontend/` ueberhaupt fehlerfrei baut (`npm install && npm run
-  build`) — nur Code-Review, kein echter TypeScript-Compile passiert.
+  build`) — nur Code-Review + Klammer-Balance-Check, kein echter
+  TypeScript-Compile passiert.
 - Ob der neue CI-Workflow nach Pages-Source-Umstellung tatsaechlich
   erfolgreich deployt.
-- Ob der Spekulation-Pilot im Browser wie gedacht aussieht/funktioniert.
+- Ob der Spekulation-Pilot MIT den Runde-2-Aenderungen im Browser wie
+  gedacht aussieht/funktioniert (Wappen-Fallback, Live-Countdown,
+  Pfeil-Stufen, Grid/Abstand).
 
 **Commits**: alle Commits dieser Session sind lokal, NICHT gepusht
-(Standing-Rule seit Phase 3, siehe Warnings).
+(Standing-Rule seit Phase 3, siehe Warnings). Neuester: `d888431`
+(Nacharbeit Runde 2).
 
 ## Files to Know
 
@@ -345,17 +389,27 @@ ist aber noch NIE gebaut/deployt worden.
 
 ## Resume Instructions
 
-1. **Sofort: Nacharbeit Runde 2 implementieren** (siehe eigener Abschnitt
-   oben, komplett ausformuliert mit Datei-/Zeilen-Referenzen und echten
-   Schwellenwerten - keine erneute Recherche noetig, direkt umsetzen).
-   Reihenfolge egal, aber Punkt 4 (3-Monats-Daten) braucht KEINEN Code,
-   nur Push+Pipeline-Lauf. Nach der Implementierung: Python-Unit-Test
-   gruen pruefen (`python3 -m unittest tests.test_dashboard_export`),
-   dann committen (lokal, nicht pushen).
-2. **Danach: GitHub-Pages-Source umstellen** (User macht das selbst im
+1. **User besorgt Vereinswappen** (~17 SVG/PNG-Dateien, z.B. Wikimedia
+   Commons) und legt sie unter `frontend/public/crests/{team_id}.svg` ab
+   (siehe `frontend/public/crests/README.md` fuer die bekannten
+   `team_id`/Verein-Paare). Ohne das laeuft die Kachel auf den
+   Initialen-Fallback, ist also nicht blockierend fuer den restlichen Test.
+2. **User testet lokal** (`npm run dev` NEU STARTEN, wichtig fuer Punkt 5
+   der Nacharbeit - Tailwind-Cache/Farbindikatoren): Spekulation-Tab im
+   Card-Layout pruefen, Reihenfolge Name/ML-Prognose/Rendite%/Preis/
+   Trend-7T/Auktion-Status, Header zeigt Position+Vereinswappen (oder
+   Initialen-Fallback), keine Boden-Schutz/Hype-Gipfel-Pills mehr,
+   Farbindikatoren + 5-stufige Pfeile da, Auktions-Countdown zaehlt bei
+   Reload/nach 60s aktuell weiter, Kacheln angemessen schmal (auto-fill-
+   Grid), Label/Wert-Abstand aufgeraeumt, Sortier-Dropdown + Suchfeld
+   funktionieren, Daten stimmen mit dem alten Dashboard
+   (`.../KickbaseAgent/`, weiterhin unveraendert erreichbar) ueberein.
+3. **Falls Test gruen: Commits pushen** (User macht das selbst, Standing-
+   Rule `NeverPushOnMain`, siehe Warnings).
+4. **Danach: GitHub-Pages-Source umstellen** (User macht das selbst im
    Browser): Repo-Settings -> Pages -> Source von "Deploy from a branch"
    auf "GitHub Actions".
-3. **Danach: `frontend-pilot.yml` einmal laufen lassen** (automatisch bei
+5. **Danach: `frontend-pilot.yml` einmal laufen lassen** (automatisch bei
    Push auf `main` mit Aenderungen in `frontend/`/`index.html`, oder
    manuell per `workflow_dispatch`/`gh workflow run frontend-pilot.yml`
    nach dem Push).
@@ -364,17 +418,10 @@ ist aber noch NIE gebaut/deployt worden.
    - Falls `npm ci`/`npm run build` in CI fehlschlaegt: Fehler im CI-Log
      gegenlesen, sehr wahrscheinlich kleine Konfigurationsfehler in
      `frontend/package.json`/`vite.config.ts`/`tsconfig.json`.
-4. **User testet weiter lokal** (hat bereits `npm run dev` laufen, siehe
-   oben): nach Runde-2-Aenderungen Dev-Server NEU STARTEN (wichtig fuer
-   Punkt 5 der Nacharbeit - Farbindikatoren).
-5. **Im Browser pruefen** (nach Login): Spekulation-Tab im Card-Layout,
-   Reihenfolge Name/ML-Prognose/Rendite%/Preis/Trend-7T/Auktion-Status,
-   Header zeigt Position+Vereins-Badge, keine Boden-Schutz/Hype-Gipfel-
-   Pills mehr, Farbindikatoren + 5-stufige Pfeile da, Auktions-Countdown
-   aktuell, Kacheln angemessen schmal, Sortier-Dropdown + Suchfeld
-   funktionieren, Daten stimmen mit dem alten Dashboard
-   (`.../KickbaseAgent/`, weiterhin unveraendert erreichbar) ueberein.
-6. **Danach**: Sub-Projekt 2 (Wunschkader-Migration) planen — eigener
+6. **Danach: `dashboard.yml` einmal laufen lassen** (oder auf den
+   naechsten regulaeren 2h-Lauf warten) — damit Punkt 4 der Nacharbeit
+   (3-Monats-Hoch/Tief) im Modal tatsaechlich Werte zeigt statt "–".
+7. **Danach**: Sub-Projekt 2 (Wunschkader-Migration) planen — eigener
    `superpowers:brainstorming`-Zyklus mit Daten-Audit-Dialog fuer diesen
    Tab, wie bei Spekulation.
 
