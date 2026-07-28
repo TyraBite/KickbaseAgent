@@ -1,252 +1,187 @@
-# Handoff: KickbaseAgent Dashboard — Phase 5 (Mobile/UX) + Wechsel-Suche committed
+# Handoff: KickbaseAgent Dashboard — Phase 6 Sub-Projekt 1 (React-Pilot) committed, ungetestet
 
-**Generated**: 2026-07-28 (Ende der Session, 2. Update)
+**Generated**: 2026-07-28 (Ende der Session)
 **Branch**: main
-**Status**: In Progress — Phase 1-4 fertig & live (unveraendert seit letztem
-Handoff). Phase 5 (Mobile/UX) implementiert (`c458b35`), User hat danach
-ECHT im Browser getestet und 3 Probleme gefunden — alle behoben und
-committed (`dbac469`). Danach Feature-Wunsch: Freitext-Suche fuer den
-Wunschkader-"Wechsel"-Dialog (nicht nur die 3 Auto-Vorschlaege) —
-umgesetzt und committed (`342d29f`). WEDER die 3 Fixes NOCH die Suche
-sind bisher im echten Browser verifiziert (Sandbox hat weiterhin keinen
-Browser/Login) — das ist der naechste Schritt.
+**Status**: In Progress — Phase 1-5 fertig & live (Details: `git log -p --
+HANDOFF.md` fuer die volle Vorgeschichte, oder frueherer Commit
+`233fd4d^:HANDOFF.md` fuer den letzten Phase-5-Stand). NEU diese Session:
+Phase 6 begonnen — grundlegende Frontend-Rearchitektur-Entscheidung
+getroffen, Sub-Projekt 1 (React/Vite/Tailwind-Pilot fuer den
+Spekulation-Tab) implementiert und committed (`0ef19f0`), aber NOCH NICHT
+gebaut/getestet (kein npm in dieser Sandbox, siehe Warnings).
 
 ## Goal
 
-Dashboard (`index.html`) mobile-tauglich machen: Tabellen waren zu breit
-(horizontales Scrollen), Buttons/Filter zu klein zum Antippen,
-Tab-Navigation unhandlich. Vollstaendige 5-Phasen-Architektur in
-`docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md`.
-Phase 1-4 (Firestore-Migration, Live-Read, Hosting, ML-Genauigkeit) sind
-laenger fertig — siehe vorherige Handoff-Versionen in der Git-Historie
-(`git log -p -- HANDOFF.md`) fuer die volle Vorgeschichte. Dieser Handoff
-fokussiert auf Phase 5 + die zwei noch offenen Punkte aus Phase 4.
+Phase 5 war reines CSS/JS-Polish der bestehenden `index.html`. User hat
+danach 4 groessere Themen aufgeworfen: (1) wachsende Komplexitaet macht
+die Vanilla-JS/CSS-Architektur unhandlich, (2) Frontend soll "schoener"
+werden (Karten/Dashboard-Stil statt Tabellen-Optik), (3) "Datenmuell"
+(ueberfluessige Spalten/Felder) soll raus, (4) ein Quick/Detail-View-
+Konzept pro Tabelle. Nach ausfuehrlichem Interview (siehe Konversation):
+kompletter Umbau auf React + Vite + Tailwind CSS, in Sub-Projekte
+zerlegt. Voller Kontext + Roadmap:
+`docs/superpowers/specs/2026-07-28-phase6-frontend-rearchitektur-sub1.md`.
 
 ## Completed (diese Session)
 
-- [x] **Brainstorming abgeschlossen**: Ansatz-Frage beantwortet (globaler
-  CSS/JS-Mechanismus), User-Feedback eingearbeitet (EIN einheitlicher
-  Rendering-Mechanismus fuer ALLE Tabs statt Sonderfall fuer Wunschkader;
-  danach: volle Sortierbarkeit auch fuer Wunschkader statt
-  `sortable:false`-Ausnahme). Design-Doc:
-  `docs/superpowers/specs/2026-07-28-mobile-ux-design.md`.
-- [x] **Implementierungsplan** erstellt und genehmigt (Plan Mode):
-  `/home/node/.claude/plans/ich-bin-kein-frontendler-async-koala.md`.
-- [x] **CSS-Mobile-Breakpoint** (`@media (max-width: 640px)`, neben dem
-  bestehenden Dark-Mode-Query): Tabellen werden zu gestapelten Karten,
-  Tab-Leiste scrollt horizontal statt zu brechen, `.filter-bar` stapelt
-  sich, Tap-Targets (`button`, `input` ausser Checkbox/Radio, `select`)
-  auf `min-height: 44px`.
-- [x] **Genereischer JS-Mechanismus** (`annotateCardRows()`, erweiterte
-  `makeSortable()`/`buildTable()`): nach jedem `tbody`-Render bekommt
-  jedes `<td>` automatisch `data-label` (fuer die CSS-Karten-Darstellung)
-  und optional `data-secondary="1"` (fuer ausblendbare Detail-Felder,
-  siehe `columns[].secondary`). Absicherung: nur Zeilen mit
-  `tr.children.length === columns.length` werden annotiert — schuetzt
-  Sonderzeilen wie die Wunschkader-Vorschlagszeile (`colspan`).
-- [x] **Wunschkader-Tab komplett auf `buildTable()` migriert**
-  (`renderWunschkader()`, vorher komplett handgerolltes Table-HTML):
-  stabile `_uid` pro Ziel (ueberlebt Sortierung, wird NIE mitgespeichert),
-  Event-Delegation (ein `click`/`change`-Listener auf dem Sub-Container
-  statt Re-Binding nach jedem State-Wechsel), State-Aenderungen (Add/
-  Remove/Wechsel-Pick) rufen jetzt die von `buildTable()` zurueckgegebene
-  `redraw()`-Closure statt die ganze Funktion neu aufzurufen.
-- [x] **Feld-Prioritaet** (`secondary:true`) fuer Wunschkader- und
-  Spekulation-Tab: Kernfelder vorne, Rest hinter "Details"-Toggle im
-  Card-Modus (siehe Spec-Doc fuer die genaue Spaltenaufteilung).
-- [x] **Commit** `c458b35` (lokal, NICHT gepusht) — `index.html` +
-  neues Spec-Doc.
-- [x] **1. Nacharbeitsrunde nach echtem Mobile-Test** (User-Feedback, per
-  Plan Mode neu geplant und umgesetzt, Commit `dbac469`, lokal, NICHT
-  gepusht):
-  1. Card-Modus-Sortierung: `thead` bleibt sichtbar (statt komplett
-     versteckt), wird im Breakpoint zu einer horizontal scrollbaren
-     Pill-Leiste (`display:flex`, jedes `th` eine Pille). Reine
-     CSS-Aenderung, bestehende Sortier-Logik greift unveraendert.
-     Sinnlose Pills (Wunschkader-Button-Spalten `key:""`, leere
-     Details-Toggle-`th`) werden ausgeblendet.
-  2. Wunschkader-Name ist kein `<input>` mehr, sondern reiner Text
-     (`.wk-name-input`-CSS + zugehoeriger `change`-Listener entfernt) —
-     Umbenennen nur noch ueber "Wechsel"+Vorschlag.
-  3. Neue `computedFor(name)`-Hilfsfunktion in `renderWunschkader()`:
-     faellt bei fehlendem Treffer in `DATA.wunschkader` auf
-     `DATA.alle_spieler` zurueck (Marktwert/Schnitt/Signal/Rang/Status),
-     damit ein frisch per "Wechsel" gewaehlter Spieler sofort Werte
-     zeigt statt komplett leer zu sein. `planned_price`/`ml_prediction`/
-     `note` bleiben bewusst "n/v" bis zum naechsten Pipeline-Lauf (echte
-     serverseitige Logik, nicht dupliziert).
-- [x] **Freitext-Suche im Wunschkader-"Wechsel"-Dialog** (Commit
-  `342d29f`, lokal, NICHT gepusht): User wollte nicht nur aus den 3
-  Auto-Vorschlaegen waehlen koennen. Geklaert: Suche bleibt auf gleiche
-  Position + freie Spieler (`owner==="Frei"`) beschraenkt, wie die 3
-  Auto-Vorschlaege selbst. `suggestReplacements()`s Pool-/Scoring-Logik
-  ausgelagert nach `scoreReplacementPool()`, neue `searchReplacementPool
-  (target, query)` filtert zusaetzlich per Name-Substring (max. 20
-  Treffer). `pickBtnHtml()` als gemeinsamer Button-Baustein fuer Auto-
-  Vorschlaege UND Suchergebnisse (beide nutzen dieselbe `.wk-pick-btn`-
-  Klasse/Event-Delegation). Neues Suchfeld (`.wk-wechsel-search`) +
-  Ergebnis-Container (`.wk-search-results`) erscheinen neben den 3
-  Auto-Vorschlaegen im "Wechsel"-Aufklapper, per neuem delegierten
-  `input`-Listener auf `#tab-wunschkader-table`.
+- [x] **Architektur-Interview** (mehrere Runden, siehe Konversation):
+  - React + Vite + Tailwind CSS (User-Entscheidung, gegen meine initiale
+    "Vanilla aufraeumen"-Empfehlung).
+  - **Kein** Cloud-Functions-/Backend-API-Umbau — User hat das nach
+    kurzer Ueberlegung WIEDER verworfen: 2h-Cron-Batch-Job + direktes
+    Client-seitiges Firestore-Read/Write bleiben unveraendert, nur die
+    Rendering-Schicht wird ersetzt.
+  - Hosting bleibt GitHub Pages (nicht auf Firebase Hosting umgezogen).
+  - Rollout: Parallelbetrieb — alte `index.html` bleibt live, neues
+    Frontend erscheint separat unter `.../KickbaseAgent/preview/`, bis
+    ein bewusster Cutover erfolgt.
+  - Quick/Detail-View: EIN globaler Umschalter PRO Tabelle/Tab (nicht pro
+    Zeile), aber nicht jeder Tab braucht ihn zwingend (siehe Spekulation).
+  - **Neues generelles Prinzip fuer alle kuenftigen Tab-Migrationen**:
+    Feld-REIHENFOLGE wird nicht von der alten Tabelle uebernommen, sondern
+    per kurzem Dialog nach Entscheidungsrelevanz neu festgelegt.
+- [x] **Daten-Audit + Reihenfolge fuer Spekulation-Tab** (live im Dialog):
+  Position, Verein, Schnitt komplett gestrichen (9 -> 5 Felder + Name).
+  Finale Reihenfolge: Spieler-Name, ML-Prognose, Rendite%, Preis,
+  Trend 7T, Auktion-Status (Auktion-Status bewusst ganz hinten, weil die
+  Karten-Liste ohnehin standardmaessig danach sortiert ist). Alle 5 Felder
+  immer sichtbar, kein Quick/Detail-Umschalter fuer diesen Tab noetig.
+- [x] **Sub-Projekt 1 implementiert** (Commit `0ef19f0`, lokal, NICHT
+  gepusht): neues `frontend/`-Verzeichnis (React 18 + Vite + Tailwind,
+  eigenes `package.json`, komplett getrennt vom Python-Root), EIN Tab
+  migriert (`SpekulationTab.tsx` — Card-Grid, Sortier-Dropdown, Suchfeld,
+  Signal-Badges), Firebase-Auth+Firestore-Read 1:1 uebernommen (kein
+  Cloud-Function-Layer). Neuer CI-Workflow
+  (`.github/workflows/frontend-pilot.yml`) baut `frontend/` und deployt
+  es NEBEN der unveraenderten `index.html` unter einem `/preview/`-
+  Unterpfad. Trivialer Nebenpunkt erledigt: Zeilen-Zaehler neben den
+  Tab-Namen (`updateTabBadges()`) aus der alten `index.html` entfernt.
 
 ## Not Yet Done
 
-- [ ] **Echter Browser-Check der 3 Nacharbeit-Fixes** (naechster Schritt,
-  siehe Resume Instructions) — User hatte die erste Phase-5-Version schon
-  echt getestet und 3 Probleme gefunden (Card-Modus ohne Sortierung,
-  editierbarer Wunschkader-Name, Wechsel-Vorschlag ohne Werte, siehe
-  Completed unten fuer die Fixes). Die Fixes selbst (`dbac469`) sind
-  bisher nur per `node --check` + manuellem Diff-Review geprueft, noch
-  NICHT im echten Browser nachverifiziert.
-- [ ] **Quota-Fix (Read-Seite) sauber isoliert live verifizieren** (aus
-  Phase 4, unveraendert offen): der einzige reale Versuch war durch
-  Write-Quota-Erschoepfung vom selben Tag ueberlagert. An einem Tag OHNE
-  vorheriges Backfill-Testen: `FIRESTORE_ENABLED=1
-  GOOGLE_APPLICATION_CREDENTIALS=./firebase-service-account.json python3
-  -m src.dashboard_export`, dann `firestore_db
-  .get_accuracy_daily(firestore_db.connect())` gegenchecken, in der
-  Firebase-Console (Firestore → Nutzung/Quota) die echte Read-Zahl
-  pruefen (sollte niedriger Tausenderbereich sein, nicht 30-40k).
-- [ ] **ML-Backfill-Fortsetzung** (aus Phase 4, unveraendert offen): nur
-  46 von 90 Tagen sind in `ml_accuracy_daily`. In kleinen Haeppchen
-  nachziehen (z.B. `python3 -m src.market_predictor --backfill 15`
-  mehrfach), ERST nachdem Quota-Fix isoliert verifiziert ist.
+- [ ] **Sub-Projekt 1 ist komplett UNGETESTET** — in dieser Sandbox gibt
+  es kein `npm`/keinen Build (bewusst, siehe Warnings), also nur
+  Code-Review + Klammer-Balance-Check + YAML-Syntax-Check gemacht, NIE
+  `npm install`/`npm run build` ausgefuehrt. Naechster Schritt siehe Resume
+  Instructions.
+- [ ] **GitHub-Pages-Source umstellen**: Repo-Settings -> Pages -> Source
+  von "Deploy from a branch" auf "GitHub Actions" — einmaliger manueller
+  Schritt, macht der User selbst im Browser (wie bei frueherem Pages-Setup
+  ueblich).
+- [ ] **Sub-Projekt 2** (Wunschkader-Migration) und **Sub-Projekt 3**
+  (restliche 5 Tabs, je mit eigenem Daten-Audit-Dialog) stehen noch aus —
+  jeweils eigener Plan/Spec, siehe Roadmap-Tabelle im Spec-Doc.
+- [ ] **Sub-Projekt 4** (Cutover, alte `index.html` entfernen) — ganz am
+  Ende, erst nach expliziter User-Freigabe.
+- [ ] Aus Phase 4 weiterhin offen (unveraendert diese Session):
+  Firestore-Read-Quota-Fix isoliert live nachverifizieren, ML-Accuracy-
+  Backfill-Fortsetzung (~44 fehlende Tage). Siehe `git show
+  233fd4d^:HANDOFF.md` fuer die vollen Befehle/Details.
 
 ## Failed Approaches (Don't Repeat These)
 
-- **Automatisierten Browser-/DOM-Test fuer Phase 5 versucht** (jsdom via
-  `node -e "require('jsdom')"`): nicht installiert, kein `npm`/kein
-  `package.json` in diesem Python-Projekt — Installation haette eine
-  Node-Abhaengigkeit in ein reines Python+Vanilla-JS-Projekt gezogen, nur
-  fuer einen einmaligen Check. Bewusst NICHT gemacht (Projekt-Ethos:
-  0€/YAGNI, kein Build-Schritt fuer `index.html`). Stattdessen: `node
-  --check` auf die extrahierten `<script>`-Inhalte (reiner
-  Syntax-Check, kein DOM/Firebase noetig) + manueller Diff-Review.
+- **Automatisierter Build/Test von `frontend/` in dieser Sandbox
+  versucht** (`npm --version`, `node -e "require('jsdom')"` etc. in
+  frueheren Sessions bereits gescheitert/bewusst unterlassen): kein
+  `npm install` hier ausgefuehrt (Windows-DrvFs-Mount-Problem, siehe
+  Warnings) — stattdessen nur Code-Review + `python3 -c "import yaml"`
+  fuer den Workflow + Klammer-Balance-Check als Ersatz-Verifikation.
 - Weitere fruehere Failed Approaches (Baumann/Hein/Backhaus-Verwechslungen,
-  Plan-Mode-Subagent-Problem, `gh api -X POST`-Sandbox-Block) sind
-  weiterhin gueltig — siehe vorherige Handoff-Version
-  (`git show 5f6a96f:HANDOFF.md`) fuer den vollen Wortlaut.
+  Plan-Mode-Subagent-Problem, `gh api -X POST`-Sandbox-Block) weiterhin
+  gueltig — siehe `git show 233fd4d^:HANDOFF.md`.
 
 ## Key Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| EIN Rendering-Mechanismus (`buildTable()`) fuer ALLE 7 Tabs, kein Tab-Sonderfall | User-Feedback: "vielleicht waere ein einheitliches rendering pro Tab sinnvoll, Tabs sollten sich nur in Funktion und Datenbeschaffung unterscheiden" — Wunschkader-Tab war der einzige Ausreisser (handgerollt), jetzt migriert |
-| Wunschkader-Tabelle voll sortierbar (nicht `sortable:false`-Ausnahme) | Zweite Nachfrage explizit beantwortet: User wollte volle Konsistenz inkl. Sortier-Feature, trotz Mehraufwand (stabile IDs + Event-Delegation noetig) |
-| `secondary:true`-Spalten-Flag generisch in `columns[]` statt Tab-spezifischem Karten-Layout | Haelt "ein Mechanismus, Tabs unterscheiden sich nur in Daten" durch — jeder Tab entscheidet nur ueber sein eigenes `columns[]`-Array |
-| Kein automatisierter Browser-Test fuer diese Aenderung | Kein Test-Harness/Build-Tooling in diesem Ein-Datei-Projekt, Sandbox hat keinen Browser/Login — Nachziehen von jsdom/puppeteer waere unverhaeltnismaessig fuer ein Hobby-Projekt |
-| Commit lokal, nicht gepusht | Weiterhin gueltiger Standing-Auftrag seit dem Public-Umstieg (Ruleset `NeverPushOnMain`) — User pusht selbst |
+| React + Vite + Tailwind statt "Vanilla aufraeumen" | Explizite User-Entscheidung gegen meine Empfehlung — User will jetzt einen echten Komponenten-/Design-System-Ansatz fuer den Karten-Stil |
+| Kein Cloud-Functions-/Backend-Umbau | User hat das nach kurzer Ueberlegung selbst wieder verworfen — 2h-Cron + direktes Firestore-Read/Write funktioniert gut, kein Grund es anzufassen |
+| Parallelbetrieb (altes Dashboard bleibt live) statt Big-Bang-Ersatz | User nutzt das Dashboard taeglich, soll waehrend des Umbaus nicht kaputt sein |
+| GitHub Pages bleibt (nicht Firebase Hosting) | User-Entscheidung — ein System (GH Pages) statt zwei parallelen Hosting-Systemen zu pflegen war NICHT der Wunsch, aber Firebase Hosting haette Cloud-Functions-Naehe gebraucht, die inzwischen entfaellt |
+| Sub-Projekt-Zerlegung (Pilot -> Wunschkader -> Rest -> Cutover) statt ein grosser Plan | Kompletter Umbau ist zu gross fuer einen Plan/eine PR (siehe `superpowers:brainstorming`-Dekompositions-Regel) |
+| Feld-Reihenfolge neu nach Entscheidungsrelevanz statt alte Spaltenordnung | User-Wunsch, explizit als generelles Prinzip fuer ALLE kuenftigen Tab-Migrationen festgehalten, nicht nur Spekulation |
+| Kein `npm install` in dieser Sandbox | Bekanntes Problem aus einem anderen Projekt auf demselben Windows-DrvFs-Mount (Unix-Bin-Shims statt `.cmd`, bricht dann auf Windows/Rider) — CI baut, User testet lokal selbst |
 
 ## Current State
 
-**Working**: Phase 1-4 unveraendert live (Dashboard unter
-https://tyrabite.github.io/KickbaseAgent/, Login+Live-Read, Firestore-
-Write alle 2h). Phase 5 ist implementiert und committed, aber
-UNGETESTET im echten Browser.
+**Working**: Phase 1-5 unveraendert live (`index.html` unter
+https://tyrabite.github.io/KickbaseAgent/, inkl. aller Phase-5-Mobile-Fixes
++ Wechsel-Freitextsuche). NEU: `frontend/`-Verzeichnis mit komplettem
+React/Vite/Tailwind-Setup fuer den Spekulation-Piloten existiert im Repo,
+ist aber noch NIE gebaut/deployt worden.
 
-**Nicht verifiziert (nicht "broken", nur ungeprueft)**: ob das Karten-
-Layout auf einem echten Handy/DevTools-Mobile-Emulation tatsaechlich gut
-aussieht, ob der Wunschkader-Flow (Sortieren/Umbenennen/Wechsel/
-Entfernen/Hinzufuegen/Speichern) im echten Browser fehlerfrei laeuft, ob
-`_uid` wirklich nie im gespeicherten Firestore-Dokument landet.
+**Ungetestet/Unverifiziert**:
+- Ob `frontend/` ueberhaupt fehlerfrei baut (`npm install && npm run
+  build`) — nur Code-Review, kein echter TypeScript-Compile passiert.
+- Ob der neue CI-Workflow nach Pages-Source-Umstellung tatsaechlich
+  erfolgreich deployt.
+- Ob der Spekulation-Pilot im Browser wie gedacht aussieht/funktioniert.
 
-**Uncommitted Changes**: keine — `git status` ist clean, alles in
-`c458b35`.
+**Commits**: alle Commits dieser Session sind lokal, NICHT gepusht
+(Standing-Rule seit Phase 3, siehe Warnings).
 
 ## Files to Know
 
 | File | Why It Matters |
 |------|----------------|
-| `index.html` | Einzige geaenderte Datei, Ein-Datei-Projekt, handgepflegt |
-| `docs/superpowers/specs/2026-07-28-mobile-ux-design.md` | Volle Architektur-Doku dieser Session (Mechanismus, Wunschkader-Migration, Spalten-Prioritaet) |
-| `/home/node/.claude/plans/ich-bin-kein-frontendler-async-koala.md` | Der genehmigte Implementierungsplan (Referenz falls Details zur Herleitung fehlen) |
-| `docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md` | Die volle 5-Phasen-Architektur (Ursprungsspec) |
-
-## Code Context
-
-**Neuer genereischer Mechanismus** (`index.html`, in `makeSortable()`s
-`draw()`):
-```js
-tbody.innerHTML = data.map(renderRow).join("");
-if (columns) annotateCardRows(tbody, columns);
-```
-`annotateCardRows(tbody, columns)` setzt `data-label`/`data-secondary`
-pro `<td>` und haengt bei Bedarf eine `.row-toggle`-Zelle an — siehe
-Spec-Doc Abschnitt "Architektur" fuer den vollen Code.
-
-**Wunschkader-Identifikation** (statt Array-Index):
-```js
-let wkNextUid = 0; // clientseitige stabile Zeilen-Id, ueberlebt Sortierung - nie mitspeichern
-// ...
-wunschkaderEditState = (DATA.wunschkader_raw ? DATA.wunschkader_raw.targets : [])
-  .map((t) => ({ ...t, _uid: wkNextUid++ }));
-// Speichern:
-const targets = wunschkaderEditState.map(({ _uid, ...rest }) => rest);
-```
+| `docs/superpowers/specs/2026-07-28-phase6-frontend-rearchitektur-sub1.md` | Volle Architektur-Doku + Roadmap fuer Phase 6, inkl. aller Interview-Entscheidungen |
+| `/home/node/.claude/plans/ich-bin-kein-frontendler-async-koala.md` | Der in Plan Mode genehmigte Plan fuer Sub-Projekt 1 (Referenz, gleicher Inhalt wie das Spec-Doc) |
+| `frontend/` (neu) | Komplettes neues React/Vite/Tailwind-Projekt, eigenes `package.json` — NICHT `npm install` in dieser Sandbox ausfuehren |
+| `frontend/src/components/SpekulationTab.tsx` | Die eigentliche Piloten-Komponente — Card-Grid, Sortierung, Suche, Feld-Reihenfolge |
+| `frontend/vite.config.ts` | `base: "/KickbaseAgent/preview/"` — muss zum GH-Pages-Unterpfad passen |
+| `.github/workflows/frontend-pilot.yml` (neu) | Baut `frontend/`, kombiniert mit `index.html` zu einem Pages-Artefakt |
+| `index.html` (Repo-Root) | Bleibt die produktive Seite waehrend des gesamten Parallelbetriebs — NICHT anfassen ausser fuer triviale Sachen wie den entfernten Tab-Zaehler |
 
 ## Resume Instructions
 
-1. **Sofort: die 3 Nacharbeit-Fixes + die neue Freitext-Suche im echten
-   Browser verifizieren** (braucht User oder eine Session mit echtem
-   Firebase-Login):
-   - Lokal oeffnen (`index.html` direkt oder `python -m http.server` im
-     Repo-Root), einloggen.
-   - DevTools-Mobile-Emulation (~375px, z.B. iPhone-Preset), irgendeinen
-     Tab mit Tabelle oeffnen:
-     - Erwartet: Kopfzeile ist jetzt eine horizontal scrollbare Pill-
-       Leiste (statt komplett unsichtbar), Antippen einer Pille sortiert
-       wie gehabt (Pfeil erscheint auf der Pille). Wunschkader-Button-
-       Spalten und die leere Details-Toggle-Spalte tauchen NICHT als
-       leere Pills auf.
-   - Wunschkader-Tab, Desktop-Breite: Name ist jetzt Klartext (kein
-     Eingabefeld mehr), komplett lesbar.
-   - Wunschkader-Tab: "Wechsel" → einen Vorschlag waehlen.
-     - Erwartet: die Zeile zeigt SOFORT Marktwert/Schnitt/Signal/
-       Startelf-Rang/Status des neuen Spielers (nicht mehr komplett
-       leer). "Geplant"/"ML-Prognose"/"Notiz" bleiben erwartungsgemaess
-       "n/v" bis zum naechsten 2h-Pipeline-Lauf.
-     - Falls trotzdem leer: `computedFor()` in `renderWunschkader()`
-       gegenchecken (Namens-Abgleich ist exakter String-Vergleich —
-       bei abweichender Schreibweise zwischen Wunschkader-Target-Namen
-       und `DATA.alle_spieler`-Namen bleibt der Fallback leer).
-   - Im selben "Wechsel"-Aufklapper: ins neue Suchfeld tippen (Name
-     eines freien Spielers gleicher Position).
-     - Erwartet: Treffer erscheinen live unter dem Feld als klickbare
-       Buttons (max. 20), Auswahl funktioniert genau wie ein Klick auf
-       einen der 3 Auto-Vorschlaege. Leeres Suchfeld zeigt keine
-       Ergebnisse. Tippen eines Namens ohne Treffer zeigt "Keine Treffer.".
-     - Falls nichts erscheint: `searchReplacementPool()`/den neuen
-       `input`-Listener auf `#tab-wunschkader-table` in `index.html`
-       gegenchecken.
-   - Weiter wie gehabt: "Entfernen", neuen Eintrag hinzufuegen,
-     "Speichern" (kein Fehler, `wk-save-status` zeigt Erfolg, danach im
-     gespeicherten Firestore-Dokument pruefen: KEINE `_uid`-Felder in den
-     `targets`).
-   - Desktop-Breite (>640px) und Dark Mode: kurzer Regressionscheck ueber
-     alle 7 Tabs.
-2. **Danach, bei Gelegenheit: Quota-Fix isoliert live nachverifizieren**
-   und **Backfill-Fortsetzung** (aus Phase 4, siehe Not Yet Done oben für
-   die genauen Befehle).
+1. **Sofort: GitHub-Pages-Source umstellen** (User macht das selbst im
+   Browser): Repo-Settings -> Pages -> Source von "Deploy from a branch"
+   auf "GitHub Actions".
+2. **Danach: `frontend-pilot.yml` einmal laufen lassen** (automatisch bei
+   Push auf `main` mit Aenderungen in `frontend/`/`index.html`, oder
+   manuell per `workflow_dispatch`/`gh workflow run frontend-pilot.yml`
+   nach dem Push).
+   - Erwartet: Workflow gruen, `.../KickbaseAgent/preview/` zeigt die neue
+     React-App.
+   - Falls `npm ci`/`npm run build` in CI fehlschlaegt: das ist der ERSTE
+     echte Build-Versuch ueberhaupt (in der Sandbox nie getestet) - Fehler
+     im CI-Log gegenlesen, sehr wahrscheinlich kleine Konfigurationsfehler
+     in `frontend/package.json`/`vite.config.ts`/`tsconfig.json`.
+3. **User testet lokal** (optional, aber empfohlen vor dem CI-Push): in
+   Rider auf dem echten Windows-Rechner `cd frontend && npm install &&
+   npm run dev` - zeigt sofort ob TypeScript/Vite-Setup grundsaetzlich
+   funktioniert, bevor CI es merged.
+4. **Im Browser pruefen** (nach Login): Spekulation-Tab im Card-Layout,
+   Reihenfolge Name/ML-Prognose/Rendite%/Preis/Trend-7T/Auktion-Status,
+   Sortier-Dropdown + Suchfeld funktionieren, Daten stimmen mit dem alten
+   Dashboard (`.../KickbaseAgent/`, weiterhin unveraendert erreichbar)
+   ueberein. Andere Tabs zeigen "(bald)" und sind nicht anklickbar.
+5. **Danach**: Sub-Projekt 2 (Wunschkader-Migration) planen — eigener
+   `superpowers:brainstorming`-Zyklus mit Daten-Audit-Dialog fuer diesen
+   Tab, wie bei Spekulation.
 
 ## Setup Required
 
-Nichts Neues gegenueber vorheriger Session — Firebase-Projekt/Service-
-Account/Firestore/Pages/CI-Secret alle vollstaendig eingerichtet.
+- GitHub-Pages-Source-Umstellung (siehe Resume Instructions Punkt 1) —
+  noch nicht gemacht.
+- Sonst nichts Neues — Firebase-Projekt/Service-Account/Firestore/CI-
+  Secrets alle unveraendert vom Vorher-Stand.
 
 ## Warnings
 
+- **`npm install`/`npm run` NIE in dieser Sandbox ausfuehren** fuer
+  `frontend/` — bekanntes Problem auf dem Windows-DrvFs-Mount (erzeugt
+  Unix-Bin-Shims statt `.cmd`, bricht dann auf echtem Windows/Rider, siehe
+  `feedback_no_npm_install_in_sandbox_for_windows_projects`-Memory). CI
+  (GitHub Actions, sauberer Linux-Runner) baut, User testet lokal auf
+  seinem echten Windows-Rechner.
 - **Commits bleiben lokal, NICHT pushen** — Ruleset `NeverPushOnMain`
   aktiv, User pusht selbst (siehe `project_kickbaseagent_git_workflow`-
   Memory).
-- **`firebase-service-account.json` niemals committen** — weiterhin
-  gitignored.
-- **Kein Test-Harness fuer `index.html`** — jede Aenderung an diesem
-  File muss manuell im Browser verifiziert werden, es gibt keinen
-  automatisierten Ersatz dafuer in diesem Projekt.
-- Kosmetischer Nebeneffekt in Kauf genommen: Klick auf die Kopfzeile der
-  Wechsel-/Entfernen-Spalten im Wunschkader-Tab markiert sie optisch als
-  "sortiert", sortiert aber nichts (leerer String als Sortier-Schluessel
-  ist falsy) — kein Bug, bewusste Konsequenz der vollen Vereinheitlichung.
+- **`frontend/` ist komplett ungetestet** — erster echter Build passiert
+  entweder in CI oder beim User lokal, nicht in dieser Sandbox. Kleinere
+  Config-Fehler (Vite/Tailwind/TS-Versionen) sind moeglich, siehe Resume
+  Instructions Punkt 2 fuer den Umgang damit.
 - `MDs/*.md` und `data/kickbase.db` koennen als "modified" auftauchen —
   bekannte CRLF-Sache vom Windows-Tool auf dem geteilten DrvFs-Mount,
   kein inhaltlicher Unterschied.
