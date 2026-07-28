@@ -77,8 +77,11 @@ def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict])
     """Firestore-Pendant zu data/ml_prediction_log.jsonl (kein SQLite-Original -
     neue Collection laut Spec). Doc-Id `{date}_{player_id}_{model_type}` macht
     Re-Laeufe desselben Tages idempotent (pro Modell-Kandidat), analog zur
-    Dedup-Logik in market_predictor._save_prediction_log()."""
-    docs = {f"{e['date']}_{e['player_id']}_{e['model_type']}": e for e in entries}
+    Dedup-Logik in market_predictor._save_prediction_log(). `.get()` statt
+    `e["model_type"]`: Alt-Eintraege aus der Zeit vor Phase 4 (ohne
+    model_type-Feld) duerfen den Batch-Write nicht mit einem KeyError
+    abbrechen, wenn sie im selben Tages-Batch neben neuen Eintraegen liegen."""
+    docs = {f"{e['date']}_{e['player_id']}_{e.get('model_type')}": e for e in entries}
     _write_in_batches(client, "ml_prediction_log", docs)
 
 
