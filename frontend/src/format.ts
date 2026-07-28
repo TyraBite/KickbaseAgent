@@ -34,18 +34,19 @@ export function formatDurationMs(ms: number): string {
 
 // 5-stufiger Pfeil: Vorzeichen = Richtung, Betrag ueber `flat`/`strong` = Stufe.
 // Aufrufer uebergeben feldspezifische Schwellen (siehe SpekulationTab), keine
-// hartkodierte Zahlendopplung hier. Bewusst alle 5 Glyphen aus dem gleichen
-// Unicode-Arrows-Block (U+2190-2199) statt der Geometric-Shapes-Dreiecke
-// (▲/▼) - Dreiecke rendern auf manchen Systemfonts fest-farbig statt der
-// CSS-Textfarbe zu folgen (User-Feedback: ▲/▼ blieben immer gruen).
+// hartkodierte Zahlendopplung hier. Bewusst die offiziellen Pfeil-Emoji-
+// Codepoints MIT explizitem Variation-Selector U+FE0F (erzwingt die farbige
+// Emoji-Darstellung, "weisser Pfeil im blauen Quadrat") statt der reinen
+// Text-Pfeile (↑/↓/→ ohne FE0F) - sonst rendern nur die 45°-Pfeile emoji-
+// farbig, der Rest bleibt einfarbiger Text (User-Feedback).
 export function trendArrow(
   n: number | null | undefined,
   { flat, strong }: { flat: number; strong: number }
 ): string {
-  if (n === null || n === undefined || n === 0) return "→";
+  if (n === null || n === undefined || n === 0) return "➡️";
   const abs = Math.abs(n);
   const up = n > 0;
-  if (abs < flat) return "→";
-  if (abs > strong) return up ? "↑" : "↓";
-  return up ? "↗" : "↘";
+  if (abs < flat) return "➡️";
+  if (abs > strong) return up ? "⬆️" : "⬇️";
+  return up ? "↗️" : "↘️";
 }
