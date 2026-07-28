@@ -97,16 +97,46 @@ liegt auch in `/home/node/.claude/plans/ich-bin-kein-frontendler-async-koala.md`
 dieser Sandbox-Session, der aber in einer NEUEN Session/Sandbox evtl. nicht
 mehr existiert - deshalb hier vollstaendig dupliziert:**
 
-**1. Kachel-Header: Position-Abkuerzung + Vereins-Symbol.** Kein echtes
-Vereinslogo verfuegbar (bestaetigt per Code-Recherche: `kickbase_client.py`/
-`fetcher.py` liefern nur `team_id` (Zahl) + `team_name` (String), keine
-Bild-/Crest-URL in der genutzten Kickbase-API). Loesung: reines
-Frontend, kein Backend-Bedarf - Initialen-Badge aus den ersten 2 Buchstaben
-von `team_name`, Hintergrundfarbe deterministisch per Hash aus einer festen
-Tailwind-Palette (gleicher Verein = immer gleiche Farbe). Position ueber
-Abkuerzungs-Map: Torwart→TW, Abwehr→ABW, Mittelfeld→MF, Sturm→ST.
-`position`/`team_name` sind in `SpekulationRow` (`frontend/src/types.ts`)
-bereits vorhanden (nie entfernt, nur nicht gerendert).
+**1. Kachel-Header: Position-Abkuerzung + ECHTES Vereinswappen (Update
+nach Rueckfrage - nicht mehr Initialen-Badge).** Kickbase-API liefert
+selbst keine Logo-URL (bestaetigt), aber User wollte trotzdem echte
+Wappen statt Initialen - Vereine sind bekannt, Wappen oeffentlich
+auffindbar (z.B. Wikimedia Commons):
+- **Self-hosted** unter `frontend/public/crests/{team_id}.svg` (o.ae.),
+  NICHT von einer Drittanbieter-URL live eingebunden (bricht sonst
+  irgendwann, Repo ist ausserdem public).
+- **Bildrechte-Hinweis**: Vereinswappen sind markenrechtlich geschuetzt -
+  fuer privates Hobby-Dashboard geringes Risiko, aber Repo ist OEFFENTLICH,
+  Wappen liegen dann fuer jeden sichtbar im Code. User wurde darauf
+  hingewiesen und hat sich bewusst dafuer entschieden.
+- **Mapping-Key: `team_id`** (nicht `team_name`-String - robuster gegen
+  Sonderzeichen wie "M'gladbach"). `team_id` liegt in `market_listings`
+  schon vor, aber `_player_row()` (`dashboard_export.py:142-166`) reicht
+  es bisher NICHT durch (nur `team_name`) - kleine Python-Ergaenzung:
+  `"team_id": row["team_id"]` zum Dict, `_build_spekulation()` reicht
+  `r.get("team_id")` durch.
+- **Echte team_id/team_name-Paare** (live aus `data/kickbase.db`,
+  `market_listings`, 17 Vereine mit aktuell gelisteten Spielern, nicht
+  geraten): `13 Augsburg, 10 Bremen, 3 Dortmund, 77 Elversberg,
+  4 Frankfurt, 5 Freiburg, 6 Hamburg, 14 Hoffenheim, 28 Köln, 43 Leipzig,
+  7 Leverkusen, 15 M'gladbach, 18 Mainz, 29 Paderborn, 8 Schalke,
+  9 Stuttgart, 40 Union Berlin` - weitere Liga-Teams ggf. gegen
+  `league_ranking`/`get_teams()` vervollstaendigen.
+- **Graceful Fallback**: fehlt fuer ein `team_id` (noch) eine Wappen-
+  Datei, faellt die Kachel auf einen Initialen-Badge zurueck (`onError`
+  am `<img>`) statt kaputtes Bild-Icon - Wappen koennen nach und nach
+  ergaenzt werden, kein Big-Bang.
+- **Wichtige Einschraenkung**: die Bilddateien selbst kann ich in dieser
+  Sandbox NICHT herunterladen (kein Binaer-Download-Tool, `WebFetch`
+  liefert nur Text/Markdown) - die ~17 Wappen muessen vom User besorgt
+  werden (z.B. Wikimedia Commons) und nach `frontend/public/crests/`
+  gelegt werden, oder eine kuenftige Session mit Bild-Download-Zugriff
+  uebernimmt das. Code (Mapping/Fallback) wird trotzdem vollstaendig
+  vorbereitet.
+
+Position weiterhin ueber Abkuerzungs-Map: Torwart→TW, Abwehr→ABW,
+Mittelfeld→MF, Sturm→ST. `position` ist in `SpekulationRow`
+(`frontend/src/types.ts`) bereits vorhanden.
 
 **2. Boden-Schutz/Hype-Gipfel-Badges entfernen** aus Card UND Detail-Modal
 (`SpekulationCard`/`SpekulationDetailModal` in
@@ -218,11 +248,12 @@ Luecke unverhaeltnismaessig gross. Fix: `Row` auf 2-Spalten-Grid umstellen
 sauber an einer gemeinsamen rechten Kante aus. Profitiert zusaetzlich von
 Punkt 7 (Kacheln werden grundsaetzlich schmaler/gleichmaessiger).
 
-**Dateien fuer diese Runde**: `src/dashboard_export.py`
-(`_build_transfermarkt`, `_build_spekulation`), `tests/test_dashboard_export.py`,
-`frontend/src/types.ts`, `frontend/src/format.ts`,
-`frontend/src/components/SpekulationTab.tsx`, `frontend/src/App.tsx`/
-`Login.tsx` (Schatten-Syntax haerten).
+**Dateien fuer diese Runde**: `src/dashboard_export.py` (`_player_row`
+neues Feld `team_id`, `_build_transfermarkt`, `_build_spekulation`),
+`tests/test_dashboard_export.py`, `frontend/src/types.ts`,
+`frontend/src/format.ts`, `frontend/public/crests/` (neue Wappen-
+Bilddateien, vom User zu besorgen), `frontend/src/components/SpekulationTab.tsx`,
+`frontend/src/App.tsx`/`Login.tsx` (Schatten-Syntax haerten).
 
 **Verifikation danach**: Python-Unit-Test gruen
 (`python3 -m unittest tests.test_dashboard_export`), Code-Review/Klammer-
