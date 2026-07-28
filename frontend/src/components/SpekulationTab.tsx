@@ -99,7 +99,6 @@ export default function SpekulationTab({ rows }: { rows: SpekulationRow[] }) {
 
   return (
     <div>
-      <p className="mb-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="text"
@@ -128,6 +127,7 @@ export default function SpekulationTab({ rows }: { rows: SpekulationRow[] }) {
           <SpekulationCard key={r.name} row={r} now={now} onSelect={() => setSelected(r)} />
         ))}
       </div>
+      <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
       {selected && <SpekulationDetailModal row={selected} now={now} onClose={() => setSelected(null)} />}
     </div>
   );
