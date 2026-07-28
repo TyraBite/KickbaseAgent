@@ -979,7 +979,7 @@ function renderMlGenauigkeit() {
   function realized30Html(name) {
     const r = (realizedByModel[name] || {}).realized_30d;
     if (!r) {
-      return '<span class="muted">Noch nicht genug Realdaten (mind. 30 Tage Historie noetig)</span>';
+      return '<span class="muted">Noch keine abgeschlossenen Prognosen im 30-Tage-Fenster</span>';
     }
     return `Richtung korrekt <b>${fmtAccPct(r.sign_accuracy)}</b> &middot; MAE <b>${fmtNum(r.mae)}</b> &middot; n=${fmtNum(r.n)}`;
   }
@@ -999,7 +999,7 @@ function renderMlGenauigkeit() {
   const headToHead = `<div class="head-to-head">
     <h3>Kopf-an-Kopf</h3>
     <p class="h2h-active">Aktuell live: <b>${ML_MODEL_LABELS[metrics.model_type] || metrics.model_type || "unbekannt"}</b></p>
-    <p class="h2h-reason">Auswahlgrund: ${reasonLabel} &middot; Trailing-30-Tage-Realwerte je Modell unten, "n/v" = noch zu wenig abgeschlossene Prognosen fuer eine belastbare Zahl.</p>
+    <p class="h2h-reason">Auswahlgrund: ${reasonLabel} &middot; Trailing-30-Tage-Realwerte je Modell unten.</p>
     <div class="h2h-models">${modelsHtml}</div>
   </div>`;
 
@@ -1113,7 +1113,7 @@ function renderMlTrendChart(container, trend) {
     ${legend}
     <button type="button" class="viz-table-toggle" id="${uid}-toggle">Als Tabelle anzeigen</button>
     <div class="viz-chart-wrap viz-root" id="${uid}-wrap">
-      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" id="${uid}-svg" role="img" aria-label="Trend der Richtungs-Genauigkeit je Modell ueber die Zeit, 0 bis 100 Prozent">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" id="${uid}-svg" role="img" aria-label="Trend der Richtungs-Genauigkeit je Modell ueber die Zeit, 0 bis 100 Prozent">
         ${gridLines}
         ${zufallLabel}
         ${xTicks}
