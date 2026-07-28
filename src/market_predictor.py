@@ -831,7 +831,7 @@ if __name__ == "__main__":
 
     if args.backfill is not None:
         result = backfill_prediction_log(args.backfill)
-        print(f"Backfill: {result['folds_run']} Folds, {result['entries_written']} Eintraege geschrieben.")
+        print(f"Backfill: {result['folds_run']} Folds, {result['days_written']} Tages-Aggregate geschrieben.")
     else:
         result = predict_market_value_changes()
         if result is None:

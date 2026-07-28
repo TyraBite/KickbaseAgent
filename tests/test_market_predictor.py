@@ -11,7 +11,7 @@ from src.market_predictor import (
     _load_recent_prediction_log,
     _select_live_model,
 )
-from src.market_predictor import backfill_prediction_log
+from src.market_predictor import backfill_prediction_log, _build_candidates
 
 
 class LoadLocalPredictionLogTests(unittest.TestCase):
@@ -115,3 +115,10 @@ class BackfillPredictionLogTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             result = backfill_prediction_log(90)
         self.assertEqual(result, {"folds_run": 0, "days_written": 0})
+
+
+class BuildCandidatesTests(unittest.TestCase):
+    def test_random_forest_matches_live_hyperparameters(self):
+        candidates = _build_candidates()
+        self.assertEqual(candidates["RandomForest"].n_estimators, 500)
+        self.assertIn("HistGradientBoosting", candidates)
