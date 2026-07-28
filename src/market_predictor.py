@@ -466,7 +466,12 @@ def _save_prediction_log(entries: list[dict]) -> None:
     unbegrenzt."""
     if not entries:
         return
-    deduped = {(e["date"], e["player_id"]): e for e in entries}
+    # .get() statt e["model_type"]: alte Log-Eintraege aus der Zeit vor
+    # Phase 4 (ohne model_type-Feld) bleiben laut Plan bewusst unmigriert
+    # liegen und duerfen den Speichervorgang nicht mit einem KeyError
+    # crashen - sie landen einfach unter demselben (date, player_id, None)
+    # -Schluessel wie bisher.
+    deduped = {(e["date"], e["player_id"], e.get("model_type")): e for e in entries}
     kept_entries = list(deduped.values())
     latest = max(datetime.date.fromisoformat(e["date"]) for e in kept_entries)
     cutoff = latest - datetime.timedelta(days=LOG_RETENTION_DAYS)
@@ -548,6 +553,37 @@ def _evaluate_realized_accuracy_by_model(log_entries: list[dict], mv_lookup: dic
     }
 
 
+def _build_accuracy_trend(log_entries: list[dict], mv_lookup: dict, today: str) -> list[dict]:
+    """Taegliche realisierte sign_accuracy pro Modell UEBER DIE KOMPLETTE
+    Historie (nicht nur 'heute' wie _evaluate_realized_accuracy_by_model) -
+    Rohdaten fuer den Trend-Chart im 'ML-Genauigkeit'-Tab. Gruppiert nach
+    Log-Datum, ein Eintrag pro Tag mit beiden Modellen nebeneinander."""
+    by_date: dict[str, dict[str, list[bool]]] = {}
+    for entry in log_entries:
+        model_type = entry.get("model_type")
+        if model_type not in ("RandomForest", "HistGradientBoosting"):
+            continue
+        date = entry["date"]
+        if date >= today:
+            continue
+        next_date = (datetime.date.fromisoformat(date) + datetime.timedelta(days=1)).isoformat()
+        mv_then = mv_lookup.get((entry["player_id"], date))
+        mv_next = mv_lookup.get((entry["player_id"], next_date))
+        if mv_then is None or mv_next is None:
+            continue
+        actual_delta = mv_next - mv_then
+        sign_correct = bool(np.sign(entry["predicted_delta"]) == np.sign(actual_delta))
+        by_date.setdefault(date, {"RandomForest": [], "HistGradientBoosting": []})[model_type].append(sign_correct)
+
+    trend = []
+    for date in sorted(by_date):
+        day = {"date": date}
+        for model_type, hits in by_date[date].items():
+            day[model_type] = round(float(np.mean(hits)) * 100, 1) if hits else None
+        trend.append(day)
+    return trend
+
+
 def _select_live_model(realized_by_model: dict[str, dict], synthetic_winner: str) -> tuple[str, str]:
     """Waehlt das Modell fuer die tatsaechliche Live-Prognose. Bevorzugt echte
     Trailing-30d-sign_accuracy sobald BEIDE Modelle genug Realdaten haben
@@ -566,9 +602,15 @@ def _select_live_model(realized_by_model: dict[str, dict], synthetic_winner: str
     return synthetic_winner, "synthetic_split_fallback"
 
 
-def _append_todays_predictions(today_df: pd.DataFrame, predictions: dict[str, float]) -> None:
+def _append_todays_predictions(today_df: pd.DataFrame, predictions_by_model: dict[str, dict[str, float]]) -> None:
     new_entries = [
-        {"date": pd.Timestamp(date).date().isoformat(), "player_id": player_id, "predicted_delta": predictions[player_id]}
+        {
+            "date": pd.Timestamp(date).date().isoformat(),
+            "player_id": player_id,
+            "model_type": model_type,
+            "predicted_delta": predictions[player_id],
+        }
+        for model_type, predictions in predictions_by_model.items()
         for player_id, date in zip(today_df["player_id"], today_df["date"])
         if player_id in predictions
     ]
@@ -608,7 +650,8 @@ def predict_market_value_changes() -> dict | None:
                 file=sys.stderr,
             )
             return None
-        model, metrics = trained
+        models, metrics = trained
+        synthetic_winner = metrics["model_type"]
 
         backtest = _walk_forward_backtest(history_df)
         if backtest is not None:
@@ -631,17 +674,27 @@ def predict_market_value_changes() -> dict | None:
             print("Warnung: keine heutigen Zeilen mit vollstaendigen Features - ML-Prognose uebersprungen.", file=sys.stderr)
             return None
 
-        predicted = model.predict(today_df[FEATURES])
-        predictions = {
-            player_id: round(float(value))
-            for player_id, value in zip(today_df["player_id"], predicted)
-        }
-
         today_iso = pd.Timestamp(corpus["date"].max()).date().isoformat()
         mv_lookup = _build_mv_lookup(corpus)
-        realized = _evaluate_realized_accuracy(_load_prediction_log(), mv_lookup, today_iso)
-        metrics.update(realized)
-        _append_todays_predictions(today_df, predictions)
+        log_entries = _load_prediction_log()
+        realized_by_model = _evaluate_realized_accuracy_by_model(log_entries, mv_lookup, today_iso)
+        metrics["realized_by_model"] = realized_by_model
+        metrics["accuracy_trend"] = _build_accuracy_trend(log_entries, mv_lookup, today_iso)
+
+        live_model_name, selection_reason = _select_live_model(realized_by_model, synthetic_winner)
+        metrics["model_type"] = live_model_name
+        metrics["selection_reason"] = selection_reason
+        live_model = models[live_model_name]
+
+        predictions_by_model = {
+            name: {
+                player_id: round(float(value))
+                for player_id, value in zip(today_df["player_id"], model.predict(today_df[FEATURES]))
+            }
+            for name, model in models.items()
+        }
+        predictions = predictions_by_model[live_model_name]
+        _append_todays_predictions(today_df, predictions_by_model)
 
         return {"predictions": predictions, "metrics": metrics}
     except (KickbaseError, RuntimeError) as exc:
