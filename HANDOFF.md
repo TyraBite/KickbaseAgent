@@ -1,11 +1,14 @@
-# Handoff: Firestore-Migration Phase 5 + ML-Backfill-Fortsetzung
+# Handoff: Firestore-Migration Phase 5 (Mobile/UX Brainstorming pausiert)
 
-**Generated**: 2026-07-28 (Ende der Session)
+**Generated**: 2026-07-28 (Ende der Session, 2. Update)
 **Branch**: main
-**Status**: In Progress — Phase 1-4 done + Firestore-Read-Quota-Fix
-(code-fertig, nur Mock-verifiziert), Phase 4s Backfill nur teilweise
-(46/90 Tage), Phase 5 (Mobile/UX) steht als naechstes an. **Naechste
-Session: ZUERST Quota-Fix live verifizieren, DANN Backfill fortsetzen.**
+**Status**: In Progress — Phase 1-4 fertig, Commits gepusht. Torwart
+(Zentner) in Firestore korrigiert. Quota-Fix EINMAL live angetestet
+(Read-Fix scheint zu greifen, aber Write-Quota an dem Tag durch
+Vortestung erschoepft — siehe unten, sauberer Beweis fehlt noch). Phase 5
+(Mobile/UX) Brainstorming-Interview ist DURCH, pausiert genau VOR der
+Ansatz-Frage — **naechste Session startet direkt mit dieser Frage, siehe
+"Phase 5 im Detail" unten. Kein Interview wiederholen.**
 
 ## Goal
 
@@ -101,10 +104,25 @@ siehe unten); nur noch Phase 5 (Mobile/UX) steht aus.**
   `ml_prediction_log`-Collection bei JEDEM der 12 taeglichen Laeufe lesen)
   haette in Produktion ~832% der Firestore-Read-Quota verbraucht (selbst
   nach Fix eines Doppel-Call-Bugs noch ~416%) — komplett auf Tages-
-  Aggregat-Dokumente umgebaut, siehe eigener Abschnitt unten. **NUR per
-  Unit-Tests (Mocks) verifiziert, KEIN echter Firestore-Call** (User-
-  Vorgabe nach dem Quota-Vorfall) — echte Live-Verifikation ist der
-  ALLERERSTE Schritt fuer morgen, siehe Resume Instructions.
+  Aggregat-Dokumente umgebaut, siehe eigener Abschnitt unten.
+- [x] **Commits gepusht** (User hat selbst gepusht, wie vereinbart) —
+  keine offenen lokalen-only Commits mehr, siehe Current State.
+- [x] **Torwart final entschieden**: Zentner (Mainz) ist jetzt der
+  Torwart-Eintrag in Firestore `wunschkader/current` (User-Auftrag:
+  "Zentner soll Torwart sein, wunschkader eintrag korrigieren"), Rönnow-
+  Eintrag ersetzt.
+- [x] **Quota-Fix EINMAL live angetestet** (`dashboard.yml` per
+  `gh workflow run` getriggert, um die Zentner-Aenderung aufs Live-
+  Dashboard zu bringen UND gleichzeitig den Quota-Fix real zu pruefen):
+  Run zeigte 3x `429 Quota exceeded`-WARNUNGEN beim Schreiben, finaler
+  `dashboard_snapshot`-Write ist am Ende sogar SILENT fehlgeschlagen
+  (`update_time` in Firestore blieb auf altem Stand — direkt nachgeprueft).
+  **Diagnose**: das war WRITE-Quota-Erschoepfung, uebrig vom eigenen
+  Vortesten desselben Tages (v.a. der gescheiterte 90-Tage-Backfill-
+  Versuch, ~17.340 Writes) — NICHT ein Versagen des Read-Quota-Fixes
+  selbst. Sauberer, isolierter Beweis "Read-Fix haelt in Produktion"
+  steht also weiterhin aus (siehe Not Yet Done). Zweiten, redundanten
+  Workflow-Run hat der User selbst gecancelt.
 
 ## Phase 4 im Detail — ML-Genauigkeit tracken + datengetriebene Modellwahl
 
@@ -213,27 +231,100 @@ mehrfach in `RESOURCE_EXHAUSTED` gelaufen.
   liest sie komplett bei jedem Lauf — bei einem vollen Jahr ~730 Dokumente
   ist das immer noch trivial, aber im Hinterkopf behalten).
 
-**KEIN echter Firestore-Call wurde fuer diesen Fix ausgefuehrt** (User-
-Vorgabe nach dem Quota-Vorfall) — nur `unittest.mock`-basierte Tests (59
-gruen). Echte Live-Verifikation ist morgen der ALLERERSTE Schritt, VOR dem
-Rest-Backfill.
+Live angetestet (siehe Completed oben) — Ergebnis nicht eindeutig, da
+Write-Quota an dem Tag schon durch vorheriges Backfill-Testen erschoepft
+war. Isolierte Read-Nachverifikation steht noch aus (siehe Not Yet Done).
+
+## Phase 5 im Detail — Mobile/UX Brainstorming (pausiert)
+
+`superpowers:brainstorming` wurde begonnen (Interview-Schritt laut Spec
+zwingend vor jedem Design). **Interview ist komplett durch**, User hat
+danach explizit die Session-Pause angefordert ("Lass uns die Planung in
+einem neuen Kontext starten um tokens zu sparen"), BEVOR die naechste
+Frage (technischer Ansatz) beantwortet wurde. Naechste Session macht
+GENAU HIER weiter — kein Interview-Schritt wiederholen.
+
+**Interview-Ergebnis (alle 4 Antworten, final/korrigiert)**:
+
+1. **Mobile-Nutzung**: User nutzt das Dashboard schon oft/regelmaessig
+   auf dem Handy, aktuelle Desktop-Ansicht nervt im Alltag.
+2. **Pain Points**: ALLE DREI treffen zu — Tabellen zu breit
+   (horizontales Scrollen), Buttons/Filter zu klein zum Antippen,
+   Tab-Navigation/Layout allgemein unhandlich.
+3. **Prioritaet**: "Eigenes Team"/Wunschkader-Tab UND Spekulation-Tab
+   sind auf dem Handy meistgenutzt — hier zuerst ansetzen.
+4. **Scope** (User hat hier live einen Missclick korrigiert — "Moment
+   Stopp" / "Die Frage bitte nochmal, hatte einfach missclick gerrade" —
+   die KORRIGIERTE Antwort unten ist die gueltige, NICHT eine engere
+   Zwischenantwort): ALLE Tabs bekommen ein responsives Basis-Layout
+   (kein horizontales Scrollen mehr, groessere Tap-Targets); Eigenes-
+   Team/Wunschkader + Spekulation bekommen ZUSAETZLICH Extra-Politur.
+
+**Offene Frage — ERSTER Schritt der naechsten Session**: technischer
+Loesungsansatz fuers responsive Layout war per `AskUserQuestion` gestellt,
+aber User hat stattdessen die Pause angefordert. Drei Optionen standen
+zur Wahl (Empfehlung: Option 1):
+
+1. **(Empfohlen)** Globaler CSS-Mechanismus fuer ALLE Tabellen:
+   `buildTable()` (`index.html`, von jedem Tab geteilt — Signatur/
+   Fundstelle beim Fortsetzen kurz gegenchecken, koennte sich seit hier
+   nicht geaendert haben) um `data-label`-Attribute pro `<td>` erweitern
+   (aus vorhandenen `columns[].label`-Werten), EIN CSS-Breakpoint
+   (~640px) verwandelt danach automatisch JEDE Tabelle projektweit in
+   gestapelte Karten (`display:block` auf table/thead/tbody/tr/td,
+   `td::before { content: attr(data-label) }`). Kein Tab-Sonderfall fuer
+   die Basis-Loesung. Fuer die 2 priorisierten Tabs zusaetzlich: manuell
+   sortierte/gekuerzte Karten-Inhalte (wichtigste Felder zuerst, Rest
+   hinter "Details"-Toggle) + groessere Tap-Targets speziell fuer
+   Wechsel-/Entfernen-Buttons im Wunschkader (13 Spalten, dichteste
+   Tabelle im Projekt).
+2. Jeder Tab bekommt eigenes handgebautes Mobile-Layout — mehr Kontrolle,
+   aber unverhaeltnismaessig viel Code/Wartung fuer 6+ Tabs.
+3. Separate `mobile.html` parallel zu `index.html` — zwei Quellen der
+   Wahrheit, widerspricht dem Ein-Datei-Ethos des Projekts (siehe
+   `feedback_hobby_project_zero_cost_mvp`-Memory).
+
+**Recherche-Kontext (damit die naechste Session nicht neu suchen muss)**:
+
+- `index.html` hat aktuell EIN `@media`-Query (nur `prefers-color-scheme:
+  dark`), NULL responsive Breakpoints fuers Layout — `viewport`-Meta-Tag
+  vorhanden, aber ungenutzt fuer Responsive-CSS.
+- Alle Tabs nutzen dieselbe `buildTable(containerId, columns, getRows,
+  renderRow, hint, filterBarHtml, defaultSortKey, defaultSortDir)`-
+  Funktion (zentrale Stelle, ein Fix wirkt ueberall).
+- `renderSpekulation()` (aktuell ca. Zeile 1199): 9 Spalten.
+- `renderTeam()`/Wunschkader-Edit-Tabelle: 13 Spalten (dichteste Tabelle
+  im Projekt — genau hier sassen die frueher schon mal unauffindbaren
+  Wechsel-/Entfernen-Buttons, jetzt Teil der Mobile-Beschwerde).
+
+**Naechste Schritte, in dieser Reihenfolge**:
+
+1. Ansatz-Frage stellen (`AskUserQuestion`), Antwort abwarten.
+2. Normal im `superpowers:brainstorming`-Flow weiter: Design in
+   Abschnitten praesentieren (Architektur/Mechanismus, priorisierte Tabs
+   im Detail, Verifikation), je Abschnitt Freigabe einholen.
+3. Design-Doc nach `docs/superpowers/specs/YYYY-MM-DD-mobile-ux-design.md`
+   schreiben + committen, Self-Review, User-Freigabe der Spec einholen.
+4. Danach `superpowers:writing-plans` fuer den Implementierungsplan.
+5. Bei Umsetzung: Commits lokal lassen, NICHT pushen (Ruleset
+   `NeverPushOnMain`, siehe Warnings) — gilt weiterhin.
 
 ## Not Yet Done
 
-- [ ] **Quota-Fix live verifizieren** (ALLERERSTER Schritt morgen, VOR
-  allem anderen): ein `FIRESTORE_ENABLED=1 python -m src.dashboard_export`-
-  Testlauf, pruefen dass `ml_accuracy_daily` befuellt wird und die
-  Read-Anzahl (Firebase-Console -> Nutzung, oder `gh`/Firestore-Metriken)
-  deutlich niedriger ist als vorher.
+- [ ] **Quota-Fix sauber live verifizieren** (Read-Seite): der eine
+  reale Versuch heute war durch Write-Quota-Erschoepfung (Vortesten
+  desselben Tages) ueberlagert — kein isolierter Beweis, dass die Reads
+  jetzt wirklich im niedrigen Tausenderbereich liegen statt 30-40k.
+  Sollte nach einer Quota-Erholungsphase (Minuten bis wenige Stunden,
+  siehe Warnings) nachgeholt werden, IDEALERWEISE an einem Tag ohne
+  vorherige Backfill-Tests, damit Read/Write-Werte eindeutig zuzuordnen sind.
 - [ ] **Backfill-Fortsetzung**: restliche ~44 Tage in kleineren Haeppchen
-  nachziehen (siehe oben), z.B. `--backfill 15` dreimal an verschiedenen
-  Tagen/mit Pausen dazwischen — ERST nachdem der Quota-Fix live bestaetigt ist.
-- [ ] **Phase 5** (Mobile/UI-UX): braucht laut Spec einen dedizierten
-  User-Interview-Schritt VOR dem Design — noch nicht begonnen.
-- [ ] **Torwart-Kaufentscheidung**: Zentner tatsaechlich bieten/kaufen,
-  der Rönnow-Eintrag (`targets[0]`) in Firestore (`wunschkader/current`,
-  ehemals `data/wunschkader.json`) noch NICHT auf "verloren an Fassii"
-  aktualisiert.
+  nachziehen (siehe Phase-4-Abschnitt), z.B. `--backfill 15` mehrfach —
+  ERST nachdem die Quota sich sicher erholt hat.
+- [ ] **Phase 5** (Mobile/UI-UX): Brainstorming-Interview ist DURCH,
+  pausiert direkt vor der Ansatz-Frage, um Tokens zu sparen. Naechste
+  Session macht HIER weiter — kompletter Stand + offene Frage im Abschnitt
+  "Phase 5 im Detail" unten, NICHT das Interview wiederholen.
 
 ## Failed Approaches (Don't Repeat These)
 
@@ -289,18 +380,17 @@ Dashboard live, inkl. Nacharbeit (Buttons sichtbar, neue Filter). Neuer
 Unit-Tests gruen.
 
 **Offen**:
-- **Quota-Fix noch NICHT live verifiziert** (nur Mock-Tests heute, siehe
-  eigener Abschnitt) — allererster Schritt morgen.
-- Backfill-Fortsetzung (44 fehlende Tage, siehe Phase-4-Abschnitt oben) —
-  ERST nach der Quota-Fix-Verifikation.
-- Rönnow-Eintrag in Firestore (`wunschkader/current`, `targets[0]`) zeigt
-  noch faelschlich "Gebot fuehrend" — noch nicht auf "verloren an Fassii"
-  aktualisiert.
-- Torwart-Kaufentscheidung (Zentner?) noch nicht final getroffen.
+- **Quota-Fix (Read-Seite) noch nicht sauber isoliert live bewiesen** —
+  ein realer Versuch heute war durch Write-Quota-Erschoepfung ueberlagert
+  (siehe Completed/Quota-Fix-Abschnitt).
+- Backfill-Fortsetzung (44 fehlende Tage, siehe Phase-4-Abschnitt oben).
+- **Phase 5**: Interview durch, pausiert vor der Ansatz-Frage — siehe
+  "Phase 5 im Detail" oben, das ist der naechste inhaltliche Schritt.
+- Torwart ist entschieden (Zentner, in Firestore korrigiert) — kein
+  offener Punkt mehr.
 
-**Uncommitted lokal (Stand Session-Ende)**: mehrere Commits aus dieser
-Session (Dashboard-Nacharbeit + kompletter Phase-4-Plan) sind lokal
-committed, **noch nicht gepusht** — User pusht das selbst (siehe Warnings).
+**Commits**: alle Commits aus dieser Session sind gepusht (User hat
+selbst gepusht, wie vereinbart) — keine lokalen-only Commits mehr offen.
 
 ## Files to Know
 
@@ -312,7 +402,7 @@ committed, **noch nicht gepusht** — User pusht das selbst (siehe Warnings).
 | `index.html` | Handgepflegte Quelldatei (Repo-Root, nicht mehr `docs/`), NICHT generiert |
 | `firestore.rules` / `firebase.json` / `.firebaserc` | Live deployed per `firebase-tools` CLI, echte UID drin — `wunschkader/current` jetzt zusaetzlich fuer diese UID schreibbar |
 | `src/firestore_db.py` | Neue `get_wunschkader()`/`upsert_wunschkader()` — Wunschkader-Collection, kein lokaler Fallback mehr |
-| **`data/wunschkader.json` existiert nicht mehr** | Kompletter Inhalt lebt jetzt in Firestore-Collection `wunschkader/current` (`targets[0]`/Rönnow muss dort noch auf "verloren an Fassii, 7.900.558" aktualisiert werden) |
+| **`data/wunschkader.json` existiert nicht mehr** | Kompletter Inhalt lebt jetzt in Firestore-Collection `wunschkader/current` — Torwart-Eintrag ist auf Zentner korrigiert |
 | `.github/workflows/dashboard.yml` | Laeuft alle 2h, schreibt nach Firestore. `daily.yml` existiert nicht mehr |
 | `docs/superpowers/plans/2026-07-28-ml-accuracy-tracking.md` | Der umgesetzte Phase-4-Plan (Tasks 1-8 fertig) — Referenz fuer die Backfill-Fortsetzung morgen |
 | `docs/superpowers/plans/2026-07-28-ml-accuracy-quota-fix.md` | Der umgesetzte Read-Quota-Fix-Plan (Tasks 1-5 fertig) — NUR Mock-verifiziert, Live-Check ist morgens erster Schritt |
@@ -321,33 +411,28 @@ committed, **noch nicht gepusht** — User pusht das selbst (siehe Warnings).
 
 ## Resume Instructions
 
-1. **Zuerst**: pruefen ob der User offene lokale Commits (siehe `git log
-   origin/main` vs. lokal) schon gepusht hat — Push ist weiterhin
-   User-Sache, nicht automatisch machen.
-2. **Quota-Fix live verifizieren** (ALLERERSTER echter Firestore-Call
-   dieser Session-Fortsetzung): `FIRESTORE_ENABLED=1
+1. **Zuerst: Phase 5 fortsetzen** (kein Datenbank-Call, kann sofort
+   passieren) — Interview ist komplett durch, siehe "Phase 5 im Detail"
+   oben. Als ALLERERSTES die dort dokumentierte Ansatz-Frage per
+   `AskUserQuestion` stellen (3 Optionen, Empfehlung Option 1), NICHT das
+   Interview wiederholen. Danach normal im `brainstorming`-Flow weiter:
+   Design praesentieren -> Spec schreiben -> User-Freigabe -> `writing-plans`.
+2. **Danach, bei Gelegenheit: Quota-Fix isoliert live nachverifizieren**
+   (an einem Tag OHNE vorheriges Backfill-Testen, damit Read/Write klar
+   zuzuordnen sind): `FIRESTORE_ENABLED=1
    GOOGLE_APPLICATION_CREDENTIALS=./firebase-service-account.json python3
-   -m src.dashboard_export` einmal laufen lassen, danach kurz
-   `firestore_db.get_accuracy_daily(firestore_db.connect())` gegenchecken
-   (sollte befuellt sein), und in der Firebase-Console (Firestore ->
-   Nutzung/Quota-Tab) die tatsaechliche Read-Zahl fuer diesen einen Lauf
-   pruefen — sollte im niedrigen Tausenderbereich liegen, nicht mehr im
-   30-40k-Bereich (das waere noch der alte Bug).
-3. **Backfill-Fortsetzung** (User-Wunsch, ERST nach Schritt 2): `--backfill`
-   schreibt seit dem Quota-Fix nur noch 2 Dokumente PRO TAG (nicht mehr
-   2×450) — `--backfill 90` in einem Rutsch sollte jetzt unproblematisch
-   sein (~180 Writes total), trotzdem in ein paar kleineren Haeppchen
-   bleiben ist unkritisch/sicherer. `FIRESTORE_ENABLED=1
+   -m src.dashboard_export` einmal laufen lassen, `firestore_db
+   .get_accuracy_daily(firestore_db.connect())` gegenchecken (befuellt?),
+   in der Firebase-Console (Firestore -> Nutzung/Quota-Tab) die
+   tatsaechliche Read-Zahl pruefen — sollte niedriger Tausenderbereich
+   sein, nicht 30-40k.
+3. **Backfill-Fortsetzung** (ERST nach Schritt 2, unkritisch da `--backfill`
+   nur noch ~2 Dokumente PRO TAG schreibt): `FIRESTORE_ENABLED=1
    GOOGLE_APPLICATION_CREDENTIALS=./firebase-service-account.json python3
-   -m src.market_predictor --backfill 44` (oder direkt `90`, um die schon
-   vorhandenen 46 Tage einfach zu ueberschreiben/aufzufuellen) sollte
-   reichen. Danach `firestore_db.get_accuracy_daily(...)` gegenchecken
-   (Anzahl distinkter Tage sollte nahe 90 sein).
-4. Danach **Phase 5** (Mobile/UX, braucht User-Interview-Schritt zuerst).
-5. Torwart-Entscheidung mit User abschliessen (Zentner bieten?), Rönnow-
-   Eintrag in Firestore (`wunschkader/current`) korrigieren sobald final
-   entschieden — jetzt bequem direkt im Dashboard moeglich (editierbarer
-   Wunschkader-Tab), kein manuelles JSON-Editieren mehr noetig.
+   -m src.market_predictor --backfill 44` (oder direkt `90`, um die
+   vorhandenen 46 Tage zu ueberschreiben/aufzufuellen). Danach
+   `firestore_db.get_accuracy_daily(...)` gegenchecken (Anzahl distinkter
+   Tage sollte nahe 90 sein).
 
 ## Setup Required
 
