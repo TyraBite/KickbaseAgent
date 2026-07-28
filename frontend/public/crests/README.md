@@ -1,14 +1,35 @@
 # Vereinswappen
 
 Self-hosted, damit keine Drittanbieter-URL bricht (Repo ist öffentlich).
-Dateiname = `team_id` (z.B. `9.svg` für Stuttgart), nicht der Vereinsname
-(robuster gegen Sonderzeichen wie "M'gladbach").
+Dateiname = offizielles 3-Buchstaben-TV-Kürzel (`TEAM_ABBR` in
+`frontend/src/components/SpekulationTab.tsx`), z.B. `BVB.svg` für
+Dortmund — nicht `team_id` oder der volle Vereinsname (robuster gegen
+Sonderzeichen wie "M'gladbach").
 
-Fehlt eine Datei, fällt `TeamCrest` (`frontend/src/components/SpekulationTab.tsx`)
-automatisch auf einen Initialen-Badge zurück — Wappen können nach und nach
-ergänzt werden, kein Big-Bang nötig.
+Fehlt eine Datei, fällt `TeamCrest` automatisch auf das Kürzel-Badge
+zurück — Wappen können nach und nach ergänzt werden, kein Big-Bang nötig.
 
-Bekannte `team_id`/Verein-Paare (aus `market_listings`, 27.07.2026):
-13 Augsburg, 10 Bremen, 3 Dortmund, 77 Elversberg, 4 Frankfurt, 5 Freiburg,
-6 Hamburg, 14 Hoffenheim, 28 Köln, 43 Leipzig, 7 Leverkusen, 15 M'gladbach,
-18 Mainz, 29 Paderborn, 8 Schalke, 9 Stuttgart, 40 Union Berlin.
+Bekannte Kürzel/Verein-Paare (aus `data/kickbase.db`, `own_squad` +
+`market_listings`, alle `fetched_at`, Stand 28.07.2026), per WebSearch
+gegengecheckt:
+
+| Kürzel | Verein |
+|--------|--------|
+| FCB | Bayern |
+| FCA | Augsburg |
+| SVW | Bremen |
+| BVB | Dortmund |
+| SVE | Elversberg |
+| SGE | Frankfurt |
+| SCF | Freiburg |
+| HSV | Hamburg |
+| TSG | Hoffenheim |
+| KOE | Köln |
+| RBL | Leipzig |
+| B04 | Leverkusen |
+| BMG | M'gladbach |
+| M05 | Mainz |
+| SCP | Paderborn |
+| S04 | Schalke |
+| VFB | Stuttgart |
+| FCU | Union Berlin |

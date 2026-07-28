@@ -1,7 +1,6 @@
 export interface SpekulationRow {
   name: string;
   position: string;
-  team_id: string | null;
   team_name: string | null;
   price: number;
   roi_pct: number;

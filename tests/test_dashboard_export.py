@@ -3,13 +3,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.dashboard_export import (
-    _build_alle_spieler,
-    _build_spekulation,
-    _build_transfermarkt,
-    _load_wunschkader,
-    _player_row,
-)
+from src.dashboard_export import _build_alle_spieler, _build_spekulation, _build_transfermarkt, _load_wunschkader
 
 
 class BuildAlleSpielerTests(unittest.TestCase):
@@ -56,9 +50,9 @@ class BuildSpekulationTests(unittest.TestCase):
         self.assertEqual(rows[0]["market_value_low_92d"], 8_500_000)
         self.assertEqual(rows[0]["market_value_high_92d"], 10_200_000)
 
-    def test_passes_through_team_id_and_auction_expires_at(self):
+    def test_passes_through_auction_expires_at(self):
         transfermarkt_rows = [{
-            "name": "Woltemade", "position": "Sturm", "team_id": "9", "team_name": "Stuttgart",
+            "name": "Woltemade", "position": "Sturm", "team_name": "Stuttgart",
             "is_system_offer": True, "price": 10_000_000, "ml_prediction": 200_000,
             "market_value_change_7d": 50_000, "average_points": 180,
             "auction_expires_at": "2026-07-29T12:00:00Z",
@@ -66,28 +60,13 @@ class BuildSpekulationTests(unittest.TestCase):
 
         rows = _build_spekulation(transfermarkt_rows)
 
-        self.assertEqual(rows[0]["team_id"], "9")
         self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
-
-
-class PlayerRowTests(unittest.TestCase):
-    def test_includes_team_id(self):
-        row = {
-            "player_id": "p1", "name": "Kane", "position": "Sturm", "team_id": "2", "team_name": "Bayern",
-            "status_label": None, "starting_rank": 1, "market_value": 5_000_000,
-            "market_value_change_7d": 0, "market_value_low_92d": None, "market_value_high_92d": None,
-            "average_points": 200, "total_points": 400,
-        }
-
-        result = _player_row(row, calibration=None, predictions=None)
-
-        self.assertEqual(result["team_id"], "2")
 
 
 class BuildTransfermarktTests(unittest.TestCase):
     def test_passes_through_auction_expires_at(self):
         listing = {
-            "player_id": "p1", "name": "Woltemade", "position": "Sturm", "team_id": "9",
+            "player_id": "p1", "name": "Woltemade", "position": "Sturm",
             "team_name": "Stuttgart", "status_label": None, "starting_rank": 1,
             "market_value": 10_000_000, "market_value_change_7d": 50_000,
             "market_value_low_92d": 8_500_000, "market_value_high_92d": 10_200_000,

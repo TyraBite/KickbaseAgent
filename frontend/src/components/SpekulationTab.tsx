@@ -243,7 +243,7 @@ function SpekulationDetailModal({
 function CardHeader({ row }: { row: SpekulationRow }) {
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
-      <TeamCrest teamId={row.team_id} teamName={row.team_name} />
+      <TeamCrest teamName={row.team_name} />
       <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
       <span className="text-xs text-slate-400 dark:text-slate-500">
         {POSITION_ABBR[row.position] ?? row.position}
@@ -261,12 +261,13 @@ function AuctionValue({ row, now }: { row: SpekulationRow; now: number }) {
 }
 
 // Offizielle 3-Buchstaben-Kuerzel (DFL/TV-Uebertragung, z.B. Sky/Kicker),
-// per WebSearch gegengecheckt (siehe Konversation, 2026-07-28). Bewusst nach
-// team_name statt team_id geschluesselt: team_name steht schon seit Phase 1
-// in jeder Zeile (kein Firestore-Push/Cron-Lauf noetig, reines FE-Mapping) -
-// team_id ist nur fuer den Wappen-Bildpfad noetig (robuster gegen
-// Sonderzeichen wie "M'gladbach" als Dateiname), nicht fuer dieses Kuerzel.
-// Unbekannter Vereinsname faellt auf die ersten 3 Buchstaben zurueck.
+// per WebSearch gegengecheckt (siehe Konversation, 2026-07-28). Nach
+// team_name geschluesselt (steht schon seit Phase 1 in jeder Zeile, reines
+// FE-Mapping ohne Firestore-Push/Cron-Abhaengigkeit) - dient sowohl als
+// Fallback-Badge-Text als auch als Wappen-Dateiname (kein team_id noetig,
+// das Kuerzel selbst ist schon ASCII-sicher, robuster als der Vereinsname
+// mit Sonderzeichen wie "M'gladbach"). Unbekannter Vereinsname faellt auf
+// die ersten 3 Buchstaben zurueck.
 const TEAM_ABBR: Record<string, string> = {
   Bayern: "FCB",
   Augsburg: "FCA",
@@ -294,22 +295,24 @@ function teamAbbr(teamName: string | null): string {
 }
 
 // Kickbase liefert selbst keine Logo-URL - Wappen liegen self-hosted unter
-// public/crests/{team_id}.svg (vom User zu besorgen). Fehlt eine Datei
-// (noch), faellt die Kachel auf das TV-Kuerzel-Badge zurueck statt ein
-// kaputtes Bild-Icon zu zeigen - Wappen koennen nach und nach ergaenzt werden.
-function TeamCrest({ teamId, teamName }: { teamId: string | null; teamName: string | null }) {
+// public/crests/{TEAM_ABBR}.svg (vom User zu besorgen). Fehlt eine Datei
+// (noch) oder ist der Vereinsname unbekannt, faellt die Kachel auf das
+// TV-Kuerzel-Badge zurueck statt ein kaputtes Bild-Icon zu zeigen - Wappen
+// koennen nach und nach ergaenzt werden.
+function TeamCrest({ teamName }: { teamName: string | null }) {
   const [failed, setFailed] = useState(false);
-  if (!teamId || failed) {
+  const abbr = teamAbbr(teamName);
+  if (!teamName || failed) {
     return (
       <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-slate-200 px-1 text-[9px] font-semibold tracking-tight text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-        {teamAbbr(teamName)}
+        {abbr}
       </span>
     );
   }
   return (
     <img
-      src={`${import.meta.env.BASE_URL}crests/${teamId}.svg`}
-      alt={teamName ?? ""}
+      src={`${import.meta.env.BASE_URL}crests/${abbr}.svg`}
+      alt={teamName}
       onError={() => setFailed(true)}
       className="h-6 w-6 shrink-0 rounded-full object-contain"
     />

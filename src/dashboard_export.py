@@ -149,7 +149,6 @@ def _player_row(row: sqlite3.Row, calibration: dict | None, predictions: dict | 
         "player_id": row["player_id"],
         "name": row["name"],
         "position": row["position"],
-        "team_id": row["team_id"],
         "team_name": row["team_name"],
         "status_label": row["status_label"],
         "starting_rank": row["starting_rank"],
@@ -260,7 +259,6 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
             {
                 "name": r["name"],
                 "position": r["position"],
-                "team_id": r.get("team_id"),
                 "team_name": r["team_name"],
                 "price": r["price"],
                 "market_value_change_7d": r["market_value_change_7d"],

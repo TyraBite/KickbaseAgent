@@ -107,25 +107,35 @@ NICHT gepusht):
   offizielle Pfeil-Emoji MIT explizitem Variation-Selector `️`
   umgestellt (`⬆️`/`↗️`/`➡️`/`↘️`/`⬇️`) — User hat das bestaetigt ("sieht
   besser aus").
-- **Vereinswappen-Fallback-Badge** (Commit, siehe naechster Push — Session
-  noch offen beim Schreiben dieses Updates): User wollte statt der ersten
-  2 Buchstaben des Vereinsnamens die ECHTEN 3-Buchstaben-TV-Kuerzel
-  (Sky/Kicker-Uebertragungsstil, z.B. "BVB", "FCB"). `TEAM_ABBR`-Mapping
-  in `SpekulationTab.tsx` ergaenzt, `team_id`-Liste dafuer per Live-DB-
-  Abfrage (`own_squad`+`market_listings`, alle `fetched_at`) auf 18
-  Vereine erweitert (Bayern/`team_id=2` fehlte im urspruenglichen
-  17er-Snapshot). Unbekannte `team_id` fallen weiterhin auf die ersten 3
-  Buchstaben des Vereinsnamens zurueck (kein Hard-Fail bei neuen Vereinen).
+- **Vereinswappen-Fallback-Badge, TV-Kuerzel statt Initialen** (mehrere
+  Iterationen, finaler Stand): User wollte statt der ersten 2 Buchstaben
+  des Vereinsnamens die ECHTEN 3-Buchstaben-TV-Kuerzel (Sky/Kicker-
+  Uebertragungsstil, z.B. "BVB", "FCB"). `TEAM_ABBR`-Mapping in
+  `SpekulationTab.tsx` ergaenzt (18 Vereine, live aus `data/kickbase.db`
+  ermittelt — `own_squad`+`market_listings`, alle `fetched_at` — inkl.
+  Bayern, das im urspruenglichen 17er-Snapshot fehlte; alle 18 Kuerzel per
+  WebSearch gegengecheckt, siehe Konversation). **Wichtige Korrektur
+  danach**: `team_id` (serverseitiges Feld, siehe Punkt 1 unten) dafuer
+  WIEDER ENTFERNT — User-Einwand: das Kuerzel braucht keinen `team_id`-
+  Push/Cron-Lauf, `team_name` ist schon seit Phase 1 in jeder Zeile
+  vorhanden. `TEAM_ABBR` ist jetzt nach `team_name` geschluesselt (reines
+  FE-Mapping, sofort wirksam ohne Deploy). Unbekannter Vereinsname faellt
+  weiterhin auf die ersten 3 Buchstaben zurueck (kein Hard-Fail bei neuen
+  Vereinen).
 
-- **Punkt 1 (Wappen+Position im Header)**: `TeamCrest`-Komponente in
-  `frontend/src/components/SpekulationTab.tsx` — laedt
-  `${BASE_URL}crests/{team_id}.svg`, faellt per `onError` auf
-  Initialen-Badge zurueck. `team_id` wird jetzt serverseitig durchgereicht
-  (`_player_row`/`_build_spekulation` in `src/dashboard_export.py`,
-  Unit-Test ergaenzt). **Offen**: Die eigentlichen SVG-Dateien fehlen noch
-  (`frontend/public/crests/` existiert nur mit einer `README.md` als
-  Mapping-Doku) — User muss die ~17 Wappen besorgen und dort ablegen,
-  siehe Resume Instructions.
+- **Punkt 1 (Wappen+Position im Header) — FINALER STAND nach Korrektur**:
+  `team_id` wurde zunaechst serverseitig ergaenzt (`_player_row`/
+  `_build_spekulation`), dann aber wieder ENTFERNT (siehe oben) — die
+  `TeamCrest`-Komponente (`frontend/src/components/SpekulationTab.tsx`)
+  laedt jetzt `${BASE_URL}crests/{TEAM_ABBR}.svg` (z.B. `BVB.svg`), nicht
+  `{team_id}.svg`. `dashboard_export.py`/Tests haben KEIN `team_id`-Feld
+  mehr — falls eine aeltere Aussage in diesem Dokument noch `team_id`
+  erwaehnt (weiter unten, Originalplan als Referenz stehen gelassen), ist
+  das ueberholt. **Offen**: Die eigentlichen SVG-Dateien fehlen noch
+  (`frontend/public/crests/` hat nur `README.md` mit der Kuerzel-Liste) —
+  User muss die 18 Wappen besorgen und als `{TEAM_ABBR}.svg` ablegen,
+  siehe Resume Instructions. Das ist der EINZIGE noch fehlende Teil fuer
+  Punkt 1 — Code ist fertig und braucht keinen weiteren Push/Cron-Lauf.
 - **Punkt 2 (Badges entfernen)**: Hype-Gipfel/Boden-Schutz-Pills raus aus
   Card+Modal, Hinweistext (`HINT`-Konstante) entsprechend gekuerzt.
   Felder bleiben im Datenmodell (`types.ts`), nur nicht mehr gerendert.
@@ -151,11 +161,13 @@ NICHT gepusht):
   `grid grid-cols-[auto_1fr] gap-x-3` umgestellt.
 
 **Verifikation in dieser Session**: `python3 -m unittest
-tests.test_dashboard_export` gruen (8 Tests, 2 neue fuer `team_id`/
-`auction_expires_at`). Klammer-Balance-Check (`(){}`[]`) fuer alle
-geaenderten `.tsx`/`.ts`-Dateien manuell gegengezaehlt (kein `tsc` ohne
-`node_modules` moeglich, siehe Warnings) — alle balanciert. **Kein echter
-Browser-Test, kein `tsc`/`npm run build` in dieser Sandbox.**
+tests.test_dashboard_export` gruen (9 Tests, u.a. fuer
+`auction_expires_at`-Durchreichung — der `team_id`-Test wurde nach der
+Rueck-Entfernung von `team_id` wieder geloescht). Klammer-Balance-Check
+(`(){}`[]`) fuer alle geaenderten `.tsx`/`.ts`-Dateien manuell
+gegengezaehlt (kein `tsc` ohne `node_modules` moeglich, siehe Warnings) —
+alle balanciert. **Kein echter Browser-Test, kein `tsc`/`npm run build`
+in dieser Sandbox.**
 
 **Volltext-Plan liegt auch in
 `/home/node/.claude/plans/ich-bin-kein-frontendler-async-koala.md` dieser
@@ -313,11 +325,14 @@ Luecke unverhaeltnismaessig gross. Fix: `Row` auf 2-Spalten-Grid umstellen
 sauber an einer gemeinsamen rechten Kante aus. Profitiert zusaetzlich von
 Punkt 7 (Kacheln werden grundsaetzlich schmaler/gleichmaessiger).
 
-**Dateien fuer diese Runde**: `src/dashboard_export.py` (`_player_row`
-neues Feld `team_id`, `_build_transfermarkt`, `_build_spekulation`),
+**Dateien fuer diese Runde** (Original-Plan; `team_id` in
+`_player_row`/`_build_spekulation` war zwischenzeitlich geplant/umgesetzt,
+dann wieder entfernt — siehe Korrektur oben): `src/dashboard_export.py`
+(`_build_transfermarkt`, `_build_spekulation` — `auction_expires_at`),
 `tests/test_dashboard_export.py`, `frontend/src/types.ts`,
 `frontend/src/format.ts`, `frontend/public/crests/` (neue Wappen-
-Bilddateien, vom User zu besorgen), `frontend/src/components/SpekulationTab.tsx`,
+Bilddateien als `{TEAM_ABBR}.svg`, vom User zu besorgen),
+`frontend/src/components/SpekulationTab.tsx`,
 `frontend/src/App.tsx`/`Login.tsx` (Schatten-Syntax haerten).
 
 **Verifikation danach**: Python-Unit-Test gruen
@@ -341,11 +356,14 @@ Abstand aufgeraeumt). 3-Monats-Hoch/Tief bleibt "–" bis Push+Pipeline-Lauf.
   werden — auch eine kuenftige Session mit demselben Tool-Zugriff kann das
   nicht automatisch nachholen, ausser die Sandbox bekommt ein
   Bild-Download-Tool. `frontend/public/crests/` hat nur eine `README.md`,
-  die 18 SVGs (siehe dortige Liste, jetzt inkl. `2.svg` fuer Bayern) muss
-  der User selbst besorgen (z.B. Wikimedia Commons) und dort ablegen
-  (Dateiname = `{team_id}.svg`). Fallback bis dahin: TV-Kuerzel-Badge
-  (`TEAM_ABBR` in `SpekulationTab.tsx`, z.B. "BVB", "FCB") statt Initialen -
-  funktioniert unveraendert, kein Blocker fuer alles andere.
+  die 18 SVGs (siehe Kuerzel-Tabelle dort, inkl. `FCB.svg` fuer Bayern)
+  muss der User selbst besorgen (z.B. Wikimedia Commons) und dort ablegen
+  (Dateiname = `{TEAM_ABBR}.svg`, z.B. `BVB.svg` — NICHT `team_id`, das
+  Feld wurde wieder entfernt, siehe Korrektur weiter oben). Fallback bis
+  dahin: TV-Kuerzel-Badge (`TEAM_ABBR` in `SpekulationTab.tsx`, z.B. "BVB",
+  "FCB") statt Initialen - funktioniert unveraendert, kein Blocker fuer
+  alles andere. Dieser Fallback braucht KEINEN Push/Cron-Lauf (reines
+  FE-Mapping nach `team_name`).
 - [ ] **GitHub-Pages-Source umstellen**: Repo-Settings -> Pages -> Source
   von "Deploy from a branch" auf "GitHub Actions" — einmaliger manueller
   Schritt, macht der User selbst im Browser (wie bei frueherem Pages-Setup
@@ -421,16 +439,17 @@ worden.
 
 ## Resume Instructions
 
-1. **User besorgt Vereinswappen** (~17 SVG/PNG-Dateien, z.B. Wikimedia
-   Commons) und legt sie unter `frontend/public/crests/{team_id}.svg` ab
-   (siehe `frontend/public/crests/README.md` fuer die bekannten
-   `team_id`/Verein-Paare). Ohne das laeuft die Kachel auf den
-   Initialen-Fallback, ist also nicht blockierend fuer den restlichen Test.
+1. **User besorgt Vereinswappen** (18 SVG/PNG-Dateien, z.B. Wikimedia
+   Commons) und legt sie unter `frontend/public/crests/{TEAM_ABBR}.svg` ab
+   (z.B. `BVB.svg`, `FCB.svg` — siehe `frontend/public/crests/README.md`
+   fuer die volle Kuerzel-Tabelle). Ohne das laeuft die Kachel auf den
+   TV-Kuerzel-Fallback (funktioniert schon jetzt, kein Push/Cron noetig),
+   ist also nicht blockierend fuer den restlichen Test.
 2. **User testet lokal** (`npm run dev` NEU STARTEN, wichtig fuer Punkt 5
    der Nacharbeit - Tailwind-Cache/Farbindikatoren): Spekulation-Tab im
    Card-Layout pruefen, Reihenfolge Name/ML-Prognose/Rendite%/Preis/
-   Trend-7T/Auktion-Status, Header zeigt Position+Vereinswappen (oder
-   Initialen-Fallback), keine Boden-Schutz/Hype-Gipfel-Pills mehr,
+   Trend-7T/Auktion-Status, Header zeigt Position+TV-Kuerzel (oder echtes
+   Wappen, falls schon abgelegt), keine Boden-Schutz/Hype-Gipfel-Pills mehr,
    Farbindikatoren + 5-stufige Pfeile da, Auktions-Countdown zaehlt bei
    Reload/nach 60s aktuell weiter, Kacheln angemessen schmal (auto-fill-
    Grid), Label/Wert-Abstand aufgeraeumt, Sortier-Dropdown + Suchfeld
