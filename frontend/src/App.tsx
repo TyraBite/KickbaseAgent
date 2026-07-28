@@ -36,7 +36,7 @@ export default function App() {
     getDoc(doc(db, "dashboard_snapshot", "latest"))
       .then((snap) => {
         if (!snap.exists()) {
-          setErrorMessage("Noch kein Dashboard-Snapshot vorhanden. Bitte spaeter erneut versuchen.");
+          setErrorMessage("Noch kein Dashboard-Snapshot vorhanden. Bitte später erneut versuchen.");
           setLoadState("error");
           return;
         }
@@ -49,19 +49,23 @@ export default function App() {
       });
   }, [user]);
 
-  // Erster Auth-Check laeuft noch (verhindert Login-Formular-Aufflackern).
+  // Erster Auth-Check läuft noch (verhindert Login-Formular-Aufflackern).
   if (user === undefined) return null;
   if (!user) return <Login />;
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <header className="border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
-        <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-          KickbaseAgent Dashboard{" "}
-          <span className="text-sm font-normal text-neutral-500 dark:text-neutral-400">(Preview)</span>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <header className="border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
+        <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
+          <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-[0_0_12px_theme(colors.brand.400)]" />
+          KickbaseAgent
+          <span className="font-normal text-slate-400 dark:text-slate-500">Dashboard</span>
+          <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-300">
+            Preview
+          </span>
         </h1>
       </header>
-      <nav className="flex gap-1 overflow-x-auto border-b border-neutral-200 px-6 dark:border-neutral-800">
+      <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950">
         {TABS.map((tab) => {
           const isActive = tab.key === ACTIVE_TAB;
           return (
@@ -69,10 +73,10 @@ export default function App() {
               key={tab.key}
               type="button"
               disabled={!isActive}
-              className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm ${
+              className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors ${
                 isActive
-                  ? "border-blue-600 font-semibold text-neutral-900 dark:text-neutral-100"
-                  : "cursor-not-allowed border-transparent text-neutral-400 dark:text-neutral-600"
+                  ? "border-brand-500 font-semibold text-slate-900 dark:text-slate-50"
+                  : "cursor-not-allowed border-transparent text-slate-400 dark:text-slate-600"
               }`}
             >
               {tab.label}
@@ -83,7 +87,7 @@ export default function App() {
       </nav>
       <main className="px-6 py-6">
         {loadState === "loading" && (
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">Lade Daten...</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
         )}
         {loadState === "error" && (
           <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>

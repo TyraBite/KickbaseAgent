@@ -148,6 +148,41 @@ User selbst im Browser, wie bei frueheren Phasen ueblich fuer Pages-Setup).
   unveraendert erreichbar), danach `npm install`/`npm run dev` einmal
   lokal in Rider fuer die Entwickler-Vorschau.
 
+## Nacharbeit nach erstem Feedback (Theme, Detail-Ansicht, Umlaute)
+
+User hat den Piloten gesehen und Anpassungen gewünscht:
+
+- **Theme**: an Kickbases eigenes Markenbild angelehnt (kräftiges Grün auf
+  hellem/dunklem Grund je nach OS-Einstellung) - neue `brand`-Farbskala in
+  `tailwind.config.js`, `neutral` durchgängig durch `slate` ersetzt (kühler,
+  "app-typischer"). **Kein offizieller Kickbase-Hex-Wert verifiziert** -
+  `brand.kickbase.com`/`brandfetch.com` blockieren automatisierte Abrufe
+  (403), Websuche fand nur Kickstarter-Treffer. Bewusst als Annäherung
+  gewählt und so kommuniziert, nicht als exakten Marken-Wert behauptet.
+- **Deutsche Umlaute** durchgängig (ä/ö/ü/ß statt ae/oe/ue/ss) in allen
+  UI-Texten UND Code-Kommentaren der `frontend/`-Dateien.
+- **Sortieren-nach deckt jetzt alle Datenfelder ab**: Auktion (Standard),
+  ML-Prognose, Rendite%, Preis, Trend 7T, Spieler (A-Z) - vorher nur 3 von
+  6 moeglichen Feldern.
+- **Klick auf Kachel öffnet Detail-Modal** (ersetzt den im Ursprungsplan
+  vorgesehenen globalen Quick/Detail-Umschalter fuer diesen Tab - User-
+  Entscheidung nach dem ersten Blick auf den Piloten: "passt besser zum
+  UX"). Modal zeigt dieselben Felder wie die Kachel (ML-Prognose,
+  Rendite%, Preis, Trend 7T, Auktion) PLUS neu **3-Monats-Tief/-Hoch**
+  (`market_value_low_92d`/`market_value_high_92d`). Diese zwei Felder
+  existierten serverseitig schon (`_is_hype_gipfel()` nutzt
+  `market_value_high_92d` bereits fuer die Hype-Gipfel-Erkennung), wurden
+  aber bisher nicht in `_build_spekulation()`s Output-Dict durchgereicht -
+  jetzt ergaenzt (`src/dashboard_export.py`), inkl. neuem Unit-Test
+  (`tests/test_dashboard_export.py::BuildSpekulationTests`).
+- **Verein-Suche entfernt**: da Verein/Position gar nicht mehr angezeigt
+  werden (Daten-Audit-Ergebnis), war die Mitsuche nach Verein im Suchfeld
+  unnoetig - Suche filtert jetzt nur noch nach Spielername.
+- Kachel ist jetzt ein fokussierbares/tastatur-bedienbares `<div
+  role="button">` statt eines echten `<button>` (ein `<button>` darf laut
+  HTML5-Content-Model kein `<dl>` enthalten - die Kachel zeigt die Werte
+  als Definitionsliste).
+
 ## Out of Scope (bewusst nicht in diesem Sub-Projekt)
 
 - Wunschkader-Migration - Sub-Projekt 2.

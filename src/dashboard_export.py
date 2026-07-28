@@ -269,6 +269,8 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
                 "auction_status": r.get("auction_status"),
                 "auction_remaining_seconds": r.get("auction_remaining_seconds"),
                 "auction_urgent": r.get("auction_urgent", False),
+                "market_value_low_92d": r.get("market_value_low_92d"),
+                "market_value_high_92d": r.get("market_value_high_92d"),
             }
         )
     rows.sort(key=lambda r: -r["roi_pct"])

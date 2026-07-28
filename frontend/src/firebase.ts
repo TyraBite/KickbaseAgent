@@ -3,8 +3,8 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // Selbes Firebase-Projekt/Config wie die bestehende index.html (Repo-Root) -
-// Firebase-Web-apiKeys sind nicht geheim (Zugriff wird ueber firestore.rules
-// + Firebase Auth geregelt, nicht ueber Geheimhaltung des Keys).
+// Firebase-Web-apiKeys sind nicht geheim (Zugriff wird über firestore.rules
+// + Firebase Auth geregelt, nicht über Geheimhaltung des Keys).
 const firebaseConfig = {
   apiKey: "AIzaSyDaKr1cKLxqqA8EGauwSaNNOpsPQedHRQs",
   authDomain: "kickbaseagent.firebaseapp.com",

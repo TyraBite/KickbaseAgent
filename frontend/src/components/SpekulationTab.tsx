@@ -1,26 +1,48 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { SpekulationRow } from "../types";
 import { fmtNum, fmtSigned, trendClass } from "../format";
 
-type SortKey = "auction" | "roi" | "price";
+type SortKey = "auction" | "ml" | "roi" | "price" | "trend" | "name";
 
-// Methodik-Hinweis 1:1 aus der bestehenden index.html uebernommen.
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "auction", label: "Auktion (Standard)" },
+  { value: "ml", label: "ML-Prognose" },
+  { value: "roi", label: "Rendite%" },
+  { value: "price", label: "Preis" },
+  { value: "trend", label: "Trend 7T" },
+  { value: "name", label: "Spieler (A-Z)" },
+];
+
+// Methodik-Hinweis 1:1 aus der bestehenden index.html übernommen (mit Umlauten).
 const HINT =
   "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive ML-Prognose. " +
-  '"Hype-Gipfel" (rot) = Warnung: starker 7-Tage-Sprung + 92-Tage-Hoch + kein Punkteschnitt, meist Nachrichten-Hype statt echtes Signal - NICHT zum Kauf geeignet. ' +
-  '"Boden-Schutz" (gruen) = Preis unter 1 Mio., nahe am 500k-Mindestwert, begrenztes Abwaertsrisiko. ' +
-  "ML-Prognose ist nur eine 1-Tages-Vorhersage - Spekulation stuetzt sich auf den laufenden Trend, nicht allein aufs Modell. Rot markierte Auktionen laufen vor dem naechsten 22-Uhr-Update ab.";
+  '"Hype-Gipfel" (rot) = Warnung: starker 7-Tage-Sprung + 92-Tage-Hoch + kein Punkteschnitt, meist Nachrichten-Hype statt echtes Signal – NICHT zum Kauf geeignet. ' +
+  '"Boden-Schutz" (grün) = Preis unter 1 Mio., nahe am 500k-Mindestwert, begrenztes Abwärtsrisiko. ' +
+  "ML-Prognose ist nur eine 1-Tages-Vorhersage – Spekulation stützt sich auf den laufenden Trend, nicht allein aufs Modell. Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Update ab.";
 
 function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
   const sorted = [...rows];
-  if (key === "auction") {
-    sorted.sort(
-      (a, b) => (a.auction_remaining_seconds ?? Infinity) - (b.auction_remaining_seconds ?? Infinity)
-    );
-  } else if (key === "roi") {
-    sorted.sort((a, b) => b.roi_pct - a.roi_pct);
-  } else {
-    sorted.sort((a, b) => a.price - b.price);
+  switch (key) {
+    case "auction":
+      sorted.sort(
+        (a, b) => (a.auction_remaining_seconds ?? Infinity) - (b.auction_remaining_seconds ?? Infinity)
+      );
+      break;
+    case "ml":
+      sorted.sort((a, b) => (b.ml_prediction ?? -Infinity) - (a.ml_prediction ?? -Infinity));
+      break;
+    case "roi":
+      sorted.sort((a, b) => b.roi_pct - a.roi_pct);
+      break;
+    case "price":
+      sorted.sort((a, b) => a.price - b.price);
+      break;
+    case "trend":
+      sorted.sort((a, b) => (b.market_value_change_7d ?? -Infinity) - (a.market_value_change_7d ?? -Infinity));
+      break;
+    case "name":
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+      break;
   }
   return sorted;
 }
@@ -28,18 +50,17 @@ function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
 export default function SpekulationTab({ rows }: { rows: SpekulationRow[] }) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
+  const [selected, setSelected] = useState<SpekulationRow | null>(null);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = q
-      ? rows.filter((r) => `${r.name} ${r.team_name ?? ""}`.toLowerCase().includes(q))
-      : rows;
+    const filtered = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
     return sortRows(filtered, sortKey);
   }, [rows, search, sortKey]);
 
   if (!rows.length) {
     return (
-      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+      <p className="text-sm text-slate-500 dark:text-slate-400">
         Aktuell keine Spekulations-Kandidaten mit positiver ML-Prognose auf dem Markt.
       </p>
     );
@@ -47,42 +68,56 @@ export default function SpekulationTab({ rows }: { rows: SpekulationRow[] }) {
 
   return (
     <div>
-      <p className="mb-4 max-w-3xl text-xs text-neutral-500 dark:text-neutral-400">{HINT}</p>
+      <p className="mb-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Spieler/Verein suchen..."
-          className="min-w-[220px] rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+          placeholder="Spieler suchen…"
+          className="min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
-        <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-300">
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           Sortieren nach
           <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
-            className="rounded-lg border border-neutral-300 bg-white px-2 py-2 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           >
-            <option value="auction">Auktion (Standard)</option>
-            <option value="roi">Rendite%</option>
-            <option value="price">Preis</option>
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
         </label>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map((r) => (
-          <SpekulationCard key={r.name} row={r} />
+          <SpekulationCard key={r.name} row={r} onSelect={() => setSelected(r)} />
         ))}
       </div>
+      {selected && <SpekulationDetailModal row={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 }
 
-function SpekulationCard({ row }: { row: SpekulationRow }) {
+function SpekulationCard({ row, onSelect }: { row: SpekulationRow; onSelect: () => void }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-600"
+    >
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="font-semibold text-neutral-900 dark:text-neutral-100">{row.name}</span>
+        <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
         {row.is_hype_gipfel && <Badge tone="crit">Hype-Gipfel</Badge>}
         {row.near_floor && <Badge tone="good">Boden-Schutz</Badge>}
       </div>
@@ -101,7 +136,7 @@ function SpekulationCard({ row }: { row: SpekulationRow }) {
           {row.auction_urgent ? (
             <Badge tone="crit">{row.auction_status}</Badge>
           ) : (
-            row.auction_status ?? <span className="text-neutral-400 dark:text-neutral-500">unbekannt</span>
+            row.auction_status ?? <span className="text-slate-400 dark:text-slate-500">unbekannt</span>
           )}
         </Row>
       </dl>
@@ -109,11 +144,70 @@ function SpekulationCard({ row }: { row: SpekulationRow }) {
   );
 }
 
+function SpekulationDetailModal({ row, onClose }: { row: SpekulationRow; onClose: () => void }) {
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+      >
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+            {row.is_hype_gipfel && <Badge tone="crit">Hype-Gipfel</Badge>}
+            {row.near_floor && <Badge tone="good">Boden-Schutz</Badge>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Schließen"
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            ✕
+          </button>
+        </div>
+        <dl className="space-y-2 text-sm">
+          <Row label="ML-Prognose">
+            <span className={trendClass(row.ml_prediction)}>{fmtSigned(row.ml_prediction)}</span>
+          </Row>
+          <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
+          <Row label="Preis">{fmtNum(row.price)}</Row>
+          <Row label="Trend 7T">
+            <span className={trendClass(row.market_value_change_7d)}>
+              {fmtSigned(row.market_value_change_7d)}
+            </span>
+          </Row>
+          <Row label="Auktion">
+            {row.auction_urgent ? (
+              <Badge tone="crit">{row.auction_status}</Badge>
+            ) : (
+              row.auction_status ?? <span className="text-slate-400 dark:text-slate-500">unbekannt</span>
+            )}
+          </Row>
+          <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
+          <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
+        </dl>
+      </div>
+    </div>
+  );
+}
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-neutral-500 dark:text-neutral-400">{label}</dt>
-      <dd className="font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{children}</dd>
+      <dt className="text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{children}</dd>
     </div>
   );
 }
@@ -121,7 +215,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 function Badge({ tone, children }: { tone: "good" | "crit"; children: ReactNode }) {
   const toneClass =
     tone === "good"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+      ? "bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300"
       : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300";
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${toneClass}`}>{children}</span>

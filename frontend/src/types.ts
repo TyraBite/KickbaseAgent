@@ -6,6 +6,8 @@ export interface SpekulationRow {
   roi_pct: number;
   average_points: number | null;
   market_value_change_7d: number | null;
+  market_value_low_92d: number | null;
+  market_value_high_92d: number | null;
   ml_prediction: number | null;
   auction_status: string | null;
   auction_urgent: boolean;
@@ -17,7 +19,7 @@ export interface SpekulationRow {
 export interface DashboardSnapshot {
   spekulation: SpekulationRow[];
   // Weitere Snapshot-Felder (transfermarkt, wunschkader, alle_spieler, ...)
-  // werden erst in spaeteren Sub-Projekten typisiert, sobald der jeweilige
+  // werden erst in späteren Sub-Projekten typisiert, sobald der jeweilige
   // Tab migriert wird.
   [key: string]: unknown;
 }

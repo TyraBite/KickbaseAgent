@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from src.dashboard_export import _build_alle_spieler, _load_wunschkader
+from src.dashboard_export import _build_alle_spieler, _build_spekulation, _load_wunschkader
 
 
 class BuildAlleSpielerTests(unittest.TestCase):
@@ -33,6 +33,21 @@ class BuildAlleSpielerTests(unittest.TestCase):
         rows = _build_alle_spieler(players, owned_by={}, own_squad_names=set(), calibration=None)
 
         self.assertEqual(rows[0]["owner"], "Frei")
+
+
+class BuildSpekulationTests(unittest.TestCase):
+    def test_passes_through_92d_high_low_for_detail_view(self):
+        transfermarkt_rows = [{
+            "name": "Woltemade", "position": "Sturm", "team_name": "Stuttgart",
+            "is_system_offer": True, "price": 10_000_000, "ml_prediction": 200_000,
+            "market_value_change_7d": 50_000, "average_points": 180,
+            "market_value_low_92d": 8_500_000, "market_value_high_92d": 10_200_000,
+        }]
+
+        rows = _build_spekulation(transfermarkt_rows)
+
+        self.assertEqual(rows[0]["market_value_low_92d"], 8_500_000)
+        self.assertEqual(rows[0]["market_value_high_92d"], 10_200_000)
 
 
 class LoadWunschkaderTests(unittest.TestCase):
