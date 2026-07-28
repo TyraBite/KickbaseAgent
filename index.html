@@ -201,7 +201,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDaKr1cKLxqqA8EGauwSaNNOpsPQedHRQs",
@@ -214,7 +214,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   const app = initializeApp(firebaseConfig);
   window.__kickbaseAuth = {
     auth: getAuth(app), db: getFirestore(app),
-    signInWithEmailAndPassword, onAuthStateChanged, doc, getDoc,
+    signInWithEmailAndPassword, onAuthStateChanged, doc, getDoc, setDoc,
   };
 </script>
 <script type="module">
@@ -577,20 +577,129 @@ function renderBudgetPlan(bp) {
   </div>`;
 }
 
+function suggestReplacements(target, count = 3) {
+  const pool = (DATA.alle_spieler || []).filter((p) =>
+    p.position === target.position && p.name !== target.name && p.owner === "Frei"
+  );
+  const mv = target.market_value || 0;
+  const pts = target.points_avg || 0;
+  const scored = pool.map((p) => {
+    const mvDist = mv ? Math.abs((p.market_value || 0) - mv) / mv : 0;
+    const ptsDist = pts ? Math.abs((p.points_avg || 0) - pts) / pts : 0;
+    return { ...p, distance: mvDist + ptsDist };
+  });
+  scored.sort((a, b) => a.distance - b.distance);
+  return scored.slice(0, count);
+}
+
+let wunschkaderEditState = null; // lokale Arbeitskopie von DATA.wunschkader_raw.targets waehrend des Editierens
+
 function renderWunschkader() {
   const rows = DATA.wunschkader;
+  const container = document.getElementById("tab-wunschkader");
+  if (!wunschkaderEditState) {
+    wunschkaderEditState = DATA.wunschkader_raw ? [...DATA.wunschkader_raw.targets] : [];
+  }
   if (!rows || !rows.length) {
-    document.getElementById("tab-wunschkader").innerHTML =
-      '<p class="section-hint">Kein Wunschkader hinterlegt.</p>';
+    container.innerHTML = '<p class="section-hint">Kein Wunschkader hinterlegt.</p>';
     return;
   }
   const formation = DATA.wunschkader_formation ? ` (${DATA.wunschkader_formation})` : "";
   const updated = DATA.wunschkader_updated_at ? `, Stand ${DATA.wunschkader_updated_at}` : "";
-  buildTable("tab-wunschkader", wunschkaderColumns, () => rows, wunschkaderRenderRow,
-    `Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung. ` +
-    "Status: gruen = sofort erreichbar/schon im Kader, gelb = frei (wartet auf Marktauftauchen), rot = bei einem Gegner. " +
-    '"(gesch.)" = geschaetzter Preis (Marktwert + Aufschlag), sonst echtes/platziertes Gebot.',
-    renderBudgetPlan(DATA.budget_plan));
+
+  const editRows = wunschkaderEditState.map((t, idx) => {
+    const computed = rows.find((r) => r.name === t.name) || {};
+    return `<tr>
+      <td>${t.position}</td>
+      <td><input type="text" data-idx="${idx}" class="wk-name-input" value="${t.name}"></td>
+      <td>${t.role}</td>
+      <td>${wunschStatusPill(computed.status || "unbekannt")}</td>
+      <td class="num">${fmtNum(computed.market_value)}</td>
+      <td class="num">${fmtNum(computed.points_avg)}</td>
+      <td><button type="button" class="wk-wechsel-btn" data-idx="${idx}">Wechsel</button></td>
+      <td><button type="button" class="wk-remove-btn" data-idx="${idx}">Entfernen</button></td>
+    </tr>
+    <tr class="wk-suggestions" data-idx="${idx}" style="display:none;"><td colspan="8"></td></tr>`;
+  }).join("");
+
+  container.innerHTML = `
+    <p class="section-hint">Ziel-Kader${formation}${updated} - siehe MDs/kaderplan.md fuer die volle Begruendung.
+      Aenderungen wirken sich erst nach dem naechsten Pipeline-Lauf (alle 2h) auf Status/Fairwert/ML-Prognose aus.</p>
+    <table>
+      <thead><tr><th>Pos.</th><th>Spieler</th><th>Rolle</th><th>Status</th><th>Marktwert</th><th>Schnitt</th><th></th><th></th></tr></thead>
+      <tbody id="wk-edit-body">${editRows}</tbody>
+    </table>
+    <div class="wk-add-form">
+      <input type="text" id="wk-add-name" placeholder="Name">
+      <select id="wk-add-position">
+        <option value="Torwart">Torwart</option>
+        <option value="Abwehr">Abwehr</option>
+        <option value="Mittelfeld">Mittelfeld</option>
+        <option value="Sturm">Sturm</option>
+      </select>
+      <select id="wk-add-role">
+        <option value="Starter">Starter</option>
+        <option value="Bank">Bank</option>
+        <option value="Backup">Backup</option>
+      </select>
+      <button type="button" id="wk-add-btn">Hinzufuegen</button>
+    </div>
+    <div><button type="button" id="wk-save-btn">Speichern</button> <span id="wk-save-status" class="muted"></span></div>
+    ${renderBudgetPlan(DATA.budget_plan)}`;
+
+  container.querySelectorAll(".wk-name-input").forEach((el) => {
+    el.addEventListener("change", (e) => {
+      wunschkaderEditState[e.target.dataset.idx].name = e.target.value;
+    });
+  });
+  container.querySelectorAll(".wk-remove-btn").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      wunschkaderEditState.splice(e.target.dataset.idx, 1);
+      renderWunschkader();
+    });
+  });
+  container.querySelectorAll(".wk-wechsel-btn").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      const idx = e.target.dataset.idx;
+      const target = wunschkaderEditState[idx];
+      const suggestionsRow = container.querySelector(`.wk-suggestions[data-idx="${idx}"]`);
+      const suggestions = suggestReplacements(target);
+      suggestionsRow.querySelector("td").innerHTML = suggestions.length
+        ? "Vorschlaege: " + suggestions.map((s) =>
+            `<button type="button" class="wk-pick-btn" data-idx="${idx}" data-name="${s.name}">${s.name} (${fmtNum(s.market_value)}, Ø${fmtNum(s.points_avg)})</button>`
+          ).join(" ")
+        : "Keine freien Alternativen gleicher Position gefunden.";
+      suggestionsRow.style.display = "";
+      suggestionsRow.querySelectorAll(".wk-pick-btn").forEach((btn) => {
+        btn.addEventListener("click", (ev) => {
+          wunschkaderEditState[ev.target.dataset.idx].name = ev.target.dataset.name;
+          renderWunschkader();
+        });
+      });
+    });
+  });
+  document.getElementById("wk-add-btn").addEventListener("click", () => {
+    const name = document.getElementById("wk-add-name").value.trim();
+    if (!name) return;
+    wunschkaderEditState.push({
+      name,
+      position: document.getElementById("wk-add-position").value,
+      role: document.getElementById("wk-add-role").value,
+    });
+    renderWunschkader();
+  });
+  document.getElementById("wk-save-btn").addEventListener("click", async () => {
+    const statusEl = document.getElementById("wk-save-status");
+    statusEl.textContent = "Speichere...";
+    try {
+      const updated = { ...DATA.wunschkader_raw, targets: wunschkaderEditState };
+      await setDoc(doc(db, "wunschkader", "current"), updated);
+      DATA.wunschkader_raw = updated;
+      statusEl.textContent = "Gespeichert. Aenderungen erscheinen im naechsten Pipeline-Lauf (~2h).";
+    } catch (err) {
+      statusEl.textContent = "Fehler beim Speichern: " + err.message;
+    }
+  });
 }
 
 function renderAlleSpieler() {
@@ -758,7 +867,7 @@ function renderAll() {
   updateTabBadges();
 }
 
-const { auth, db, signInWithEmailAndPassword, onAuthStateChanged, doc, getDoc } = window.__kickbaseAuth;
+const { auth, db, signInWithEmailAndPassword, onAuthStateChanged, doc, getDoc, setDoc } = window.__kickbaseAuth;
 
 function showState(id) {
   ["login-gate", "loading-state", "load-error-state", "dashboard-content"].forEach((s) => {
