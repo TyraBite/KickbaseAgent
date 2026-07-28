@@ -1030,7 +1030,7 @@ Directly below the line `const bench = useMemo(() => editState.filter(isBench), 
 
   function replaceTarget(uid: number, replacement: AlleSpielerRow) {
     setEditState((prev) =>
-      prev.map((t) => (t._uid === uid ? { name: replacement.name, position: replacement.position, role: t.role } : t))
+      prev.map((t) => (t._uid === uid ? { ...t, name: replacement.name, position: replacement.position } : t))
     );
     setSelected(null);
   }
