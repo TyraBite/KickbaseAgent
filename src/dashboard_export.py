@@ -149,6 +149,7 @@ def _player_row(row: sqlite3.Row, calibration: dict | None, predictions: dict | 
         "player_id": row["player_id"],
         "name": row["name"],
         "position": row["position"],
+        "team_id": row["team_id"],
         "team_name": row["team_name"],
         "status_label": row["status_label"],
         "starting_rank": row["starting_rank"],
@@ -194,6 +195,7 @@ def _build_transfermarkt(market_listings, calibration, predictions, own_availabl
                 "auction_status": auction_status,
                 "auction_remaining_seconds": auction_remaining_seconds,
                 "auction_urgent": 0 < auction_remaining_seconds < cutoff_seconds,
+                "auction_expires_at": r["expires_at"],
             }
         )
         rows.append(row)
@@ -258,6 +260,7 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
             {
                 "name": r["name"],
                 "position": r["position"],
+                "team_id": r.get("team_id"),
                 "team_name": r["team_name"],
                 "price": r["price"],
                 "market_value_change_7d": r["market_value_change_7d"],
@@ -269,6 +272,7 @@ def _build_spekulation(transfermarkt_rows: list[dict]) -> list[dict]:
                 "auction_status": r.get("auction_status"),
                 "auction_remaining_seconds": r.get("auction_remaining_seconds"),
                 "auction_urgent": r.get("auction_urgent", False),
+                "auction_expires_at": r.get("auction_expires_at"),
                 "market_value_low_92d": r.get("market_value_low_92d"),
                 "market_value_high_92d": r.get("market_value_high_92d"),
             }

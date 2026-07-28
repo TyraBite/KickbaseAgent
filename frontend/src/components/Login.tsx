@@ -24,7 +24,7 @@ export default function Login() {
         className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
       >
         <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
-          <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-[0_0_12px_theme(colors.brand.400)]" />
+          <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-md shadow-brand-500/50" />
           KickbaseAgent Dashboard
         </h1>
         <input

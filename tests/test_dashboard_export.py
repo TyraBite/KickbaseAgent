@@ -49,6 +49,19 @@ class BuildSpekulationTests(unittest.TestCase):
         self.assertEqual(rows[0]["market_value_low_92d"], 8_500_000)
         self.assertEqual(rows[0]["market_value_high_92d"], 10_200_000)
 
+    def test_passes_through_team_id_and_auction_expires_at(self):
+        transfermarkt_rows = [{
+            "name": "Woltemade", "position": "Sturm", "team_id": "9", "team_name": "Stuttgart",
+            "is_system_offer": True, "price": 10_000_000, "ml_prediction": 200_000,
+            "market_value_change_7d": 50_000, "average_points": 180,
+            "auction_expires_at": "2026-07-29T12:00:00Z",
+        }]
+
+        rows = _build_spekulation(transfermarkt_rows)
+
+        self.assertEqual(rows[0]["team_id"], "9")
+        self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
+
 
 class LoadWunschkaderTests(unittest.TestCase):
     def test_returns_none_without_firestore_enabled(self):

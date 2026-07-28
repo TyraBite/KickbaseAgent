@@ -1,6 +1,7 @@
 export interface SpekulationRow {
   name: string;
   position: string;
+  team_id: string | null;
   team_name: string | null;
   price: number;
   roi_pct: number;
@@ -12,6 +13,7 @@ export interface SpekulationRow {
   auction_status: string | null;
   auction_urgent: boolean;
   auction_remaining_seconds: number | null;
+  auction_expires_at: string | null;
   is_hype_gipfel: boolean;
   near_floor: boolean;
 }

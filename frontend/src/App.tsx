@@ -57,7 +57,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
         <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
-          <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-[0_0_12px_theme(colors.brand.400)]" />
+          <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-md shadow-brand-500/50" />
           KickbaseAgent
           <span className="font-normal text-slate-400 dark:text-slate-500">Dashboard</span>
           <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-300">
