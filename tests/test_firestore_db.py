@@ -173,3 +173,37 @@ class UpsertDashboardSnapshotTests(unittest.TestCase):
         client.collection.assert_any_call("dashboard_snapshot")
         client.collection.return_value.document.assert_called_once_with("latest")
         client.collection.return_value.document.return_value.set.assert_called_once_with(data)
+
+
+class GetWunschkaderTests(unittest.TestCase):
+    def test_returns_none_when_document_missing(self):
+        client = MagicMock()
+        client.collection.return_value.document.return_value.get.return_value.exists = False
+
+        result = firestore_db.get_wunschkader(client)
+
+        self.assertIsNone(result)
+
+    def test_returns_dict_when_document_exists(self):
+        client = MagicMock()
+        doc_snapshot = client.collection.return_value.document.return_value.get.return_value
+        doc_snapshot.exists = True
+        doc_snapshot.to_dict.return_value = {"targets": [{"name": "Krauß"}], "formation": "3-4-3"}
+
+        result = firestore_db.get_wunschkader(client)
+
+        client.collection.assert_any_call("wunschkader")
+        client.collection.return_value.document.assert_called_with("current")
+        self.assertEqual(result["formation"], "3-4-3")
+
+
+class UpsertWunschkaderTests(unittest.TestCase):
+    def test_writes_whole_dict_as_single_doc_named_current(self):
+        client = MagicMock()
+        data = {"targets": [{"name": "Krauß", "position": "Mittelfeld", "role": "Starter"}], "formation": "3-4-3"}
+
+        firestore_db.upsert_wunschkader(client, data)
+
+        client.collection.assert_any_call("wunschkader")
+        client.collection.return_value.document.assert_called_once_with("current")
+        client.collection.return_value.document.return_value.set.assert_called_once_with(data)

@@ -87,3 +87,20 @@ def upsert_dashboard_snapshot(client: firestore.Client, data: dict) -> None:
     als EIN Dokument - keine Rekonstruktion aus den rohen Collections auf
     Client-Seite, siehe Spec. Immer genau ein Dokument, kein Batching noetig."""
     client.collection("dashboard_snapshot").document("latest").set(data)
+
+
+def get_wunschkader(client: firestore.Client) -> dict | None:
+    """Liest den kompletten Wunschkader-Datensatz (targets/sell_list/
+    markup_rules/login_bonus/formation/season_start als EIN Dokument,
+    ehemals data/wunschkader.json). None falls noch kein Dokument existiert
+    (vor der einmaligen Migration)."""
+    doc = client.collection("wunschkader").document("current").get()
+    return doc.to_dict() if doc.exists else None
+
+
+def upsert_wunschkader(client: firestore.Client, data: dict) -> None:
+    """Ueberschreibt den kompletten Wunschkader-Datensatz. Wird sowohl von
+    der Pipeline (Migration/Bootstrap) als auch vom Browser (Speichern-
+    Button im Dashboard) aufgerufen - client-seitig per Firestore Client-
+    SDK, hier nur der Admin-SDK-Pfad."""
+    client.collection("wunschkader").document("current").set(data)
