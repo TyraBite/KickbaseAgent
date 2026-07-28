@@ -2,7 +2,7 @@
 Eigenes Team/Ligaanalyse) - komplett berechnetes dict (Joins/ML/Fairwert
 schon gemischt). Seit Phase 2 (siehe
 docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md)
-KEIN HTML-Rendering mehr hier: docs/dashboard.html ist ein hand-gepflegter,
+KEIN HTML-Rendering mehr hier: index.html ist ein hand-gepflegter,
 statischer Shell (Login + Firebase-Auth + einmaliges getDoc), der dieses
 dict live aus Firestore (dashboard_snapshot/latest) liest, statt es inline
 gebacken zu bekommen. export() schreibt das dict nur noch (FIRESTORE_ENABLED-

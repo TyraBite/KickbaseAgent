@@ -5,3 +5,4 @@ __pycache__/
 .idea/
 *.bundle
 firebase-service-account.json
+.superpowers/

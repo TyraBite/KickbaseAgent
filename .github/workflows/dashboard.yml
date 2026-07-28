@@ -36,6 +36,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/kickbase.db docs/dashboard.html
+          git add data/kickbase.db
           git diff --cached --quiet || git commit -m "Dashboard-Update $(date -u +%F' '%H:%M)"
           git push
