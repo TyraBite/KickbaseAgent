@@ -20,11 +20,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Write Firebase service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/firebase-service-account.json"
+
       - name: Fetch data, build dashboard
         env:
           KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
           KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
           KICKBASE_LEAGUE_START_BUDGET: '80000000'
+          FIRESTORE_ENABLED: '1'
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: python -m src.dashboard_export
 
       - name: Commit updated dashboard and snapshot
