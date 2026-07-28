@@ -2,27 +2,34 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.market_predictor import _load_prediction_log
-from src.market_predictor import _select_live_model, _evaluate_realized_accuracy_by_model
+from src.market_predictor import (
+    _summarize_from_daily,
+    _build_daily_accuracy_updates,
+    _realized_by_model_from_daily,
+    _trend_from_daily,
+    _load_local_prediction_log,
+    _load_recent_prediction_log,
+    _select_live_model,
+)
 from src.market_predictor import backfill_prediction_log
 
 
-class LoadPredictionLogTests(unittest.TestCase):
-    @patch("src.market_predictor.firestore_db.get_prediction_log_entries")
-    @patch("src.market_predictor.firestore_db.connect")
-    def test_reads_from_firestore_when_enabled(self, mock_connect, mock_get):
-        mock_get.return_value = [{"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100}]
-        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
-            result = _load_prediction_log()
-        self.assertEqual(result, mock_get.return_value)
+class LoadLocalPredictionLogTests(unittest.TestCase):
+    def test_never_touches_firestore(self):
+        with patch("src.market_predictor.firestore_db.connect") as mock_connect:
+            _load_local_prediction_log()
+            mock_connect.assert_not_called()
 
-    @patch("src.market_predictor.firestore_db.get_prediction_log_entries")
+
+class LoadRecentPredictionLogTests(unittest.TestCase):
+    @patch("src.market_predictor.firestore_db.get_recent_prediction_log_entries")
     @patch("src.market_predictor.firestore_db.connect")
-    def test_falls_back_to_local_file_on_firestore_error(self, mock_connect, mock_get):
-        mock_get.side_effect = RuntimeError("Firestore down")
+    def test_passes_date_filter_to_firestore(self, mock_connect, mock_get):
+        mock_get.return_value = []
         with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
-            result = _load_prediction_log()
-        self.assertIsInstance(result, list)
+            _load_recent_prediction_log("2026-07-28")
+        mock_get.assert_called_once()
+        self.assertEqual(mock_get.call_args.args[1], "2026-07-25")  # today - EVALUATION_LOOKBACK_DAYS(3)
 
 
 class SelectLiveModelTests(unittest.TestCase):
@@ -45,28 +52,66 @@ class SelectLiveModelTests(unittest.TestCase):
         self.assertEqual(reason, "realized_trailing_30d")
 
 
-class EvaluateRealizedAccuracyByModelTests(unittest.TestCase):
-    def test_skips_entries_without_model_type(self):
-        log_entries = [{"date": "2026-07-01", "player_id": "p1", "predicted_delta": 100}]  # altes Schema
-        result = _evaluate_realized_accuracy_by_model(log_entries, {}, "2026-07-28")
-        self.assertIsNone(result["RandomForest"]["realized_7d"])
-        self.assertIsNone(result["HistGradientBoosting"]["realized_7d"])
-
-    def test_separates_by_model_type(self):
-        log_entries = [
-            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
-            {"date": "2026-07-27", "player_id": "p1", "model_type": "HistGradientBoosting", "predicted_delta": -100},
+class SummarizeFromDailyTests(unittest.TestCase):
+    def test_aggregates_over_window(self):
+        daily = [
+            {"date": "2026-07-20", "n": 450, "sign_correct": 300, "abs_error_sum": 45000.0},
+            {"date": "2026-07-21", "n": 450, "sign_correct": 270, "abs_error_sum": 40000.0},
         ]
-        mv_lookup = {("p1", "2026-07-27"): 1000.0, ("p1", "2026-07-28"): 1200.0}
-        result = _evaluate_realized_accuracy_by_model(log_entries, mv_lookup, "2026-07-29")
-        self.assertGreater(
-            result["RandomForest"]["realized_7d"]["sign_accuracy"],
-            result["HistGradientBoosting"]["realized_7d"]["sign_accuracy"],
-        )
+        result = _summarize_from_daily(daily, "2026-07-28", 30)
+        self.assertEqual(result["n"], 900)
+        self.assertAlmostEqual(result["sign_accuracy"], 63.3, places=1)
+
+    def test_returns_none_when_window_empty(self):
+        result = _summarize_from_daily([{"date": "2026-01-01", "n": 10, "sign_correct": 5, "abs_error_sum": 100.0}], "2026-07-28", 7)
+        self.assertIsNone(result)
+
+
+class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
+    def test_aggregates_by_date_and_model(self):
+        entries = [
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
+            {"date": "2026-07-27", "player_id": "p2", "model_type": "RandomForest", "predicted_delta": -50},
+        ]
+        mv_lookup = {
+            ("p1", "2026-07-27"): 1000.0, ("p1", "2026-07-28"): 1200.0,
+            ("p2", "2026-07-27"): 1000.0, ("p2", "2026-07-28"): 1200.0,
+        }
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["n"], 2)
+        self.assertEqual(result[0]["sign_correct"], 1)  # p1 richtig (positiv+positiv), p2 falsch (negativ vorhergesagt, tatsaechlich positiv)
+
+    def test_skips_entries_without_model_type(self):
+        entries = [{"date": "2026-07-01", "player_id": "p1", "predicted_delta": 100}]
+        result = _build_daily_accuracy_updates(entries, {}, "2026-07-28")
+        self.assertEqual(result, [])
+
+
+class RealizedByModelFromDailyTests(unittest.TestCase):
+    def test_separates_by_model(self):
+        daily = [
+            {"date": "2026-07-27", "model_type": "RandomForest", "n": 10, "sign_correct": 8, "abs_error_sum": 100.0},
+            {"date": "2026-07-27", "model_type": "HistGradientBoosting", "n": 10, "sign_correct": 4, "abs_error_sum": 100.0},
+        ]
+        result = _realized_by_model_from_daily(daily, "2026-07-29")
+        self.assertGreater(result["RandomForest"]["realized_7d"]["sign_accuracy"], result["HistGradientBoosting"]["realized_7d"]["sign_accuracy"])
+
+
+class TrendFromDailyTests(unittest.TestCase):
+    def test_builds_sorted_trend_with_both_models(self):
+        daily = [
+            {"date": "2026-07-27", "model_type": "RandomForest", "n": 10, "sign_correct": 6, "abs_error_sum": 50.0},
+            {"date": "2026-07-26", "model_type": "HistGradientBoosting", "n": 10, "sign_correct": 5, "abs_error_sum": 50.0},
+        ]
+        trend = _trend_from_daily(daily)
+        self.assertEqual([d["date"] for d in trend], ["2026-07-26", "2026-07-27"])
+        self.assertEqual(trend[1]["RandomForest"], 60.0)
+        self.assertIsNone(trend[1].get("HistGradientBoosting"))
 
 
 class BackfillPredictionLogTests(unittest.TestCase):
     def test_returns_zero_without_credentials(self):
         with patch.dict(os.environ, {}, clear=True):
             result = backfill_prediction_log(90)
-        self.assertEqual(result, {"folds_run": 0, "entries_written": 0})
+        self.assertEqual(result, {"folds_run": 0, "days_written": 0})

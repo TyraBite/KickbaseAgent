@@ -71,6 +71,7 @@ PREDICTION_LOG_PATH = Path(__file__).resolve().parent.parent / "data" / "ml_pred
 LOG_RETENTION_DAYS = 90
 ACCURACY_WINDOWS_DAYS = (7, 30)
 MIN_REALIZED_SAMPLES_FOR_SELECTION = 14
+EVALUATION_LOOKBACK_DAYS = 3
 
 # Anzahl rollierender Trainingsschnitte fuer den Walk-Forward-Backtest (siehe
 # _walk_forward_backtest) - bewusst klein gehalten, jeder Fold trainiert beide
@@ -301,6 +302,28 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return history_df, today_df
 
 
+def _build_candidates() -> dict[str, object]:
+    """Baut die zwei Modell-Kandidaten mit denselben Hyperparametern, die
+    auch fuer die echte Live-Prognose (_train_and_evaluate) verwendet
+    werden - wichtig fuer backfill_prediction_log, damit historisch
+    geloggte Genauigkeit mit der Live-Prognose vergleichbar bleibt (vorher:
+    Backfill nutzte irrtuemlich dieselben (kleineren) Parameter wie der
+    unabhaengige _walk_forward_backtest, nicht die der echten
+    Live-Prognose)."""
+    return {
+        "RandomForest": RandomForestRegressor(
+            n_estimators=500,
+            max_depth=20,
+            min_samples_split=5,
+            min_samples_leaf=2,
+            max_features="sqrt",
+            n_jobs=-1,
+            random_state=RANDOM_STATE,
+        ),
+        "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+    }
+
+
 def _train_and_evaluate(history_df: pd.DataFrame):
     """Trainiert zwei Modell-Kandidaten per Zeit-Split (75/25, kein Shuffle,
     verhindert Data Leakage) - RandomForestRegressor (bisherige feste
@@ -327,18 +350,7 @@ def _train_and_evaluate(history_df: pd.DataFrame):
     x_train, y_train = train[FEATURES], train[TARGET]
     x_test, y_test = test[FEATURES], test[TARGET]
 
-    candidates = {
-        "RandomForest": RandomForestRegressor(
-            n_estimators=500,
-            max_depth=20,
-            min_samples_split=5,
-            min_samples_leaf=2,
-            max_features="sqrt",
-            n_jobs=-1,
-            random_state=RANDOM_STATE,
-        ),
-        "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
-    }
+    candidates = _build_candidates()
 
     models: dict[str, object] = {}
     per_model_metrics: dict[str, dict] = {}
@@ -440,18 +452,17 @@ def backfill_prediction_log(days: int = 90) -> dict:
     BACKTEST_FOLDS Cutoffs werden bis zu `days` rollierende historische
     Cutoffs durchlaufen (begrenzt durch verfuegbare Kickbase-Historie UND
     genug Trainingszeilen je Cutoff - fruehe Tage im ~365-Tage-Fenster
-    fallen typischerweise raus). Pro Fold werden ECHTE Pro-Spieler-
-    predicted_delta-Werte fuer BEIDE Modelle gesammelt (nicht nur
-    aggregiertes Hit/Miss wie _walk_forward_backtest) und als
-    ml_prediction_log-Eintraege nach Firestore geschrieben - schliesst die
-    Kaltstart-Luecke fuer die Trailing-30d-Live-Auswahl, ohne 90 echte
-    Kalendertage abwarten zu muessen. Wiederverwendbar, falls die
-    Firestore-Historie je zurueckgesetzt werden muss."""
+    fallen typischerweise raus). Anders als der Live-Pfad kennt jeder
+    Walk-Forward-Fold Prognose UND tatsaechlichen Wert (mv_target) im
+    selben Schritt - schreibt deshalb DIREKT Tages-Aggregate nach
+    ml_accuracy_daily, keine Rohdaten-Zwischenstation noetig (auch das
+    spart Schreibvolumen: 2 Dokumente/Tag statt 2 x ~450). Wiederverwendbar,
+    falls die Firestore-Historie je zurueckgesetzt werden muss."""
     email = os.environ.get("KICKBASE_EMAIL")
     password = os.environ.get("KICKBASE_PASSWORD")
     if not email or not password:
         print("Warnung: KICKBASE_EMAIL/KICKBASE_PASSWORD fehlen, Backfill uebersprungen.", file=sys.stderr)
-        return {"folds_run": 0, "entries_written": 0}
+        return {"folds_run": 0, "days_written": 0}
 
     token, _user, leagues = login(email, password)
     league_id = leagues[0]["id"]
@@ -463,7 +474,7 @@ def backfill_prediction_log(days: int = 90) -> dict:
     dates = sorted(history_df["date"].unique())
     cutoffs = dates[-days:] if len(dates) > days else dates
 
-    entries = []
+    daily_updates = []
     folds_run = 0
     for cutoff in cutoffs:
         train = history_df[history_df["date"] < cutoff]
@@ -474,65 +485,46 @@ def backfill_prediction_log(days: int = 90) -> dict:
 
         x_train, y_train = train[FEATURES], train[TARGET]
         x_test = test[FEATURES]
+        y_test_actual = test["mv_target"]
         cutoff_date = pd.Timestamp(cutoff).date().isoformat()
 
-        candidates = {
-            "RandomForest": RandomForestRegressor(
-                n_estimators=200,
-                max_depth=20,
-                min_samples_split=5,
-                min_samples_leaf=2,
-                max_features="sqrt",
-                n_jobs=-1,
-                random_state=RANDOM_STATE,
-            ),
-            "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
-        }
+        candidates = _build_candidates()
         for model_type, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
-            entries.extend(
+            sign_correct = np.sign(y_test_actual) == np.sign(y_pred)
+            abs_error = np.abs(y_test_actual - y_pred)
+            daily_updates.append(
                 {
                     "date": cutoff_date,
-                    "player_id": player_id,
                     "model_type": model_type,
-                    "predicted_delta": round(float(pred)),
+                    "n": int(len(sign_correct)),
+                    "sign_correct": int(sign_correct.sum()),
+                    "abs_error_sum": float(abs_error.sum()),
                 }
-                for player_id, pred in zip(test["player_id"], y_pred)
             )
 
-    if entries and os.environ.get("FIRESTORE_ENABLED"):
+    if daily_updates and os.environ.get("FIRESTORE_ENABLED"):
         try:
             fs_client = firestore_db.connect()
-            firestore_db.upsert_prediction_log_entries(fs_client, entries)
+            firestore_db.upsert_accuracy_daily(fs_client, daily_updates)
         except Exception as exc:  # z.B. Firestore-Schreib-Quota (Spark-Free-Tier)
-            # ausgeschoepft bei grossen `days`-Werten - _write_in_batches
-            # committet Batches sequentiell, ein Teil koennte also schon
-            # angekommen sein, bevor der Fehler auftrat. Kein Crash, damit
-            # der User den Backfill in kleineren Portionen/an einem
-            # Folgetag fortsetzen kann, statt komplett von vorn anzufangen.
             print(
                 f"Warnung: Firestore-Schreibzugriff fuer Backfill fehlgeschlagen (evtl. Quota-Limit) - "
-                f"ein Teil der {len(entries)} Eintraege ist evtl. schon angekommen: {exc}",
+                f"ein Teil der {len(daily_updates)} Tages-Aggregate ist evtl. schon angekommen: {exc}",
                 file=sys.stderr,
             )
 
-    return {"folds_run": folds_run, "entries_written": len(entries)}
+    return {"folds_run": folds_run, "days_written": len(daily_updates)}
 
 
-def _load_prediction_log() -> list[dict]:
-    """Liest bei FIRESTORE_ENABLED aus Firestore (persistiert ueber CI-Laeufe
-    hinweg, anders als die lokale Datei) - Firestore-Lesefehler faellt
-    zurueck auf die lokale Datei statt die Pipeline zu crashen. Ohne
-    FIRESTORE_ENABLED (lokaler Testlauf) bleibt alles wie bisher."""
-    if os.environ.get("FIRESTORE_ENABLED"):
-        try:
-            return firestore_db.get_prediction_log_entries(firestore_db.connect())
-        except Exception as exc:
-            print(
-                f"Warnung: ml_prediction_log-Lesezugriff fehlgeschlagen, nutze lokale Datei: {exc}",
-                file=sys.stderr,
-            )
+def _load_local_prediction_log() -> list[dict]:
+    """Liest AUSSCHLIESSLICH die lokale data/ml_prediction_log.jsonl (kein
+    Firestore-Zugriff) - fuer die lokale Datei-Fallback-Pflege
+    (_append_todays_predictions/_save_prediction_log), die ein
+    Read-Modify-Write auf der KOMPLETTEN lokalen Datei braucht. Firestore
+    braucht dafuer KEINEN vorherigen Read (Upsert ist idempotent per
+    Doc-Id) - ein Firestore-Read hier waere reine Verschwendung."""
     if not PREDICTION_LOG_PATH.exists():
         return []
     entries = []
@@ -541,6 +533,25 @@ def _load_prediction_log() -> list[dict]:
         if line:
             entries.append(json.loads(line))
     return entries
+
+
+def _load_recent_prediction_log(today: str) -> list[dict]:
+    """Liest NUR die letzten EVALUATION_LOOKBACK_DAYS Tage roher Pro-Spieler-
+    Prognosen (Firestore serverseitig datumsgefiltert bei FIRESTORE_ENABLED,
+    sonst die lokale Datei client-seitig gefiltert) - genug um neu
+    auswertbare Eintraege zu finden, OHNE die komplette (taeglich
+    wachsende) Historie zu scannen. Firestore-Lesefehler faellt auf die
+    lokale Datei zurueck statt zu crashen."""
+    since = (datetime.date.fromisoformat(today) - datetime.timedelta(days=EVALUATION_LOOKBACK_DAYS)).isoformat()
+    if os.environ.get("FIRESTORE_ENABLED"):
+        try:
+            return firestore_db.get_recent_prediction_log_entries(firestore_db.connect(), since)
+        except Exception as exc:
+            print(
+                f"Warnung: ml_prediction_log-Lesezugriff fehlgeschlagen, nutze lokale Datei: {exc}",
+                file=sys.stderr,
+            )
+    return [e for e in _load_local_prediction_log() if e["date"] >= since]
 
 
 def _save_prediction_log(entries: list[dict]) -> None:
@@ -596,56 +607,29 @@ def _build_mv_lookup(corpus: pd.DataFrame) -> dict[tuple[str, str], float]:
     return lookup
 
 
-def _summarize_window(evaluated: list[dict], today: str, days: int) -> dict | None:
+def _summarize_from_daily(daily_docs: list[dict], today: str, days: int) -> dict | None:
+    """Wie zuvor `_summarize_window`, aber auf bereits AGGREGIERTEN
+    Tages-/Modell-Dokumenten (ein Dokument pro Kalendertag, nicht pro
+    Spieler) - Summiert n/sign_correct/abs_error_sum ueber das Fenster,
+    statt jede Rohdaten-Zeile einzeln zu iterieren."""
     cutoff = (datetime.date.fromisoformat(today) - datetime.timedelta(days=days)).isoformat()
-    window = [e for e in evaluated if e["date"] >= cutoff]
-    if not window:
+    window = [d for d in daily_docs if d["date"] >= cutoff]
+    n = sum(d["n"] for d in window)
+    if n == 0:
         return None
-    sign_accuracy = sum(1 for e in window if e["sign_correct"]) / len(window) * 100
-    mae = sum(e["abs_error"] for e in window) / len(window)
-    return {"n": len(window), "sign_accuracy": round(sign_accuracy, 1), "mae": round(mae, 2)}
+    sign_accuracy = sum(d["sign_correct"] for d in window) / n * 100
+    mae = sum(d["abs_error_sum"] for d in window) / n
+    return {"n": n, "sign_accuracy": round(sign_accuracy, 1), "mae": round(mae, 2)}
 
 
-def _evaluate_realized_accuracy_by_model(log_entries: list[dict], mv_lookup: dict, today: str) -> dict[str, dict]:
-    """Wie zuvor, aber getrennt pro model_type - ermoeglicht echten
-    Kopf-an-Kopf-Vergleich ueber die Zeit statt nur 'der jeweilige
-    Tagessieger, egal welches Modell das war'. Log-Eintraege ohne
-    model_type (altes Schema, vor Phase 4) werden uebersprungen statt
-    einen KeyError zu werfen - bewusst keine Migration noetig."""
-    evaluated_by_model: dict[str, list[dict]] = {"RandomForest": [], "HistGradientBoosting": []}
-    for entry in log_entries:
-        model_type = entry.get("model_type")
-        if model_type not in evaluated_by_model:
-            continue
-        date = entry["date"]
-        if date >= today:
-            continue
-        next_date = (datetime.date.fromisoformat(date) + datetime.timedelta(days=1)).isoformat()
-        mv_then = mv_lookup.get((entry["player_id"], date))
-        mv_next = mv_lookup.get((entry["player_id"], next_date))
-        if mv_then is None or mv_next is None:
-            continue
-        actual_delta = mv_next - mv_then
-        evaluated_by_model[model_type].append(
-            {
-                "date": date,
-                "sign_correct": np.sign(entry["predicted_delta"]) == np.sign(actual_delta),
-                "abs_error": abs(entry["predicted_delta"] - actual_delta),
-            }
-        )
-    return {
-        name: {f"realized_{days}d": _summarize_window(evaluated, today, days) for days in ACCURACY_WINDOWS_DAYS}
-        for name, evaluated in evaluated_by_model.items()
-    }
-
-
-def _build_accuracy_trend(log_entries: list[dict], mv_lookup: dict, today: str) -> list[dict]:
-    """Taegliche realisierte sign_accuracy pro Modell UEBER DIE KOMPLETTE
-    Historie (nicht nur 'heute' wie _evaluate_realized_accuracy_by_model) -
-    Rohdaten fuer den Trend-Chart im 'ML-Genauigkeit'-Tab. Gruppiert nach
-    Log-Datum, ein Eintrag pro Tag mit beiden Modellen nebeneinander."""
-    by_date: dict[str, dict[str, list[bool]]] = {}
-    for entry in log_entries:
+def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, today: str) -> list[dict]:
+    """Wertet alle in recent_entries bereits auswertbaren Eintraege aus
+    (Datum < today, Folgetag-Marktwert im aktuellen Corpus bekannt) und
+    aggregiert sie zu EINEM Dokument pro (date, model_type) - fuer
+    ml_accuracy_daily. Log-Eintraege ohne model_type (altes Schema, vor
+    Phase 4) werden uebersprungen statt einen KeyError zu werfen."""
+    agg: dict[tuple[str, str], dict] = {}
+    for entry in recent_entries:
         model_type = entry.get("model_type")
         if model_type not in ("RandomForest", "HistGradientBoosting"):
             continue
@@ -659,15 +643,46 @@ def _build_accuracy_trend(log_entries: list[dict], mv_lookup: dict, today: str) 
             continue
         actual_delta = mv_next - mv_then
         sign_correct = bool(np.sign(entry["predicted_delta"]) == np.sign(actual_delta))
-        by_date.setdefault(date, {"RandomForest": [], "HistGradientBoosting": []})[model_type].append(sign_correct)
+        abs_error = abs(entry["predicted_delta"] - actual_delta)
+        key = (date, model_type)
+        bucket = agg.setdefault(key, {"date": date, "model_type": model_type, "n": 0, "sign_correct": 0, "abs_error_sum": 0.0})
+        bucket["n"] += 1
+        bucket["sign_correct"] += int(sign_correct)
+        bucket["abs_error_sum"] += abs_error
+    return list(agg.values())
 
-    trend = []
-    for date in sorted(by_date):
-        day = {"date": date}
-        for model_type, hits in by_date[date].items():
-            day[model_type] = round(float(np.mean(hits)) * 100, 1) if hits else None
-        trend.append(day)
-    return trend
+
+def _realized_by_model_from_daily(daily_docs: list[dict], today: str) -> dict[str, dict]:
+    """Trailing-Fenster-Zusammenfassung pro Modell aus bereits gespeicherten
+    Tages-Aggregaten (ml_accuracy_daily) - ersetzt die alte, Rohdaten-
+    basierte _evaluate_realized_accuracy_by_model. Externe Rueckgabeform
+    ist IDENTISCH zur alten Funktion (dict[model_type, dict[fenster_label,
+    summary]])."""
+    by_model: dict[str, list[dict]] = {"RandomForest": [], "HistGradientBoosting": []}
+    for doc in daily_docs:
+        if doc.get("model_type") in by_model:
+            by_model[doc["model_type"]].append(doc)
+    return {
+        name: {f"realized_{days}d": _summarize_from_daily(docs, today, days) for days in ACCURACY_WINDOWS_DAYS}
+        for name, docs in by_model.items()
+    }
+
+
+def _trend_from_daily(daily_docs: list[dict]) -> list[dict]:
+    """Taegliche realisierte sign_accuracy pro Modell fuer den Trend-Chart -
+    liest direkt aus bereits gespeicherten ml_accuracy_daily-Aggregaten
+    (keine Rohdaten/mv_lookup mehr noetig, die Auswertung ist schon
+    passiert als das jeweilige Aggregat geschrieben wurde). Externe
+    Rueckgabeform ist IDENTISCH zur alten Funktion (Liste von
+    {date, RandomForest, HistGradientBoosting})."""
+    by_date: dict[str, dict] = {}
+    for doc in daily_docs:
+        model_type = doc.get("model_type")
+        if model_type not in ("RandomForest", "HistGradientBoosting"):
+            continue
+        day = by_date.setdefault(doc["date"], {"date": doc["date"]})
+        day[model_type] = round(doc["sign_correct"] / doc["n"] * 100, 1) if doc["n"] else None
+    return [by_date[date] for date in sorted(by_date)]
 
 
 def _select_live_model(realized_by_model: dict[str, dict], synthetic_winner: str) -> tuple[str, str]:
@@ -700,7 +715,7 @@ def _append_todays_predictions(today_df: pd.DataFrame, predictions_by_model: dic
         for player_id, date in zip(today_df["player_id"], today_df["date"])
         if player_id in predictions
     ]
-    log = _load_prediction_log() + new_entries
+    log = _load_local_prediction_log() + new_entries
     _save_prediction_log(log)
 
 
@@ -762,10 +777,26 @@ def predict_market_value_changes() -> dict | None:
 
         today_iso = pd.Timestamp(corpus["date"].max()).date().isoformat()
         mv_lookup = _build_mv_lookup(corpus)
-        log_entries = _load_prediction_log()
-        realized_by_model = _evaluate_realized_accuracy_by_model(log_entries, mv_lookup, today_iso)
+
+        recent_entries = _load_recent_prediction_log(today_iso)
+        daily_updates = _build_daily_accuracy_updates(recent_entries, mv_lookup, today_iso)
+        if daily_updates and os.environ.get("FIRESTORE_ENABLED"):
+            try:
+                firestore_db.upsert_accuracy_daily(firestore_db.connect(), daily_updates)
+            except Exception as exc:
+                print(f"Warnung: Firestore-Schreibzugriff fuer ml_accuracy_daily fehlgeschlagen: {exc}", file=sys.stderr)
+
+        daily_docs: list[dict] = []
+        if os.environ.get("FIRESTORE_ENABLED"):
+            try:
+                daily_docs = firestore_db.get_accuracy_daily(firestore_db.connect())
+            except Exception as exc:
+                print(f"Warnung: ml_accuracy_daily-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
+
+        realized_by_model = _realized_by_model_from_daily(daily_docs, today_iso)
         metrics["realized_by_model"] = realized_by_model
-        metrics["accuracy_trend"] = _build_accuracy_trend(log_entries, mv_lookup, today_iso)
+        metrics["accuracy_trend"] = _trend_from_daily(daily_docs)
+        metrics["synthetic_winner"] = synthetic_winner
 
         live_model_name, selection_reason = _select_live_model(realized_by_model, synthetic_winner)
         metrics["model_type"] = live_model_name
