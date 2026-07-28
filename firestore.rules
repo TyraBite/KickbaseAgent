@@ -1,12 +1,3 @@
-// Wird bis Phase 3 (CLI/CI-Deploy-Tooling) manuell in der Firebase Console
-// (Firestore Database -> Rules -> Publish) eingespielt - kein `firebase
-// deploy` in diesem Sandbox/Repo-Setup.
-//
-// TODO(Phase 2, offen): Platzhalter-UID unten durch die echte Firebase-Auth-
-// UID von tyrabite@kickbaseagent.de ersetzen (Firebase Console ->
-// Authentication -> Users -> Spalte "User UID" fuer diesen Nutzer kopieren),
-// dann erst in der Console publishen. Diese Datei ist bewusst noch NICHT
-// scharf/deployt, solange der Platzhalter drinsteht.
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -18,7 +9,7 @@ service cloud.firestore {
     // SDK access bypasses these rules entirely.
     match /dashboard_snapshot/{document=**} {
       allow read: if request.auth != null
-                  && request.auth.uid == "REPLACE_WITH_UID_FROM_FIREBASE_CONSOLE";
+                  && request.auth.uid == "lC85qOItQ1M6bRjzqnYcgBkLVDF2";
       allow write: if false; // only the pipeline (Admin SDK) writes this
     }
 
