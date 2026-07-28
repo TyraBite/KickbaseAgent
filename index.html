@@ -185,6 +185,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   <button class="tab-btn" data-tab="spekulation">Spekulation</button>
   <button class="tab-btn" data-tab="team">Eigenes Team</button>
   <button class="tab-btn" data-tab="wunschkader">Wunschkader</button>
+  <button class="tab-btn" data-tab="alle-spieler">Alle Spieler</button>
   <button class="tab-btn" data-tab="liga">Ligaanalyse</button>
 </nav>
 <main>
@@ -192,6 +193,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
   <section id="tab-spekulation" class="tab-panel"></section>
   <section id="tab-team" class="tab-panel"></section>
   <section id="tab-wunschkader" class="tab-panel"></section>
+  <section id="tab-alle-spieler" class="tab-panel"></section>
   <section id="tab-liga" class="tab-panel"></section>
 </main>
 </div>
@@ -591,6 +593,82 @@ function renderWunschkader() {
     renderBudgetPlan(DATA.budget_plan));
 }
 
+function renderAlleSpieler() {
+  const allRows = DATA.alle_spieler || [];
+  const filters = { position: "all", verfuegbarkeit: "all", search: "" };
+  const positions = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
+  function getRows() {
+    return allRows.filter((r) => {
+      if (filters.position !== "all" && r.position !== filters.position) return false;
+      if (filters.verfuegbarkeit === "frei" && r.owner !== "Frei") return false;
+      if (filters.verfuegbarkeit === "eigen" && r.owner !== "Eigener Kader") return false;
+      if (filters.verfuegbarkeit === "andere" && (r.owner === "Frei" || r.owner === "Eigener Kader")) return false;
+      if (filters.search && !`${r.name} ${r.team_name ?? ""}`.toLowerCase().includes(filters.search)) return false;
+      return true;
+    });
+  }
+  const columns = [
+    { key: "name", label: "Spieler" },
+    { key: "position", label: "Pos." },
+    { key: "team_name", label: "Verein" },
+    { key: "market_value", label: "Marktwert", numeric: true },
+    { key: "points_avg", label: "Schnitt", numeric: true },
+    { key: "signal", label: "Signal", numeric: true },
+    { key: "starting_rank", label: "Startelf-Rang", numeric: true },
+    { key: "owner", label: "Status" },
+    { key: "status_label", label: "Fitness" },
+  ];
+  const renderRow = (r) => `<tr>
+    <td>${r.name}</td>
+    <td>${r.position}</td>
+    <td>${r.team_name ?? ""}</td>
+    <td class="num">${fmtNum(r.market_value)}</td>
+    <td class="num">${fmtNum(r.points_avg)}</td>
+    <td class="num">${signalPill(r.signal)}</td>
+    <td class="num">${r.starting_rank ?? '<span class="muted">n/v</span>'}</td>
+    <td>${r.owner === "Frei" ? '<span class="pill pill-good">Frei</span>' : r.owner === "Eigener Kader" ? '<span class="pill pill-warn">Eigener Kader</span>' : `<span class="pill pill-crit">${r.owner}</span>`}</td>
+    <td>${r.status_label ? `<span class="pill pill-warn">${r.status_label}</span>` : ""}</td>
+  </tr>`;
+
+  const filterBar = `<div class="filter-bar">
+    <select id="alle-spieler-filter-position">
+      <option value="all">Alle Positionen</option>
+      ${positions.map((p) => `<option value="${p}">${p}</option>`).join("")}
+    </select>
+    <select id="alle-spieler-filter-verfuegbarkeit">
+      <option value="all">Alle</option>
+      <option value="frei">Nur freie</option>
+      <option value="eigen">Nur eigene</option>
+      <option value="andere">Nur bei anderen Managern</option>
+    </select>
+    <input type="search" id="alle-spieler-filter-search" placeholder="Suche Spieler/Verein...">
+  </div>`;
+
+  function redraw() {
+    buildTable("tab-alle-spieler", columns, getRows, renderRow,
+      `${allRows.length} Liga-Spieler insgesamt, ${getRows().length} nach Filter sichtbar.`, filterBar);
+    wireFilters();
+  }
+  function wireFilters() {
+    document.getElementById("alle-spieler-filter-position").value = filters.position;
+    document.getElementById("alle-spieler-filter-position").addEventListener("change", (e) => {
+      filters.position = e.target.value;
+      redraw();
+    });
+    document.getElementById("alle-spieler-filter-verfuegbarkeit").value = filters.verfuegbarkeit;
+    document.getElementById("alle-spieler-filter-verfuegbarkeit").addEventListener("change", (e) => {
+      filters.verfuegbarkeit = e.target.value;
+      redraw();
+    });
+    document.getElementById("alle-spieler-filter-search").value = filters.search;
+    document.getElementById("alle-spieler-filter-search").addEventListener("input", (e) => {
+      filters.search = e.target.value.trim().toLowerCase();
+      redraw();
+    });
+  }
+  redraw();
+}
+
 function renderSpekulation() {
   const allRows = DATA.spekulation;
   if (!allRows || !allRows.length) {
@@ -659,6 +737,7 @@ function updateTabBadges() {
     spekulation: (DATA.spekulation || []).length,
     team: teamCount,
     wunschkader: (DATA.wunschkader || []).length,
+    "alle-spieler": (DATA.alle_spieler || []).length,
   };
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     const count = counts[btn.dataset.tab];
@@ -672,6 +751,7 @@ function renderAll() {
   renderSpekulation();
   renderTeam();
   renderWunschkader();
+  renderAlleSpieler();
   renderLiga();
   updateTabBadges();
 }
