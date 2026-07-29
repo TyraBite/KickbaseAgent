@@ -52,6 +52,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
     {
       key: "name",
       label: "Spieler",
+      sortValue: (r) => r.name,
       render: (r) => (
         <div className="flex flex-wrap items-center gap-2">
           <TeamCrest teamName={r.team_name} />
@@ -60,17 +61,18 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
         </div>
       ),
     },
-    { key: "market_value", label: "Marktwert", align: "right", render: (r) => fmtNum(r.market_value) },
-    { key: "points_avg", label: "Schnitt", align: "right", render: (r) => fmtNum(r.points_avg) },
-    { key: "signal", label: "Signal", align: "right", render: (r) => <SignalBadge signal={r.signal} thresholds={thresholds} /> },
+    { key: "market_value", label: "Marktwert", align: "right", sortValue: (r) => r.market_value, render: (r) => fmtNum(r.market_value) },
+    { key: "points_avg", label: "Schnitt", align: "right", sortValue: (r) => r.points_avg, render: (r) => fmtNum(r.points_avg) },
+    { key: "signal", label: "Signal", align: "right", sortValue: (r) => r.signal, render: (r) => <SignalBadge signal={r.signal} thresholds={thresholds} /> },
     {
       key: "starting_rank",
       label: "Startelf-Rang",
       align: "right",
+      sortValue: (r) => r.starting_rank,
       render: (r) => r.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>,
     },
-    { key: "owner", label: "Status", render: (r) => <Badge tone={ownerTone(r.owner)}>{r.owner}</Badge> },
-    { key: "status_label", label: "Fitness", render: (r) => (r.status_label ? <Badge tone="warn">{r.status_label}</Badge> : "") },
+    { key: "owner", label: "Status", sortValue: (r) => r.owner, render: (r) => <Badge tone={ownerTone(r.owner)}>{r.owner}</Badge> },
+    { key: "status_label", label: "Fitness", sortValue: (r) => r.status_label, render: (r) => (r.status_label ? <Badge tone="warn">{r.status_label}</Badge> : "") },
   ];
 
   return (

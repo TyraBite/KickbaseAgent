@@ -1,17 +1,20 @@
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
-// Generische sortierbare-Tabelle-Anzeige (Sortierung selbst bleibt wie bei
-// SpekulationTab ueber ein externes Sortier-Dropdown, kein Klick-auf-Spalte -
-// gleiches Muster wie schon etabliert, kein neues UI-Konzept). Ersetzt den
-// Bedarf, fuer jeden neu migrierten Tab eine eigene <table> von Hand zu
-// bauen (analog zum alten buildTable()/makeSortable() in index.html, hier
-// als React-Komponente statt DOM-Manipulation).
+// Generische sortierbare-Tabelle-Anzeige (analog zum alten buildTable()/
+// makeSortable() in index.html, hier als React-Komponente statt DOM-
+// Manipulation). Spaltenklick-Sortierung (sortValue) ist die feingranulare
+// Ergaenzung zu den bestehenden Sortier-Dropdowns pro Tab - Dropdown liefert
+// die Ausgangsreihenfolge, ein Spaltenklick ueberschreibt sie clientseitig,
+// bis eine andere Spalte geklickt wird.
 export interface TableColumn<T> {
   key: string;
   label: string;
   render: (row: T) => ReactNode;
   align?: "left" | "right";
+  sortValue?: (row: T) => string | number | null;
 }
+
+type SortState = { key: string; dir: 1 | -1 } | null;
 
 export function SortableTable<T>({
   columns,
@@ -24,20 +27,50 @@ export function SortableTable<T>({
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
 }) {
+  const [sort, setSort] = useState<SortState>(null);
+
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+    const col = columns.find((c) => c.key === sort.key);
+    if (!col?.sortValue) return rows;
+    return [...rows].sort((a, b) => {
+      const av = col.sortValue!(a);
+      const bv = col.sortValue!(b);
+      if (av === null || av === undefined) return bv === null || bv === undefined ? 0 : 1;
+      if (bv === null || bv === undefined) return -1;
+      if (typeof av === "string" || typeof bv === "string") {
+        return String(av).localeCompare(String(bv)) * sort.dir;
+      }
+      return (av - bv) * sort.dir;
+    });
+  }, [rows, sort, columns]);
+
+  function handleHeaderClick(col: TableColumn<T>) {
+    if (!col.sortValue) return;
+    setSort((prev) => (prev?.key === col.key ? { key: col.key, dir: (prev.dir * -1) as 1 | -1 } : { key: col.key, dir: 1 }));
+  }
+
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
       <table className="w-full min-w-[720px] text-left text-sm text-slate-700 dark:text-slate-200">
         <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
           <tr>
             {columns.map((col) => (
-              <th key={col.key} className={`px-3 py-2 ${col.align === "right" ? "text-right" : ""}`}>
+              <th
+                key={col.key}
+                onClick={() => handleHeaderClick(col)}
+                className={`px-3 py-2 ${col.align === "right" ? "text-right" : ""} ${
+                  col.sortValue ? "cursor-pointer select-none hover:text-slate-700 dark:hover:text-slate-200" : ""
+                }`}
+              >
                 {col.label}
+                {sort?.key === col.key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {sortedRows.map((row) => (
             <tr
               key={rowKey(row)}
               role={onRowClick ? "button" : undefined}

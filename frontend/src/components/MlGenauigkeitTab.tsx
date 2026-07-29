@@ -114,9 +114,15 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
   }
 
   const columns: TableColumn<MlAccuracyTrendEntry>[] = [
-    { key: "date", label: "Datum", render: (e) => e.date },
-    { key: "rf", label: "Random Forest", align: "right", render: (e) => fmtAccPct(e.RandomForest) },
-    { key: "hgb", label: "Hist Gradient Boosting", align: "right", render: (e) => fmtAccPct(e.HistGradientBoosting) },
+    { key: "date", label: "Datum", sortValue: (e) => e.date, render: (e) => e.date },
+    { key: "rf", label: "Random Forest", align: "right", sortValue: (e) => e.RandomForest, render: (e) => fmtAccPct(e.RandomForest) },
+    {
+      key: "hgb",
+      label: "Hist Gradient Boosting",
+      align: "right",
+      sortValue: (e) => e.HistGradientBoosting,
+      render: (e) => fmtAccPct(e.HistGradientBoosting),
+    },
   ];
 
   return (

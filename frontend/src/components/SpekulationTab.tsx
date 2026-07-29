@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { SpekulationRow } from "../types";
 import { fmtNum, fmtSigned, formatDurationMs, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
+import { SortableTable, type TableColumn } from "./table";
 
 type SortKey = "auction" | "ml" | "roi" | "price" | "trend" | "name";
 
@@ -204,64 +205,54 @@ function SpekulationTable({
   now: number;
   onSelect: (row: SpekulationRow) => void;
 }) {
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-      <table className="w-full min-w-[720px] text-left text-sm text-slate-700 dark:text-slate-200">
-        <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          <tr>
-            <th className="px-3 py-2">Spieler</th>
-            <th className="px-3 py-2">ML-Prognose</th>
-            <th className="px-3 py-2">Rendite%</th>
-            <th className="px-3 py-2">Preis</th>
-            <th className="px-3 py-2">Trend 7T</th>
-            <th className="px-3 py-2">Auktion</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr
-              key={r.name}
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelect(r)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelect(r);
-                }
-              }}
-              className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/60 dark:hover:bg-slate-800/40"
-            >
-              <td className="px-3 py-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <TeamCrest teamName={r.team_name} />
-                  <span className="font-medium text-slate-900 dark:text-slate-50">{r.name}</span>
-                  <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[r.position] ?? r.position}</span>
-                  {r.is_hype_gipfel && <Badge tone="crit">Hype-Gipfel</Badge>}
-                  {r.near_floor && <Badge tone="good">Boden-Schutz</Badge>}
-                </div>
-              </td>
-              <td className="px-3 py-2 tabular-nums">
-                <span className={trendClass(r.ml_prediction)}>
-                  {trendArrow(r.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(r.ml_prediction)}
-                </span>
-              </td>
-              <td className="px-3 py-2 tabular-nums">{r.roi_pct.toFixed(1)}%</td>
-              <td className="px-3 py-2 tabular-nums">{fmtNum(r.price)}</td>
-              <td className="px-3 py-2 tabular-nums">
-                <span className={trendClass(r.market_value_change_7d)}>
-                  {trendArrow(r.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(r.market_value_change_7d)}
-                </span>
-              </td>
-              <td className="px-3 py-2">
-                <AuctionValue row={r} now={now} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  const columns: TableColumn<SpekulationRow>[] = [
+    {
+      key: "name",
+      label: "Spieler",
+      sortValue: (r) => r.name,
+      render: (r) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <TeamCrest teamName={r.team_name} />
+          <span className="font-medium text-slate-900 dark:text-slate-50">{r.name}</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[r.position] ?? r.position}</span>
+          {r.is_hype_gipfel && <Badge tone="crit">Hype-Gipfel</Badge>}
+          {r.near_floor && <Badge tone="good">Boden-Schutz</Badge>}
+        </div>
+      ),
+    },
+    {
+      key: "ml_prediction",
+      label: "ML-Prognose",
+      align: "right",
+      sortValue: (r) => r.ml_prediction,
+      render: (r) => (
+        <span className={trendClass(r.ml_prediction)}>
+          {trendArrow(r.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(r.ml_prediction)}
+        </span>
+      ),
+    },
+    { key: "roi_pct", label: "Rendite%", align: "right", sortValue: (r) => r.roi_pct, render: (r) => `${r.roi_pct.toFixed(1)}%` },
+    { key: "price", label: "Preis", align: "right", sortValue: (r) => r.price, render: (r) => fmtNum(r.price) },
+    {
+      key: "market_value_change_7d",
+      label: "Trend 7T",
+      align: "right",
+      sortValue: (r) => r.market_value_change_7d,
+      render: (r) => (
+        <span className={trendClass(r.market_value_change_7d)}>
+          {trendArrow(r.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(r.market_value_change_7d)}
+        </span>
+      ),
+    },
+    {
+      key: "auction",
+      label: "Auktion",
+      sortValue: (r) => r.auction_remaining_seconds,
+      render: (r) => <AuctionValue row={r} now={now} />,
+    },
+  ];
+
+  return <SortableTable columns={columns} rows={rows} rowKey={(r) => r.name} onRowClick={onSelect} />;
 }
 
 function SpekulationDetailModal({

@@ -73,6 +73,7 @@ export default function TransfermarktTab({ data }: { data: DashboardSnapshot }) 
     {
       key: "name",
       label: "Spieler",
+      sortValue: (r) => r.name,
       render: (r) => (
         <div className="flex flex-wrap items-center gap-2">
           <TeamCrest teamName={r.team_name} />
@@ -81,32 +82,45 @@ export default function TransfermarktTab({ data }: { data: DashboardSnapshot }) 
         </div>
       ),
     },
-    { key: "price", label: "Preis", align: "right", render: (r) => fmtNum(r.price) },
-    { key: "price_delta_pct", label: "Delta%", align: "right", render: (r) => fmtPct(r.price_delta_pct) },
-    { key: "offering_username", label: "Anbieter", render: (r) => (r.is_system_offer ? "Kickbase" : r.offering_username ?? "") },
-    { key: "average_points", label: "Schnitt", align: "right", render: (r) => fmtNum(r.average_points) },
-    { key: "signal", label: "Signal", align: "right", render: (r) => <SignalBadge signal={r.signal} thresholds={thresholds} /> },
+    { key: "price", label: "Preis", align: "right", sortValue: (r) => r.price, render: (r) => fmtNum(r.price) },
+    { key: "price_delta_pct", label: "Delta%", align: "right", sortValue: (r) => r.price_delta_pct, render: (r) => fmtPct(r.price_delta_pct) },
+    {
+      key: "offering_username",
+      label: "Anbieter",
+      sortValue: (r) => (r.is_system_offer ? "Kickbase" : r.offering_username),
+      render: (r) => (r.is_system_offer ? "Kickbase" : r.offering_username ?? ""),
+    },
+    { key: "average_points", label: "Schnitt", align: "right", sortValue: (r) => r.average_points, render: (r) => fmtNum(r.average_points) },
+    { key: "signal", label: "Signal", align: "right", sortValue: (r) => r.signal, render: (r) => <SignalBadge signal={r.signal} thresholds={thresholds} /> },
     {
       key: "market_value_change_7d",
       label: "Trend 7T",
       align: "right",
+      sortValue: (r) => r.market_value_change_7d,
       render: (r) => (
         <span className={trendClass(r.market_value_change_7d)}>
           {trendArrow(r.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(r.market_value_change_7d)}
         </span>
       ),
     },
-    { key: "ml_prediction", label: "ML-Prognose", align: "right", render: (r) => fmtSigned(r.ml_prediction) },
+    { key: "ml_prediction", label: "ML-Prognose", align: "right", sortValue: (r) => r.ml_prediction, render: (r) => fmtSigned(r.ml_prediction) },
     {
       key: "starting_rank",
       label: "Startelf-Rang",
       align: "right",
+      sortValue: (r) => r.starting_rank,
       render: (r) => r.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>,
     },
-    { key: "affordable", label: "Leistbar", render: (r) => <Badge tone={r.affordable ? "good" : "crit"}>{r.affordable ? "ja" : "nein"}</Badge> },
+    {
+      key: "affordable",
+      label: "Leistbar",
+      sortValue: (r) => (r.affordable ? 1 : 0),
+      render: (r) => <Badge tone={r.affordable ? "good" : "crit"}>{r.affordable ? "ja" : "nein"}</Badge>,
+    },
     {
       key: "auction",
       label: "Auktion",
+      sortValue: (r) => r.auction_remaining_seconds,
       render: (r) =>
         r.auction_urgent ? (
           <Badge tone="crit">{r.auction_status}</Badge>
