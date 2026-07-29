@@ -1,14 +1,10 @@
 name: Frontend Pilot Deploy
 
-# Baut das neue React/Vite/Tailwind-Frontend (frontend/) und kombiniert es
-# mit der bestehenden, unveraenderten index.html zu einem gemeinsamen
-# GitHub-Pages-Artefakt. Alte URL (.../KickbaseAgent/) bleibt exakt wie
-# heute, das neue Frontend erscheint parallel unter .../KickbaseAgent/preview/
-# (Phase 6 Sub-Projekt 1: Parallelbetrieb bis bewusster Cutover).
-#
-# Voraussetzung (einmalig, macht der Repo-Owner selbst im Browser):
-# Settings -> Pages -> Source auf "GitHub Actions" umstellen (aktuell
-# "Deploy from a branch").
+# Baut das neue React/Vite/Tailwind-Frontend (frontend/) und deployt es als
+# Standard-UI unter .../KickbaseAgent/. Die alte, unveraenderte index.html
+# bleibt separat unter .../KickbaseAgent/old/ erreichbar (Cutover
+# 2026-07-29, Phase 6 Sub-Projekt 4 - vorher lief das neue Frontend
+# parallel unter /preview/, siehe Git-Historie).
 
 on:
   push:
@@ -51,9 +47,9 @@ jobs:
 
       - name: Assemble Pages artifact
         run: |
-          mkdir -p site/preview
-          cp index.html site/index.html
-          cp -r frontend/dist/. site/preview/
+          mkdir -p site/old
+          cp -r frontend/dist/. site/
+          cp index.html site/old/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:

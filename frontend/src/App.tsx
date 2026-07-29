@@ -74,9 +74,6 @@ export default function App() {
           <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-md shadow-brand-500/50" />
           KickbaseAgent
           <span className="font-normal text-slate-400 dark:text-slate-500">Dashboard</span>
-          <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-300">
-            Preview
-          </span>
         </h1>
       </header>
       <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950">
