@@ -44,50 +44,6 @@ export interface TransfermarktListing {
   expiry_is_estimate: boolean;
 }
 
-export interface SpekulationRow {
-  name: string;
-  position: string;
-  team_name: string | null;
-  price: number;
-  roi_pct: number;
-  average_points: number | null;
-  market_value_change_7d: number | null;
-  market_value_low_92d: number | null;
-  market_value_high_92d: number | null;
-  ml_prediction: number | null;
-  auction_status: string | null;
-  auction_urgent: boolean;
-  auction_remaining_seconds: number | null;
-  auction_expires_at: string | null;
-  is_hype_gipfel: boolean;
-  near_floor: boolean;
-}
-
-export interface WunschkaderRow {
-  name: string;
-  position: string;
-  role: string;
-  note: string | null;
-  planned_price: number | null;
-  is_estimate: boolean;
-  is_own: boolean;
-  status: string;
-  market_value: number | null;
-  points_avg: number | null;
-  team_name: string | null;
-  starting_rank: number | null;
-  status_code: number | null;
-  signal: number | null;
-  ml_prediction: number | null;
-}
-
-// ALT (kept temporarily under a new name during the migration window):
-export interface LegacyRawWunschkaderTarget {
-  name: string;
-  position: string;
-  role?: string;
-  note?: string;
-}
 
 // NEU:
 export interface RawWunschkaderTarget {
@@ -96,33 +52,7 @@ export interface RawWunschkaderTarget {
   note?: string;
 }
 
-export interface BudgetPlanSellRow {
-  name: string;
-  market_value: number | null;
-}
 
-export interface BudgetPlan {
-  cash: number;
-  sell_rows: BudgetPlanSellRow[];
-  sell_proceeds: number;
-  pool: number;
-  committed: number;
-  remaining: number;
-}
-
-export interface AlleSpielerRow {
-  player_id: string;
-  name: string;
-  position: string;
-  team_name: string | null;
-  market_value: number | null;
-  points_avg: number | null;
-  starting_rank: number | null;
-  status_label: string | null;
-  owner: string;
-  fairwert: number | null;
-  signal: number | null;
-}
 
 export interface SignalThresholds {
   good: number;
@@ -150,27 +80,9 @@ export interface PlayerRow {
   ml_prediction: number | null;
 }
 
-export interface TransfermarktRow extends PlayerRow {
-  price: number;
-  price_delta_pct: number | null;
-  offering_username: string | null;
-  is_system_offer: boolean;
-  affordable: boolean;
-  auction_status: string | null;
-  auction_remaining_seconds: number | null;
-  auction_urgent: boolean;
-  auction_expires_at: string | null;
-  leading_bid_price: number | null;
-  is_own_leading_bid: boolean;
-}
 
 export interface EigenesTeamRow extends PlayerRow {
   sell_signal?: "halten" | "verkaufen";
-}
-
-export interface EigenesTeamSplit {
-  verkaufen: EigenesTeamRow[];
-  bleibt: EigenesTeamRow[];
 }
 
 export interface LigaanalyseRow {
@@ -223,7 +135,6 @@ export interface MlAccuracyTrendEntry {
 }
 
 export interface DashboardSnapshot {
-  // NEU
   players: Record<string, PlayerRecord>;
   calibration: Calibration | null;
   transfermarkt_listings: TransfermarktListing[];
@@ -231,16 +142,6 @@ export interface DashboardSnapshot {
   owned_by: Record<string, string>;
   wunschkader_targets: RawWunschkaderTarget[];
   wunschkader_sell_list: string[] | null;
-
-  // ALT — optional, rein zur Compile-Zeit-Ueberbrueckung waehrend Tasks 15-19.
-  // WIRD IN TASK 20 KOMPLETT ENTFERNT. Kein Firestore-Bezug, kein Live-Risiko.
-  alle_spieler?: AlleSpielerRow[];
-  transfermarkt?: TransfermarktRow[];
-  eigenes_team_split?: EigenesTeamSplit;
-  spekulation?: SpekulationRow[];
-  wunschkader_raw?: { targets: LegacyRawWunschkaderTarget[]; formation?: string | null; sell_list?: string[] } | null;
-
-  // UNVERAENDERT
   wunschkader_formation: string | null;
   ligaanalyse: LigaanalyseRow[];
   ml_metrics: MlMetrics | null;
