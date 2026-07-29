@@ -21,7 +21,7 @@ export function valuation(
 ): { fairwert: number | null; signal: number | null } {
   const k = kForPosition(calibration, position);
   if (!k || !marketValue || !averagePoints) return { fairwert: null, signal: null };
-  const fairwert = k * averagePoints;
+  const fairwert = Math.round(k * averagePoints);
   const signal = Math.round((k / (marketValue / averagePoints)) * 100) / 100;
   return { fairwert, signal };
 }
