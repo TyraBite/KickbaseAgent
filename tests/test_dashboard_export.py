@@ -11,6 +11,7 @@ from src.dashboard_export import (
     _load_wunschkader,
     _resolve_heavy_data,
     _resolve_is_light,
+    export,
 )
 
 
@@ -167,6 +168,77 @@ class ResolveHeavyDataTests(unittest.TestCase):
         self.assertEqual(result["calibration"], {"Sturm": 0.9})
         self.assertEqual(result["owned_by"], {"p2": "Rivale"})
         self.assertNotIn("starting_rank_by_player_id", result)
+
+
+FRESH_MARKET_LISTING = {
+    "player_id": "p_new", "name": "Hajdari", "position": "Abwehr", "team_name": "Freiburg",
+    "status_code": 0, "starting_rank": 1,
+    "market_value": 14_000_000, "market_value_change_7d": None, "market_value_low_92d": None,
+    "market_value_high_92d": None, "market_value_in_drop_phase": None,
+    "average_points": 90, "total_points": 300,
+    "price": 14_000_000, "price_delta_pct": 0.0,
+    "offering_username": None, "is_system_offer": 1, "pending_offers_count": 0,
+    "leading_bid_username": None, "leading_bid_price": None, "is_own_leading_bid": 0,
+    "listed_at": "2026-07-29T13:28:37Z", "expires_at": "2026-07-30T13:28:37Z",
+    "expiry_is_estimate": 0,
+}
+
+
+class ExportLightModeFreshnessTests(unittest.TestCase):
+    """export() im Light-Modus darf 'players'/'transfermarkt_listings' NIE aus
+    dem gecachten Snapshot uebernehmen - beide werden in JEDEM Modus (Heavy
+    UND Light) frisch aus own_squad/market_listings gebaut, siehe
+    _build_players_map()/_build_transfermarkt_listings(). Ersetzt die im
+    selben Dispatch geloeschte ExportLightModeTests (testete dieselbe
+    Frische-Invariante gegen das alte transfermarkt/spekulation-Schema,
+    urspruenglicher Bugfund: commit 1923c05 - ein frisch gelisteter Spieler
+    blieb bis zu 24h unsichtbar). Das alte Bugbild ist im neuen Design
+    strukturell unmoeglich (kein gecachter Array-Pfad mehr fuer diese
+    Felder) - aber export() selbst braucht trotzdem MINDESTENS einen Test,
+    der es end-to-end aufruft: sonst faellt es niemandem auf, wenn ein
+    kuenftiger Edit fetcher.run()/_load_snapshot() versehentlich unter einen
+    is_light-Zweig verschiebt oder einen cached_snapshot[...]-Read fuer
+    transfermarkt_listings/players wieder einfuehrt."""
+
+    def _run_export_in_light_mode(self, cached_snapshot, fresh_market_listings):
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "DASHBOARD_MODE": "light", "FIRESTORE_ENABLED": "1"},
+        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+            "src.dashboard_export.get_me", return_value={"cpi": "1"}
+        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-29"), patch(
+            "src.dashboard_export._load_snapshot", return_value=([], fresh_market_listings, [], [])
+        ), patch("src.dashboard_export.firestore_db.connect"), patch(
+            "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
+        ), patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot"), patch(
+            "src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value=[]):
+            return export()
+
+    def _cached_snapshot_with_stale_player_only(self):
+        return {
+            "players": {
+                "p_stale": {"player_id": "p_stale", "name": "StaleOnly", "market_value": 1_000_000, "starting_rank": 1},
+            },
+            "calibration": None, "ml_metrics": None, "ml_accuracy_trend": None, "owned_by": {},
+        }
+
+    def test_light_mode_serves_freshly_listed_player_absent_from_cache(self):
+        cached_snapshot = self._cached_snapshot_with_stale_player_only()
+
+        data = self._run_export_in_light_mode(cached_snapshot, [FRESH_MARKET_LISTING])
+
+        listing_ids = [r["player_id"] for r in data["transfermarkt_listings"]]
+        self.assertIn("p_new", listing_ids)
+        self.assertIn("p_new", data["players"])
+        self.assertEqual(data["players"]["p_new"]["market_value"], 14_000_000)
+
+    def test_light_mode_leaves_untouched_cached_player_unchanged(self):
+        cached_snapshot = self._cached_snapshot_with_stale_player_only()
+
+        data = self._run_export_in_light_mode(cached_snapshot, [FRESH_MARKET_LISTING])
+
+        self.assertEqual(data["players"]["p_stale"], cached_snapshot["players"]["p_stale"])
 
 
 class BuildPlayersMapTests(unittest.TestCase):
