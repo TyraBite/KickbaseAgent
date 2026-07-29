@@ -1,5 +1,5 @@
 import { formatDurationMs } from "../format";
-import type { Calibration, PlayerRecord, TransfermarktListing } from "../types";
+import type { Calibration, PlayerRecord } from "../types";
 
 // 1:1 Port von dashboard_export.py::_k_per_point()
 export function costPerPoint(marketValue: number | null, averagePoints: number | null): number | null {
@@ -76,15 +76,50 @@ function berlinParts(date: Date) {
   return map as { year: number; month: number; day: number; hour: number; minute: number; second: number };
 }
 
-// 1:1 Port von dashboard_export.py::_next_update_cutoff() - DST-sicher ueber
-// Intl.DateTimeFormat statt hartkodiertem UTC-Offset.
+// 1:1 Port von dashboard_export.py::_parse_iso_z() - strikte Validierung des exakten
+// Formats "%Y-%m-%dT%H:%M:%SZ" (kein new Date(str), das parst Z-lose Strings permissiv
+// als Browser-Lokalzeit statt UTC und Bruchteile/Offsets, die Python ablehnen wuerde).
+function parseIsoZ(raw: string | null): Date | null {
+  if (!raw) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/.exec(raw);
+  if (!m) return null;
+  const [year, month, day, hour, minute, second] = m.slice(1).map(Number);
+  const ts = Date.UTC(year, month - 1, day, hour, minute, second);
+  const d = new Date(ts);
+  // Date.UTC rollt ungueltige Felder (z.B. Monat 13, Tag 32) einfach in den naechsten
+  // Zeitraum - Rueckvergleich der Felder faengt das ab, analog zu strptime()'s ValueError.
+  if (
+    d.getUTCFullYear() !== year ||
+    d.getUTCMonth() !== month - 1 ||
+    d.getUTCDate() !== day ||
+    d.getUTCHours() !== hour ||
+    d.getUTCMinutes() !== minute ||
+    d.getUTCSeconds() !== second
+  ) {
+    return null;
+  }
+  return d;
+}
+
+// 1:1 Port von dashboard_export.py::_next_update_cutoff() - DST-sicher: der UTC-Offset
+// wird zweistufig aufgeloest (erst an `now`, dann am so ermittelten Ziel-Zeitpunkt neu),
+// weil an den zwei jaehrlichen Umstellungstagen der Offset von `now` vom Offset des
+// Cutoffs (22 Uhr desselben Tages) abweichen kann - einmaliges Aufloesen an `now` allein
+// reicht dann nicht (siehe Task-12-Review: bis zu 1h falsch in einem ca. 9h/Jahr-Fenster).
 export function nextUpdateCutoff(now: Date): Date {
   const p = berlinParts(now);
   const localNowAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
   let cutoffLocalAsUtc = Date.UTC(p.year, p.month - 1, p.day, NEXT_MARKET_VALUE_UPDATE_HOUR, 0, 0, 0);
   if (localNowAsUtc >= cutoffLocalAsUtc) cutoffLocalAsUtc += 24 * 3600 * 1000;
-  const offsetMinutes = Math.round((localNowAsUtc - now.getTime()) / 60000);
-  return new Date(cutoffLocalAsUtc - offsetMinutes * 60000);
+
+  const offsetAt = (d: Date) => {
+    const parts = berlinParts(d);
+    const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    return asUtc - d.getTime();
+  };
+  let cutoff = new Date(cutoffLocalAsUtc - offsetAt(now));
+  cutoff = new Date(cutoffLocalAsUtc - offsetAt(cutoff)); // Offset am Ziel-Zeitpunkt neu aufloesen
+  return cutoff;
 }
 
 // 1:1 Port von dashboard_export.py::_auction_status()
@@ -95,9 +130,21 @@ export function auctionLabelAndRemaining(
   now: Date
 ): { label: string; remainingSeconds: number } {
   if (!expiresAt) {
-    return { label: "kein Zeitlimit", remainingSeconds: NO_EXPIRY_SENTINEL_SECONDS };
+    const listed = parseIsoZ(listedAt);
+    if (listed === null) {
+      return { label: "unbekannt", remainingSeconds: NO_EXPIRY_SENTINEL_SECONDS };
+    }
+    const ageMs = now.getTime() - listed.getTime();
+    return {
+      label: `kein Zeitlimit ermittelbar (gelistet seit ${formatDurationMs(ageMs)})`,
+      remainingSeconds: NO_EXPIRY_SENTINEL_SECONDS,
+    };
   }
-  const remainingMs = new Date(expiresAt).getTime() - now.getTime();
+  const expires = parseIsoZ(expiresAt);
+  if (expires === null) {
+    return { label: "unbekannt", remainingSeconds: NO_EXPIRY_SENTINEL_SECONDS };
+  }
+  const remainingMs = expires.getTime() - now.getTime();
   const remainingSeconds = Math.max(Math.round(remainingMs / 1000), 0);
   if (remainingSeconds <= 0) return { label: "Frist abgelaufen", remainingSeconds: 0 };
   const suffix = expiryIsEstimate ? " (geschätzt)" : "";
