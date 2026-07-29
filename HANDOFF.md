@@ -26,6 +26,7 @@ KickbaseAgent-Dashboard (Fantasy-Football-Auswertung für eine Kickbase-Liga) vo
   - **Bug: `prompt_builder.py` Kosten/Punkt** (Commit `72619f0`): `_cost_per_point()` bekam bei beiden Aufrufstellen `total_points` (Saison-Summe) statt `average_points` (Punkteschnitt) übergeben — inkonsistent zur sonst überall etablierten Definition (`market_value/average_points`, siehe `_k_per_point`). Per TDD gefixt, neue Testdatei `tests/test_prompt_builder.py` (gab's bisher gar nicht für dieses Modul).
   - **`frontend/src/vite-env.d.ts` ergänzt + `typecheck`-Script** (Commit `34eb8ec`): behebt den letzten verbleibenden `tsc`-Fehler (`ImportMeta.env`), `npm run typecheck` kapselt den bisher nur manuell ausgeführten Befehl. `tsc` läuft jetzt mit 0 Fehlern.
   - Spekulation-Karten-Pills bewusst NICHT angefasst (siehe Warnings — `SpekulationTab.tsx` wird vom players-Map-Redesign in dessen Task 17 komplett umgebaut, jetzt reinpatchen hätte später kollidiert).
+- [x] **Bug: Ligaanalyse-Budget für Fleischmanns zeigte 333 Mio. statt echter ~45 Mio.** (Commit `eec9957`, per `systematic-debugging`, live reproduziert und live verifiziert): `KICKBASE_LEAGUE_START_DATE` existierte nur in der lokalen `.env`, war in KEINER GitHub-Actions-Workflow-Env verdrahtet (`KICKBASE_LEAGUE_START_BUDGET` war schon korrekt als `'80000000'` hardcoded in beiden Workflows). `_parse_trades()` lief in Produktion deshalb immer ohne Datums-Filter und zählte 16 Trades von vor Saisonstart (März 2026) mit — bei Fleischmanns als aktivstem Trader am sichtbarsten (35 statt 19 Trades). Fix: `gh secret set KICKBASE_LEAGUE_START_DATE` (Wert aus lokaler `.env`, nie im Klartext ausgegeben) + `KICKBASE_LEAGUE_START_DATE: ${{ secrets.KICKBASE_LEAGUE_START_DATE }}` in `dashboard.yml` UND `dashboard-marktwerte.yml` ergänzt. Betraf potenziell alle Nicht-eigenen Manager-Budgets in der Ligaanalyse, nicht nur Fleischmanns.
 
 ## Not Yet Done
 
@@ -58,7 +59,7 @@ KickbaseAgent-Dashboard (Fantasy-Football-Auswertung für eine Kickbase-Liga) vo
 
 **Broken**: Nichts Bekanntes im aktuell deployten Code. Der frühere bekannte `tsc`-Fehler (`ui.tsx: Property 'env' does not exist on type 'ImportMeta'`) ist behoben (Commit `34eb8ec`) — `tsc`/`npm run typecheck` laufen jetzt mit 0 Fehlern.
 
-**Uncommitted Changes**: nur dieses HANDOFF.md-Update selbst (wird direkt danach committed). Alles andere aus dieser Session ist bereits committed, aber NICHT ALLES gepusht — gepusht sind nur `fe40a39`/`1923c05` (User hat dazwischen manuell gepusht); `6a77fb5`, `26f13cd`, `3ddd2ca`, `72619f0`, `34eb8ec` und dieser HANDOFF-Commit sind lokal. `git log origin/main --oneline` vor jeder Live-Verifikation prüfen (siehe Warnings).
+**Uncommitted Changes**: nur dieses HANDOFF.md-Update selbst (wird direkt danach committed). Alles andere aus dieser Session ist committed UND gepusht bis inkl. `eec9957` (User pusht zuverlässig nach jedem Fix, siehe `git log origin/main`). Dieser HANDOFF-Commit selbst ist danach wieder erstmal lokal, bis erneut gepusht wird — vor jeder Live-Verifikation trotzdem `git log origin/main --oneline` prüfen (siehe Warnings).
 
 ## Files to Know
 
@@ -115,7 +116,7 @@ Diese Session ist explizit als ZWEI-PHASEN-Plan für den nächsten Kontext gedac
 
 ## Setup Required
 
-- Nichts Neues — gleiches Firebase-Projekt/Secrets wie bisher, gleiche GitHub-Actions-Secrets.
+- Nichts Neues, aber erweitert: GitHub-Actions-Secrets sind jetzt `DISCORD_WEBHOOK_URL`, `FIREBASE_SERVICE_ACCOUNT`, `KICKBASE_EMAIL`, `KICKBASE_LEAGUE_START_BUDGET`, `KICKBASE_LEAGUE_START_DATE`, `KICKBASE_PASSWORD` (die beiden `KICKBASE_LEAGUE_*` sind neu, diese Session — `KICKBASE_LEAGUE_START_BUDGET` war vorher schon als Klartext-Wert direkt in den Workflow-YAMLs hardcoded, jetzt zusätzlich auch als Secret vorhanden, aber die YAMLs referenzieren dafür weiterhin den hardcoded Wert, nicht das Secret — nur `KICKBASE_LEAGUE_START_DATE` referenziert das Secret).
 
 ## Warnings
 
@@ -124,5 +125,6 @@ Diese Session ist explizit als ZWEI-PHASEN-Plan für den nächsten Kontext gedac
 - **Kein Firestore-Doppelschreiben beim Redesign-Cutover** — der Plan sieht explizit einen atomaren Cutover vor, kein Feature-Flag, kein Parallel-Schema. Nicht davon abweichen ohne erneute Rücksprache.
 - **Commits bleiben lokal, NICHT pushen** (Standing-Rule, GitHub-Ruleset `NeverPushOnMain` seit der Public-Umstellung des Repos aktiv) — User pusht selbst.
 - **Mehrere Agenten können parallel an diesem Repo arbeiten** — in dieser Session lief das players-Map-Redesign in einem eigenen Worktree (`git worktree list` zeigte `worktree-smooth-inventing-popcorn`, locked). Vor jeder größeren Aufgabe `git worktree list` prüfen, um nicht versehentlich dieselben Dateien parallel zu einer laufenden Fremdarbeit zu ändern. Die Gebotsvorschläge-Spec wurde deshalb bewusst NICHT sofort umgesetzt, sondern nur geplant und gesperrt (siehe Not Yet Done).
+- **Ein gesetztes GitHub-Secret alleine bewirkt nichts** — es muss zusätzlich im `env:`-Block der jeweiligen Workflow-YAML referenziert werden (`${{ secrets.NAME }}`). In dieser Session `KICKBASE_LEAGUE_START_DATE` per `gh secret set` angelegt, erster Workflow-Lauf zeigte trotzdem noch die alten falschen Zahlen — erst nach dem Ergänzen von `KICKBASE_LEAGUE_START_DATE: ${{ secrets.KICKBASE_LEAGUE_START_DATE }}` in `dashboard.yml`/`dashboard-marktwerte.yml` (+ Push) griff es wirklich.
 - **GitHub Actions liest vom Remote `main`, nicht von lokalen Commits** — in dieser Session `gh workflow run dashboard.yml` einmal VOR dem Push der Fixes ausgeführt, lief erfolgreich durch, zeigte aber trotzdem noch den alten (kaputten) Zustand, weil der Workflow den ungepushten Stand gar nicht sehen konnte. Vor jeder Live-Verifikation eines frischen Fixes erst `git log origin/main --oneline` prüfen bzw. den User fragen, ob schon gepusht wurde.
 - **Status-Code-Bedeutungen nicht neu raten** — `MDs/codes.md` hat die verifizierte Zuordnung inkl. Korrektur-Historie; nur bei neuem, bisher unbeobachtetem Code (aktuell nur Code 8 offen) überhaupt neu recherchieren, und dann nur mit echtem In-App-Beleg.
