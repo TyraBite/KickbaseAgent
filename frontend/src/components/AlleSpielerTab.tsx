@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AlleSpielerRow, DashboardSnapshot } from "../types";
+import type { DashboardSnapshot } from "../types";
+import { buildAlleSpielerRows, type AlleSpielerRow } from "../lib/derive";
 import { Badge, POSITION_ABBR, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum } from "../format";
@@ -14,7 +15,10 @@ function ownerTone(owner: string): "good" | "warn" | "crit" {
 }
 
 export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
-  const allRows = data.alle_spieler ?? [];
+  const allRows = useMemo(
+    () => buildAlleSpielerRows(data.players, data.own_squad_ids, data.owned_by, data.calibration),
+    [data.players, data.own_squad_ids, data.owned_by, data.calibration]
+  );
   const thresholds = data.signal_thresholds;
 
   const maxMarketValue = useMemo(
@@ -62,7 +66,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
       ),
     },
     { key: "market_value", label: "Marktwert", align: "right", sortValue: (r) => r.market_value, render: (r) => fmtNum(r.market_value) },
-    { key: "points_avg", label: "Schnitt", align: "right", sortValue: (r) => r.points_avg, render: (r) => fmtNum(r.points_avg) },
+    { key: "average_points", label: "Schnitt", align: "right", sortValue: (r) => r.average_points, render: (r) => fmtNum(r.average_points) },
     { key: "signal", label: "Signal", align: "right", sortValue: (r) => r.signal, render: (r) => <SignalBadge signal={r.signal} thresholds={thresholds} /> },
     {
       key: "starting_rank",

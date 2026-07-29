@@ -1,5 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
-import type { DashboardSnapshot, EigenesTeamRow, WunschkaderRow } from "../types";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { DashboardSnapshot } from "../types";
+import { buildEigenesTeamSplit, type EigenesTeamRow } from "../lib/derive";
+import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 
@@ -14,11 +16,41 @@ import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 const TREND_7D_THRESHOLDS = { flat: 200_000, strong: 1_500_000 };
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 
-type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; row: WunschkaderRow } | null;
+// ResolvedTarget (Task 14) hat kein ml_prediction-Feld - das bleibt bewusst so
+// (wunschkaderResolve.ts ist bereits reviewt/approved), daher hier lokal um das
+// Feld erweitert, damit MlPredictionRow (unveraendert) weiter funktioniert.
+type WatchlistRow = ResolvedTarget & { ml_prediction: number | null };
+
+type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; row: WatchlistRow } | null;
 
 export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
-  const split = data.eigenes_team_split ?? { verkaufen: [], bleibt: [] };
-  const watchlist = data.wunschkader_watchlist ?? [];
+  const split = useMemo(
+    () =>
+      buildEigenesTeamSplit(
+        data.players,
+        data.own_squad_ids,
+        data.wunschkader_targets,
+        data.wunschkader_sell_list ?? [],
+        data.calibration
+      ),
+    [data.players, data.own_squad_ids, data.wunschkader_targets, data.wunschkader_sell_list, data.calibration]
+  );
+
+  const ownSquadIdSet = useMemo(() => new Set(data.own_squad_ids), [data.own_squad_ids]);
+  const listingsByPlayerId = useMemo(
+    () => new Map(data.transfermarkt_listings.map((l) => [l.player_id, l])),
+    [data.transfermarkt_listings]
+  );
+  const watchlist: WatchlistRow[] = useMemo(
+    () =>
+      data.wunschkader_targets
+        .filter((t) => !ownSquadIdSet.has(t.player_id))
+        .map((t) => ({
+          ...resolveTarget(t.player_id, data.players, ownSquadIdSet, listingsByPlayerId, data.owned_by, data.calibration),
+          ml_prediction: data.players[t.player_id]?.ml_prediction ?? null,
+        })),
+    [data.wunschkader_targets, ownSquadIdSet, data.players, listingsByPlayerId, data.owned_by, data.calibration]
+  );
   const thresholds = data.signal_thresholds;
   const [selected, setSelected] = useState<Selected>(null);
 
@@ -40,7 +72,7 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
         {watchlist.length ? (
           <CardGrid>
             {watchlist.map((row) => (
-              <WunschkaderWatchlistCard key={row.name} row={row} onSelect={() => setSelected({ kind: "watchlist", row })} />
+              <WunschkaderWatchlistCard key={row.player_id} row={row} onSelect={() => setSelected({ kind: "watchlist", row })} />
             ))}
           </CardGrid>
         ) : (
@@ -161,7 +193,7 @@ function WunschkaderWatchlistCard({
   row,
   onSelect,
 }: {
-  row: WunschkaderRow;
+  row: WatchlistRow;
   onSelect: () => void;
 }) {
   const tone = cardTone(row.status);
@@ -179,7 +211,7 @@ function WunschkaderWatchlistCard({
       }
     >
       <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-      <Row label="Schnitt">{fmtNum(row.points_avg)}</Row>
+      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
       <MlPredictionRow value={row.ml_prediction} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
     </CardShell>
@@ -270,7 +302,7 @@ function WatchlistDetailModal({
   thresholds,
   onClose,
 }: {
-  row: WunschkaderRow;
+  row: WatchlistRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
   onClose: () => void;
 }) {
@@ -286,7 +318,7 @@ function WatchlistDetailModal({
       }
     >
       <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-      <Row label="Schnitt">{fmtNum(row.points_avg)}</Row>
+      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>

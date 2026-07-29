@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SpekulationRow } from "../types";
+import type { SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, formatDurationMs, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -55,16 +55,8 @@ function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
 // Restzeit wird aus auction_expires_at bei jedem Render + alle 60s neu
 // berechnet (kein sekundengenauer Ticker noetig) statt auf den naechsten
 // 2h-Fetch zu warten. auction_urgent bleibt server-berechnet (haengt an der
-// Europe/Berlin-22-Uhr-Cutoff-Logik, nicht in JS duplizieren).
-function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
-
+// Europe/Berlin-22-Uhr-Cutoff-Logik, nicht in JS duplizieren). `now` kommt
+// jetzt vom gemeinsamen Ticker in App.tsx (siehe HANDOFF.md Task 17).
 function auctionLabel(row: SpekulationRow, now: number): string {
   if (!row.auction_expires_at) return row.auction_status ?? "unbekannt";
   const remainingMs = new Date(row.auction_expires_at).getTime() - now;
@@ -74,12 +66,11 @@ function auctionLabel(row: SpekulationRow, now: number): string {
 
 type ViewMode = "cards" | "table";
 
-export default function SpekulationTab({ rows }: { rows: SpekulationRow[] }) {
+export default function SpekulationTab({ rows, now }: { rows: SpekulationRow[]; now: number }) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
   const [selected, setSelected] = useState<SpekulationRow | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
-  const now = useNow(60_000);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();

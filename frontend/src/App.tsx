@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
@@ -10,7 +10,20 @@ import MlGenauigkeitTab from "./components/MlGenauigkeitTab";
 import SpekulationTab from "./components/SpekulationTab";
 import TransfermarktTab from "./components/TransfermarktTab";
 import WunschkaderTab from "./components/WunschkaderTab";
+import { buildSpekulationRows, buildTransfermarktRows } from "./lib/derive";
 import type { DashboardSnapshot } from "./types";
+
+// Gemeinsamer Ticker fuer SpekulationTab + TransfermarktTab (vormals in beiden
+// Tabs dupliziert, siehe HANDOFF.md Task 17). Restzeiten werden clientseitig
+// aus *_expires_at bei jedem Render + alle 60s neu berechnet.
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
 
 type LoadState = "loading" | "error" | "ready";
 
@@ -41,6 +54,15 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [data, setData] = useState<DashboardSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState("spekulation");
+  const now = useNow(60_000);
+  const transfermarktRows = useMemo(
+    () =>
+      data
+        ? buildTransfermarktRows(data.players, data.transfermarkt_listings, data.calibration, data.own_available_budget, new Date(now))
+        : [],
+    [data, now]
+  );
+  const spekulationRows = useMemo(() => buildSpekulationRows(transfermarktRows), [transfermarktRows]);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
 
@@ -109,7 +131,7 @@ export default function App() {
         )}
         {loadState === "ready" && data && (
           <div className={activeTab === "spekulation" ? "" : "hidden"}>
-            <SpekulationTab rows={data.spekulation ?? []} />
+            <SpekulationTab rows={spekulationRows} now={now} />
           </div>
         )}
         {loadState === "ready" && data && (
@@ -129,7 +151,7 @@ export default function App() {
         )}
         {loadState === "ready" && data && (
           <div className={activeTab === "transfermarkt" ? "" : "hidden"}>
-            <TransfermarktTab data={data} />
+            <TransfermarktTab data={data} rows={transfermarktRows} now={now} />
           </div>
         )}
         {loadState === "ready" && data && (
