@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import AlleSpielerTab from "./components/AlleSpielerTab";
 import Login from "./components/Login";
 import EigenesTeamTab from "./components/EigenesTeamTab";
 import SpekulationTab from "./components/SpekulationTab";
@@ -21,7 +22,7 @@ const TABS = [
 ];
 
 // Sub-Projekt 3: Tabs werden nach und nach aktiviert, sobald migriert.
-const ACTIVE_TABS = new Set(["spekulation", "wunschkader", "team"]);
+const ACTIVE_TABS = new Set(["spekulation", "wunschkader", "team", "alle-spieler"]);
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -111,6 +112,11 @@ export default function App() {
         {loadState === "ready" && data && (
           <div className={activeTab === "team" ? "" : "hidden"}>
             <EigenesTeamTab data={data} />
+          </div>
+        )}
+        {loadState === "ready" && data && (
+          <div className={activeTab === "alle-spieler" ? "" : "hidden"}>
+            <AlleSpielerTab data={data} />
           </div>
         )}
       </main>
