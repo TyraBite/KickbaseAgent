@@ -55,9 +55,9 @@ CALIBRATION_PATH = Path(__file__).resolve().parent.parent / "data" / "valuation_
 # verzerrten 68-Spieler-Dump (2026-07-25) - Referenz fuer den Konsistenz-Check
 # gegen den vollen Live-Datensatz.
 KNOWN_ANCHORS = {
-    "Baumann": {"points_avg": 99, "k_per_point": 193_000},
-    "Raum": {"points_avg": 148, "k_per_point": 211_000},
-    "Leweling": {"points_avg": 103, "k_per_point": 252_000},
+    "Baumann": {"average_points": 99, "k_per_point": 193_000},
+    "Raum": {"average_points": 148, "k_per_point": 211_000},
+    "Leweling": {"average_points": 103, "k_per_point": 252_000},
 }
 
 
@@ -89,7 +89,7 @@ def fetch_all_players(token: str, competition_id: str) -> list[dict]:
                     "team_id": team_id,
                     "team_name": team_name,
                     "market_value": item.get("mv"),
-                    "points_avg": item.get("ap"),
+                    "average_points": item.get("ap"),
                     "starting_rank": item.get("prob"),
                     "status_code": item.get("st"),
                 }
@@ -166,9 +166,9 @@ def _build_dataset(token: str, competition_id: str) -> list[dict]:
 
 
 def k_per_point(row: dict) -> float | None:
-    if not row.get("points_avg") or row.get("market_value") is None:
+    if not row.get("average_points") or row.get("market_value") is None:
         return None
-    return row["market_value"] / row["points_avg"]
+    return row["market_value"] / row["average_points"]
 
 
 def signal(row: dict, k: float) -> float | None:
@@ -182,17 +182,17 @@ def signal(row: dict, k: float) -> float | None:
 
 def fairwert(row: dict, k: float) -> float | None:
     """Fairwert = Punkteschnitt * K, zugleich die Preisobergrenze."""
-    if not row.get("points_avg"):
+    if not row.get("average_points"):
         return None
-    return row["points_avg"] * k
+    return row["average_points"] * k
 
 
 def build_reference_set(rows: list[dict]) -> list[dict]:
     return [
         row
         for row in rows
-        if row.get("points_avg")
-        and row["points_avg"] > MIN_POINTS_AVG
+        if row.get("average_points")
+        and row["average_points"] > MIN_POINTS_AVG
         and row.get("market_value")
         and row["market_value"] > MIN_MARKET_VALUE
         and row.get("appearance_rate") is not None
@@ -303,10 +303,10 @@ def _print_report(rows: list[dict], calibration: dict) -> None:
             continue
         computed_kp = k_per_point(row)
         if computed_kp is None:
-            print(f"  {name}: k/Punkt live nicht berechenbar (Punkteschnitt={row.get('points_avg')})")
+            print(f"  {name}: k/Punkt live nicht berechenbar (Punkteschnitt={row.get('average_points')})")
             continue
         print(
-            f"  {name}: Punkteschnitt live={row['points_avg']} (methodik.md: {anchor['points_avg']}), "
+            f"  {name}: Punkteschnitt live={row['average_points']} (methodik.md: {anchor['average_points']}), "
             f"Marktwert live={row['market_value']}, "
             f"k/Punkt live={computed_kp:.0f} vs. methodik.md={anchor['k_per_point']}"
         )
