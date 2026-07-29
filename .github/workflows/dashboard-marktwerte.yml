@@ -30,6 +30,7 @@ jobs:
           KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
           KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
           KICKBASE_LEAGUE_START_BUDGET: '80000000'
+          KICKBASE_LEAGUE_START_DATE: ${{ secrets.KICKBASE_LEAGUE_START_DATE }}
           FIRESTORE_ENABLED: '1'
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: python -m src.dashboard_export
