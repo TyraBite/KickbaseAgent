@@ -278,6 +278,37 @@ class ResolveHeavyDataTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["ml_prediction"], 77777)
 
+    def test_light_mode_sources_ml_prediction_from_transfermarkt_not_alle_spieler(self):
+        # _build_alle_spieler() setzt nie ein ml_prediction-Feld (siehe die
+        # Funktion selbst) - der Light-Modus darf sich deshalb nicht darauf
+        # verlassen, sonst wird die Prognose bei jedem 2h-Lauf auf None
+        # zurueckgesetzt (Bug, live gefunden 2026-07-29: Nutzer sah dauerhaft
+        # keine ML-Prognosen, weil jeder Light-Lauf die vom Heavy-Lauf kurz
+        # zuvor gesetzten echten Werte wieder ueberschrieben hat).
+        cached_snapshot = {
+            "alle_spieler": [{"player_id": "p1", "starting_rank": 1}],
+            "transfermarkt": [{"player_id": "p1", "ml_prediction": 55555}],
+            "calibration": None, "ml_metrics": None, "ml_accuracy_trend": None,
+        }
+
+        result = _resolve_heavy_data(True, cached_snapshot, "tok", "l1", "c1", [], None)
+
+        self.assertEqual(result["predictions"]["predictions"]["p1"], 55555)
+
+    def test_light_mode_sources_ml_prediction_from_eigenes_team_split(self):
+        cached_snapshot = {
+            "alle_spieler": [{"player_id": "p1", "starting_rank": 1}],
+            "eigenes_team_split": {
+                "verkaufen": [{"player_id": "p1", "ml_prediction": 44444}],
+                "bleibt": [],
+            },
+            "calibration": None, "ml_metrics": None, "ml_accuracy_trend": None,
+        }
+
+        result = _resolve_heavy_data(True, cached_snapshot, "tok", "l1", "c1", [], None)
+
+        self.assertEqual(result["predictions"]["predictions"]["p1"], 44444)
+
 
 FRESH_LISTING_ROW = {
     "player_id": "p_new", "name": "Hajdari", "position": "Abwehr", "team_name": "Freiburg",

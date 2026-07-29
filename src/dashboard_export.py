@@ -585,11 +585,23 @@ def _resolve_heavy_data(
     Sweep (resolve_ownership) wird dadurch mit eingespart."""
     if is_light:
         alle_spieler = cached_snapshot["alle_spieler"]
+        # _build_alle_spieler() setzt nie ein ml_prediction-Feld (die "Alle
+        # Spieler"-Ansicht zeigt es nie an) - als alleinige Quelle wuerde
+        # das die Prognose bei JEDEM Light-Lauf auf None zuruecksetzen (Bug,
+        # live gefunden 2026-07-29). transfermarkt/eigenes_team_split haben
+        # echte Werte (aus _player_row()), deshalb zusaetzlich als Quelle.
+        ml_by_player_id = {p["player_id"]: p.get("ml_prediction") for p in alle_spieler}
+        eigenes_team_split = cached_snapshot.get("eigenes_team_split") or {}
+        for row in (
+            list(cached_snapshot.get("transfermarkt") or [])
+            + list(eigenes_team_split.get("verkaufen") or [])
+            + list(eigenes_team_split.get("bleibt") or [])
+        ):
+            if row.get("ml_prediction") is not None:
+                ml_by_player_id[row["player_id"]] = row["ml_prediction"]
         return {
             "all_players": None,
-            "predictions": {
-                "predictions": {p["player_id"]: p.get("ml_prediction") for p in alle_spieler}
-            },
+            "predictions": {"predictions": ml_by_player_id},
             "calibration": cached_snapshot["calibration"],
             "starting_rank_by_player_id": {p["player_id"]: p["starting_rank"] for p in alle_spieler},
             "owned_by": {},
