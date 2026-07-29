@@ -45,15 +45,41 @@ function computedFor(name: string, wunschkader: WunschkaderRow[], alleSpieler: A
   }
   const live = alleSpieler.find((p) => p.name === name);
   if (!live) return { market_value: null, points_avg: null, starting_rank: null, signal: null, team_name: null, status: null };
+  // owner ("Eigener Kader"/"Frei"/Manager-Name) ist auf AlleSpielerRow immer
+  // vorhanden - daraus laesst sich derselbe status-Text ableiten wie
+  // serverseitig (nur ohne den "Markt (...)"-Sonderfall, der market_by_name-
+  // Kontext braucht, den der Client nicht hat).
+  const status = live.owner === "Frei" || live.owner === "Eigener Kader" ? live.owner : `Bei ${live.owner}`;
   return {
     market_value: live.market_value,
     points_avg: live.points_avg,
     starting_rank: live.starting_rank,
     signal: live.signal,
     team_name: live.team_name,
-    status: null,
+    status,
   };
 }
+
+type CardTone = "own" | "other" | "free" | "market";
+
+// Leitet die Kachel-Einfaerbung aus dem status-Text ab (siehe computedFor):
+// "Markt (...)" hat Vorrang vor Eigentuemer-Faerbung (ein gerade gelisteter
+// Spieler ist sofort handelbar, unabhaengig davon wem er noch gehoert).
+// Unbekannt (status null/"Nicht gefunden") faellt auf neutral zurueck, gleiche
+// Farbe wie "own" - kein falsches Signal, solange der Status nicht sicher ist.
+function cardTone(status: string | null): CardTone {
+  if (status?.startsWith("Markt (")) return "market";
+  if (status?.startsWith("Bei ")) return "other";
+  if (status === "Frei") return "free";
+  return "own";
+}
+
+const CARD_TONE_CLASSES: Record<CardTone, string> = {
+  own: "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900",
+  other: "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40",
+  free: "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
+  market: "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
+};
 
 // 1:1 Portierung von _estimate_price() aus src/dashboard_export.py.
 function estimatePrice(marketValue: number | null): number | null {
@@ -273,7 +299,6 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
                     computed={computed}
                     thresholds={thresholds}
                     clubCount={computed.team_name ? clubCounts[computed.team_name] ?? 0 : 0}
-                    plannedPrice={plannedPriceFor(t, computed.market_value, ownSquadNames.has(t.name))}
                     onSelect={() => setSelected(t)}
                   />
                 );
@@ -300,7 +325,6 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
                 computed={computed}
                 thresholds={thresholds}
                 clubCount={0}
-                plannedPrice={plannedPriceFor(t, computed.market_value, ownSquadNames.has(t.name))}
                 onSelect={() => setSelected(t)}
               />
             );
@@ -342,16 +366,15 @@ function TargetCard({
   computed,
   thresholds,
   clubCount,
-  plannedPrice,
   onSelect,
 }: {
   target: EditTarget;
   computed: Computed;
   thresholds: DashboardSnapshot["signal_thresholds"];
   clubCount: number;
-  plannedPrice: number | null;
   onSelect: () => void;
 }) {
+  const tone = cardTone(computed.status);
   return (
     <div
       role="button"
@@ -363,12 +386,13 @@ function TargetCard({
           onSelect();
         }
       }}
-      className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-600"
+      className={`cursor-pointer rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:hover:border-brand-600 ${CARD_TONE_CLASSES[tone]}`}
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <TeamCrest teamName={computed.team_name} />
         <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[target.position] ?? target.position}</span>
         <span className="font-semibold text-slate-900 dark:text-slate-50">{target.name}</span>
+        {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
         {clubCount >= 4 && (
           <Badge tone="warn">
             {clubCount}× {computed.team_name}
@@ -382,8 +406,6 @@ function TargetCard({
         <Row label="Signal">
           <SignalBadge signal={computed.signal} thresholds={thresholds} />
         </Row>
-        <Row label="Status">{computed.status ?? "—"}</Row>
-        <Row label="Geplanter Preis">{fmtNum(plannedPrice)}</Row>
       </dl>
     </div>
   );
