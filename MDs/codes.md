@@ -14,14 +14,20 @@ Stand: 2026-07-25
 
 | Code | Bedeutung | Verifiziert am |
 |---|---|---|
-| kein Code | unauffällig / einsatzfähig | — |
-| 0 | ? | |
+| kein Code / 0 | unauffällig / einsatzfähig | — |
 | 1 | ? | |
-| 2 | ? | |
-| 4 | ? | |
+| 2 | Verletzt (Medikament-Symbol in der Kickbase-App) | 2026-07-29, direkt in der App gegengecheckt |
+| 4 | Im Aufbau (Hantel-Symbol, Reha nach Verletzung) | 2026-07-29, direkt in der App gegengecheckt |
 | 8 | ? | |
 
 Beobachtete Codes bisher: 1, 2, 4.
+
+**Alte Arbeitshypothese unten (1 = verletzt, 2 = angeschlagen) ist durch die
+2026-07-29-Verifikation widerlegt** — 2 ist eindeutig "Verletzt", nicht
+"angeschlagen/fraglich". Was 1 tatsächlich bedeutet, ist damit wieder offen
+(die Korrelationen unten, die 1 mit bestätigten Verletzungen in Verbindung
+brachten, könnten genauso zu "Im Aufbau" oder etwas drittem passen - ohne
+direkte App-Beobachtung für einen Code-1-Spieler bleibt das Spekulation).
 
 ### Beobachtungen — noch nicht verifiziert, nicht darauf bauen
 

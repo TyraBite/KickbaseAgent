@@ -262,10 +262,20 @@ def position_label(pos: int) -> str:
     return POSITION_LABELS.get(pos, f"Position {pos}")
 
 
+# 2 und 4 direkt in der Kickbase-App gegengecheckt (User, 2026-07-29):
+# 2 = "Verletzt" (Medikament-Symbol), 4 = "Im Aufbau" (Hantel-Symbol, Reha
+# nach Verletzung). Damit ist die alte Arbeitshypothese aus MDs/codes.md
+# ("1 = verletzt, 2 = angeschlagen") ueberholt - 1 bleibt bewusst
+# unbestaetigt statt die alte, jetzt widerlegte Vermutung fortzuschreiben.
+STATUS_LABELS = {2: "Verletzt", 4: "Im Aufbau"}
+
+
 def status_label(status_code: int) -> str | None:
-    """Nur der Fall 0 (fit/unauffaellig) ist aus den Beispiel-Responses
-    zweifelsfrei bestaetigt. Alles andere wird als rohe Nummer durchgereicht,
-    statt einen (moeglicherweise falschen) Klartext-Status zu erfinden."""
+    """0 (fit/unauffaellig) und die in STATUS_LABELS bestaetigten Codes haben
+    echten Klartext, alles andere wird als rohe Nummer durchgereicht statt
+    einen (moeglicherweise falschen) Status zu erfinden."""
     if status_code == 0:
         return None
+    if status_code in STATUS_LABELS:
+        return STATUS_LABELS[status_code]
     return f"Status-Code {status_code} (Bedeutung in v4-API nicht zweifelsfrei bestaetigt)"
