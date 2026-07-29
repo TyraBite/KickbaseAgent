@@ -6,6 +6,7 @@ import AlleSpielerTab from "./components/AlleSpielerTab";
 import Login from "./components/Login";
 import EigenesTeamTab from "./components/EigenesTeamTab";
 import SpekulationTab from "./components/SpekulationTab";
+import TransfermarktTab from "./components/TransfermarktTab";
 import WunschkaderTab from "./components/WunschkaderTab";
 import type { DashboardSnapshot } from "./types";
 
@@ -22,7 +23,7 @@ const TABS = [
 ];
 
 // Sub-Projekt 3: Tabs werden nach und nach aktiviert, sobald migriert.
-const ACTIVE_TABS = new Set(["spekulation", "wunschkader", "team", "alle-spieler"]);
+const ACTIVE_TABS = new Set(["spekulation", "wunschkader", "team", "alle-spieler", "transfermarkt"]);
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -117,6 +118,11 @@ export default function App() {
         {loadState === "ready" && data && (
           <div className={activeTab === "alle-spieler" ? "" : "hidden"}>
             <AlleSpielerTab data={data} />
+          </div>
+        )}
+        {loadState === "ready" && data && (
+          <div className={activeTab === "transfermarkt" ? "" : "hidden"}>
+            <TransfermarktTab data={data} />
           </div>
         )}
       </main>
