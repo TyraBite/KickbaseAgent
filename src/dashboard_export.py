@@ -430,6 +430,7 @@ def _build_wunschkader(
                 "status": status,
                 "market_value": market_value,
                 "points_avg": points_avg,
+                "team_name": live.get("team_name") if live else None,
                 "starting_rank": live.get("starting_rank") if live else None,
                 "status_code": live.get("status_code") if live else None,
                 "signal": signal,

@@ -9,6 +9,7 @@ from src.dashboard_export import (
     _build_budget_plan,
     _build_spekulation,
     _build_transfermarkt,
+    _build_wunschkader,
     _estimate_price,
     _finalize_firestore_write,
     _load_wunschkader,
@@ -174,3 +175,23 @@ class FinalizeFirestoreWriteTests(unittest.TestCase):
     def test_no_raise_without_firestore_enabled_and_no_upstream_failure(self):
         with patch.dict(os.environ, {}, clear=True):
             _finalize_firestore_write({"fetched_at": "2026-07-29"}, False)
+
+
+class BuildWunschkaderTests(unittest.TestCase):
+    def test_includes_team_name_from_all_players(self):
+        all_players = [{"player_id": "p1", "name": "Katic", "team_name": "Schalke",
+                        "market_value": 5_000_000, "points_avg": 80, "starting_rank": 1, "status_code": 0}]
+        wunschkader = {"targets": [{"name": "Katic", "position": "Abwehr", "role": "Starter"}]}
+
+        rows = _build_wunschkader(wunschkader, all_players, owned_by={}, own_squad_names={"Katic"},
+                                   market_by_name={}, calibration=None, predictions=None)
+
+        self.assertEqual(rows[0]["team_name"], "Schalke")
+
+    def test_team_name_is_none_when_player_not_found(self):
+        wunschkader = {"targets": [{"name": "Unbekannt", "position": "Sturm", "role": "Starter"}]}
+
+        rows = _build_wunschkader(wunschkader, all_players=[], owned_by={}, own_squad_names=set(),
+                                   market_by_name={}, calibration=None, predictions=None)
+
+        self.assertIsNone(rows[0]["team_name"])

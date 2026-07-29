@@ -28,6 +28,7 @@ export interface WunschkaderRow {
   status: string;
   market_value: number | null;
   points_avg: number | null;
+  team_name: string | null;
   starting_rank: number | null;
   status_code: number | null;
   signal: number | null;
@@ -78,11 +79,12 @@ export interface SignalThresholds {
 export interface DashboardSnapshot {
   spekulation: SpekulationRow[];
   wunschkader: WunschkaderRow[];
-  wunschkader_raw: { targets: RawWunschkaderTarget[]; formation?: string | null } | null;
+  wunschkader_raw: { targets: RawWunschkaderTarget[]; formation?: string | null; sell_list?: string[] } | null;
   wunschkader_formation: string | null;
   alle_spieler: AlleSpielerRow[];
   budget_plan: BudgetPlan | null;
   signal_thresholds: SignalThresholds;
+  own_budget_exact: number | null;
   // Weitere Snapshot-Felder (transfermarkt, eigenes_team_split, ...)
   // werden erst in späteren Sub-Projekten typisiert, sobald der jeweilige
   // Tab migriert wird.
