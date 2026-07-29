@@ -381,78 +381,34 @@ def _estimate_price(market_value: float | None) -> float | None:
     return round(market_value * 1.10)
 
 
-def _build_wunschkader(
-    wunschkader: dict,
-    all_players: list[dict],
-    owned_by: dict,
-    own_squad_names: set,
-    market_by_name: dict,
-    calibration: dict | None,
-    predictions: dict | None,
-) -> list[dict]:
-    by_name = {p["name"]: p for p in all_players}
-    rows = []
-    for target in wunschkader.get("targets", []):
-        name = target["name"]
-        live = by_name.get(name)
-        is_own = name in own_squad_names
-
-        note = target.get("note")
-        if is_own:
-            status = "Eigener Kader"
-        elif name in market_by_name:
-            m = market_by_name[name]
-            anbieter = "System" if m["is_system_offer"] else m["offering_username"]
-            status = f"Markt ({anbieter}, {m['price']:,})"
-            auction_status = m.get("auction_status")
-            if auction_status:
-                note = f"{note} - {auction_status}" if note else auction_status
-        elif live and owned_by.get(live["player_id"]):
-            status = f"Bei {owned_by[live['player_id']]}"
-        elif live:
-            status = "Frei"
-        else:
-            status = "Nicht gefunden"
-
-        market_value = live.get("market_value") if live else None
-        points_avg = live.get("points_avg") if live else None
-        signal = None
-        if live and calibration and market_value and points_avg:
-            k = player_valuation.k_for_position(calibration, target["position"])
-            if k:
-                signal = round(k / (market_value / points_avg), 2)
-
-        if "actual_bid" in target:
-            planned_price = target["actual_bid"]
-        elif is_own:
-            planned_price = 0
-        else:
-            planned_price = _estimate_price(market_value)
-
-        rows.append(
-            {
-                "name": name,
-                "position": target["position"],
-                "role": target["role"],
-                "note": note,
-                "planned_price": planned_price,
-                "is_estimate": "actual_bid" not in target and not is_own,
-                "is_own": is_own,
-                "status": status,
-                "market_value": market_value,
-                "points_avg": points_avg,
-                "team_name": live.get("team_name") if live else None,
-                "starting_rank": live.get("starting_rank") if live else None,
-                "status_code": live.get("status_code") if live else None,
-                "signal": signal,
-                "ml_prediction": (
-                    predictions.get("predictions", {}).get(live["player_id"])
-                    if (predictions and live)
-                    else None
-                ),
-            }
-        )
-    return rows
+def _build_wunschkader_targets(wunschkader: dict, players_map: dict) -> list[dict]:
+    """Wunschkader-Ziele sind jetzt eine reine player_id-Referenzliste
+    (Firestore wunschkader/current speichert player_id direkt seit der
+    einmaligen Migration, siehe migrate_wunschkader_player_ids.py) - keine
+    Namens-Aufloesung, keine Praesentations-Felder mehr (team_name/
+    market_value/status/planned_price loest der Client selbst ueber
+    players[player_id] auf). Nur eine Sanity-Warnung falls ein player_id
+    (noch) nicht in players_map auftaucht - das Ziel bleibt trotzdem in der
+    Liste (kein stiller Datenverlust bei einem einzelnen kaputten Eintrag,
+    gleiche Philosophie wie _load_wunschkader())."""
+    targets = wunschkader.get("targets", [])
+    for t in targets:
+        pid = t.get("player_id")
+        if not pid or pid not in players_map:
+            print(
+                f"Warnung: Wunschkader-Ziel mit player_id={pid!r} nicht in players_map gefunden "
+                "- siehe migrate_wunschkader_player_ids.py",
+                file=sys.stderr,
+            )
+    return [
+        {
+            "player_id": t.get("player_id"),
+            "role": t.get("role"),
+            "note": t.get("note"),
+            "actual_bid": t.get("actual_bid"),
+        }
+        for t in targets
+    ]
 
 
 def _build_alle_spieler(

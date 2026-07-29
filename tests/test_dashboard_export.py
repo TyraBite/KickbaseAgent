@@ -12,7 +12,7 @@ from src.dashboard_export import (
     _build_spekulation,
     _build_transfermarkt,
     _build_transfermarkt_listings,
-    _build_wunschkader,
+    _build_wunschkader_targets,
     _estimate_price,
     _finalize_firestore_write,
     _load_wunschkader,
@@ -196,24 +196,25 @@ class FinalizeFirestoreWriteTests(unittest.TestCase):
             _finalize_firestore_write({"fetched_at": "2026-07-29"})
 
 
-class BuildWunschkaderTests(unittest.TestCase):
-    def test_includes_team_name_from_all_players(self):
-        all_players = [{"player_id": "p1", "name": "Katic", "team_name": "Schalke",
-                        "market_value": 5_000_000, "points_avg": 80, "starting_rank": 1, "status_code": 0}]
-        wunschkader = {"targets": [{"name": "Katic", "position": "Abwehr", "role": "Starter"}]}
+class BuildWunschkaderTargetsTests(unittest.TestCase):
+    def test_passes_through_player_id_and_overlay_fields(self):
+        wunschkader = {"targets": [{"player_id": "p1", "role": "Starter", "note": "geprüft", "actual_bid": 16_000_000}]}
+        players_map = {"p1": {"player_id": "p1", "name": "Krauß"}}
 
-        rows = _build_wunschkader(wunschkader, all_players, owned_by={}, own_squad_names={"Katic"},
-                                   market_by_name={}, calibration=None, predictions=None)
+        rows = _build_wunschkader_targets(wunschkader, players_map)
 
-        self.assertEqual(rows[0]["team_name"], "Schalke")
+        self.assertEqual(rows[0], {"player_id": "p1", "role": "Starter", "note": "geprüft", "actual_bid": 16_000_000})
 
-    def test_team_name_is_none_when_player_not_found(self):
-        wunschkader = {"targets": [{"name": "Unbekannt", "position": "Sturm", "role": "Starter"}]}
+    def test_keeps_target_even_when_player_id_unknown(self):
+        wunschkader = {"targets": [{"player_id": "p_missing", "role": "Starter", "note": None, "actual_bid": None}]}
 
-        rows = _build_wunschkader(wunschkader, all_players=[], owned_by={}, own_squad_names=set(),
-                                   market_by_name={}, calibration=None, predictions=None)
+        rows = _build_wunschkader_targets(wunschkader, players_map={})
 
-        self.assertIsNone(rows[0]["team_name"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["player_id"], "p_missing")
+
+    def test_empty_targets_returns_empty_list(self):
+        self.assertEqual(_build_wunschkader_targets({"targets": []}, players_map={}), [])
 
 
 class ResolveIsLightTests(unittest.TestCase):
