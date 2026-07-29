@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { DashboardSnapshot } from "../types";
-import { buildTransfermarktRows, type TransfermarktRow } from "../lib/derive";
+import type { TransfermarktRow } from "../lib/derive";
 import { Badge, POSITION_ABBR, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
@@ -49,25 +49,18 @@ function sortRows(rows: TransfermarktRow[], key: SortKey): TransfermarktRow[] {
 const HINT =
   "Signal > 1,25 = deutlich unter Fairwert, < 0,80 = Prämie (siehe MDs/methodik.md). Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Marktwert-Update ab.";
 
-// Auktions-Status kommt jetzt clientseitig aus buildTransfermarktRows() statt als
-// fertiger Server-String - braucht deshalb eine eigene Uhr, die alle 60s neu rendert
-// (analog zu SpekulationTab.tsx, dort noch nicht exportiert - Konsolidierung folgt
-// in Task 17).
-function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
-
-export default function TransfermarktTab({ data }: { data: DashboardSnapshot }) {
-  const now = useNow(60_000);
-  const allRows = useMemo(
-    () => buildTransfermarktRows(data.players, data.transfermarkt_listings, data.calibration, data.own_available_budget, new Date(now)),
-    [data.players, data.transfermarkt_listings, data.calibration, data.own_available_budget, now]
-  );
+// Auktions-Status kommt clientseitig aus buildTransfermarktRows() statt als
+// fertiger Server-String - `rows`/`now` kommen vom gemeinsamen Ticker in
+// App.tsx (Konsolidierung mit SpekulationTab.tsx, siehe HANDOFF.md Task 17).
+export default function TransfermarktTab({
+  data,
+  rows,
+  now,
+}: {
+  data: DashboardSnapshot;
+  rows: TransfermarktRow[];
+  now: number;
+}) {
   const thresholds = data.signal_thresholds;
 
   const [position, setPosition] = useState("all");
@@ -77,7 +70,7 @@ export default function TransfermarktTab({ data }: { data: DashboardSnapshot }) 
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = allRows.filter((r) => {
+    const filtered = rows.filter((r) => {
       if (position !== "all" && r.position !== position) return false;
       if (anbieter === "kickbase" && !r.is_system_offer) return false;
       if (anbieter === "mitspieler" && r.is_system_offer) return false;
@@ -85,7 +78,7 @@ export default function TransfermarktTab({ data }: { data: DashboardSnapshot }) 
       return true;
     });
     return sortRows(filtered, sortKey);
-  }, [allRows, position, anbieter, search, sortKey]);
+  }, [rows, position, anbieter, search, sortKey]);
 
   const columns: TableColumn<TransfermarktRow>[] = [
     {
@@ -188,7 +181,7 @@ export default function TransfermarktTab({ data }: { data: DashboardSnapshot }) 
           className="min-w-[200px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
         <span className="text-xs text-slate-500 dark:text-slate-400">
-          {visible.length} von {allRows.length} Angeboten
+          {visible.length} von {rows.length} Angeboten
         </span>
       </div>
       <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} />
