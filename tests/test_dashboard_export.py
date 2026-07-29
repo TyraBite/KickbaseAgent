@@ -429,3 +429,29 @@ class BuildPlayersMapTests(unittest.TestCase):
             market_listings=[], predictions=None, previous_players={}, is_light=True,
         )
         self.assertEqual(result["p_new"]["market_value"], 10_500_000)
+
+    def test_light_mode_preserves_prior_history_field_when_source_is_none(self):
+        """Verify that when a source row has an explicit None value for a history
+        field, the prior value from base is NOT cleared/overwritten - the
+        is not None guard in the overlay loop correctly skips writing None."""
+        previous = {
+            "p1": {
+                "player_id": "p1", "name": "Krauß", "market_value": 9_000_000,
+                "market_value_change_7d": 42_000,  # prior value
+                "market_value_low_92d": 8_500_000,
+            }
+        }
+        # Simulate a fresh SQLite row where market_value_change_7d happens to be None
+        # (e.g. not fetched in this run), but other fields are fresh.
+        result = _build_players_map(
+            all_players=None,
+            own_squad=[self._light_row(player_id="p1", market_value_change_7d=None)],
+            market_listings=[],
+            predictions=None,
+            previous_players=previous,
+            is_light=True,
+        )
+        # The prior value must survive; None in the source should NOT overwrite it
+        self.assertEqual(result["p1"]["market_value_change_7d"], 42_000)
+        # But other fields from the source row ARE fresh
+        self.assertEqual(result["p1"]["market_value"], 10_500_000)
