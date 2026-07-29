@@ -542,7 +542,18 @@ def export() -> dict:
     if not email or not password:
         raise RuntimeError("KICKBASE_EMAIL/KICKBASE_PASSWORD fehlen (lokal: .env, GitHub Actions: Secrets)")
 
-    fetched_at = fetcher.run()
+    firestore_write_failed = False
+    try:
+        fetched_at = fetcher.run()
+    except firestore_db.FirestoreWriteError as exc:
+        # fetcher.run() hat die lokalen (SQLite) Daten bereits fertig - nur der
+        # Firestore-Schreibzugriff fuer Kader/Markt/Liga/Budget ist gescheitert
+        # (siehe fetcher._write_firestore). Die Pipeline laeuft trotzdem zu Ende
+        # (Predictions/Snapshot-Aufbau/der eigene Firestore-Schreibversuch unten),
+        # der Fehler wird erst ganz am Ende gemeldet (_finalize_firestore_write) -
+        # analog zu _load_wunschkader() oben, nur zeitlich verzoegert statt sofort.
+        fetched_at = exc.fetched_at
+        firestore_write_failed = True
 
     token, _user, leagues = login(email, password)
     league_id = leagues[0]["id"]
@@ -619,13 +630,31 @@ def export() -> dict:
         "spekulation": _build_spekulation(transfermarkt_rows),
     }
 
+    _finalize_firestore_write(data, firestore_write_failed)
+    return data
+
+
+def _finalize_firestore_write(data: dict, firestore_write_failed: bool) -> None:
+    """Schreibt den fertigen Snapshot nach Firestore (dashboard_snapshot/latest,
+    von index.html UND frontend/ live gelesen) und macht jeden Firestore-Ausfall
+    bei seiten-relevanten Daten sichtbar: firestore_write_failed kommt bereits
+    von fetcher.run() (siehe firestore_db.FirestoreWriteError), hier kommt ggf.
+    der eigene Snapshot-Schreibversuch dazu. Genau wie bei _load_wunschkader()
+    oben (siehe Docstring dort) darf ein Firestore-Ausfall bei seiten-relevanten
+    Daten dashboard.yml nicht gruen durchlaufen lassen - sonst bleibt die
+    Live-Seite unbemerkt auf altem Stand."""
     if os.environ.get("FIRESTORE_ENABLED"):
         try:
             fs_client = firestore_db.connect()
             firestore_db.upsert_dashboard_snapshot(fs_client, data)
-        except Exception as exc:  # ein Firestore-Ausfall darf die Pipeline nie brechen
+        except Exception as exc:
             print(f"Warnung: Firestore-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
-    return data
+            firestore_write_failed = True
+    if firestore_write_failed:
+        raise firestore_db.FirestoreWriteError(
+            data["fetched_at"],
+            "Firestore-Schreibzugriff fuer seiten-relevante Daten fehlgeschlagen (siehe Warnung oben)",
+        )
 
 
 if __name__ == "__main__":

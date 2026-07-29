@@ -26,6 +26,22 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 MAX_BATCH_OPS = 500
 
 
+class FirestoreWriteError(Exception):
+    """Signalisiert einen fehlgeschlagenen Firestore-Schreibzugriff auf Daten,
+    die das Dashboard (index.html UND frontend/) direkt anzeigt - z.B. bei
+    Spark-Free-Tier-Quota-Erschoepfung. Anders als die ML-internen Bookkeeping-
+    Schreibversuche in market_predictor.py (die weiterhin nur warnen und
+    weiterlaufen) darf so ein Fehler die Pipeline nicht stillschweigend gruen
+    durchlaufen lassen - sonst bleibt die Live-Seite unbemerkt auf altem Stand,
+    waehrend dashboard.yml gruen bleibt. fetched_at haengt am Fehler, damit
+    export() trotz des Fehlers mit dem bereits lokal (SQLite) fertigen
+    Snapshot weiterarbeiten und den Fehler erst am Ende hochreichen kann."""
+
+    def __init__(self, fetched_at: str, message: str):
+        super().__init__(message)
+        self.fetched_at = fetched_at
+
+
 def connect() -> firestore.Client:
     """Liest Projekt/Credentials automatisch aus der Standard-Google-Cloud-
     Umgebung (GOOGLE_APPLICATION_CREDENTIALS) - keine eigene Credential-

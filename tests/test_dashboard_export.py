@@ -3,12 +3,14 @@ import os
 import unittest
 from unittest.mock import patch
 
+from src import firestore_db
 from src.dashboard_export import (
     _build_alle_spieler,
     _build_budget_plan,
     _build_spekulation,
     _build_transfermarkt,
     _estimate_price,
+    _finalize_firestore_write,
     _load_wunschkader,
 )
 
@@ -145,3 +147,30 @@ class LoadWunschkaderTests(unittest.TestCase):
         with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
             with self.assertRaises(RuntimeError):
                 _load_wunschkader()
+
+
+class FinalizeFirestoreWriteTests(unittest.TestCase):
+    @patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot")
+    @patch("src.dashboard_export.firestore_db.connect")
+    def test_raises_when_upstream_flag_true_even_if_own_write_succeeds(self, mock_connect, mock_upsert):
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            with self.assertRaises(firestore_db.FirestoreWriteError):
+                _finalize_firestore_write({"fetched_at": "2026-07-29"}, True)
+
+    @patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot")
+    @patch("src.dashboard_export.firestore_db.connect")
+    def test_raises_when_own_write_fails(self, mock_connect, mock_upsert):
+        mock_upsert.side_effect = RuntimeError("quota exceeded")
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            with self.assertRaises(firestore_db.FirestoreWriteError):
+                _finalize_firestore_write({"fetched_at": "2026-07-29"}, False)
+
+    @patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot")
+    @patch("src.dashboard_export.firestore_db.connect")
+    def test_no_raise_when_everything_succeeds(self, mock_connect, mock_upsert):
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            _finalize_firestore_write({"fetched_at": "2026-07-29"}, False)
+
+    def test_no_raise_without_firestore_enabled_and_no_upstream_failure(self):
+        with patch.dict(os.environ, {}, clear=True):
+            _finalize_firestore_write({"fetched_at": "2026-07-29"}, False)

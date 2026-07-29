@@ -477,17 +477,10 @@ def run() -> str:
     finally:
         conn.close()
 
-    if os.environ.get("FIRESTORE_ENABLED"):
-        try:
-            fs_client = firestore_db.connect()
-            firestore_db.replace_own_squad(fs_client, fetched_at, own_squad_rows)
-            firestore_db.replace_market_listings(fs_client, fetched_at, market_rows)
-            firestore_db.replace_league_ranking(fs_client, fetched_at, ranking_rows)
-            firestore_db.upsert_own_budget(fs_client, fetched_at, own_user_id, budget)
-            firestore_db.upsert_season_context(fs_client, fetched_at, season_context)
-            firestore_db.replace_manager_budgets(fs_client, fetched_at, manager_budget_rows)
-        except Exception as exc:  # ein Firestore-Ausfall darf die Pipeline nie brechen
-            print(f"Warnung: Firestore-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
+    _write_firestore(
+        fetched_at, own_squad_rows, market_rows, ranking_rows,
+        own_user_id, budget, season_context, manager_budget_rows,
+    )
 
     print(
         f"Snapshot {fetched_at}: {len(own_squad_rows)} eigene Spieler, "
@@ -495,6 +488,39 @@ def run() -> str:
         f"{len(manager_budget_rows)} geschaetzte Budgets"
     )
     return fetched_at
+
+
+def _write_firestore(
+    fetched_at: str,
+    own_squad_rows: list[dict],
+    market_rows: list[dict],
+    ranking_rows: list[dict],
+    own_user_id: str | None,
+    budget: float | None,
+    season_context: dict,
+    manager_budget_rows: list[dict],
+) -> None:
+    """Schreibt die vom Dashboard direkt angezeigten Daten (Kader/Markt/Liga/
+    Budget) nach Firestore. Anders als die ML-internen Bookkeeping-Schreib-
+    versuche in market_predictor.py (die weiterhin nur warnen) darf ein
+    Fehler hier NICHT verschluckt werden - sonst bleibt dashboard.yml gruen,
+    waehrend die Live-Seite unbemerkt auf altem Stand bleibt. Die lokalen
+    SQLite-Writes oben in run() sind zu diesem Zeitpunkt bereits durch;
+    export() faengt firestore_db.FirestoreWriteError ab und laesst die
+    restliche Pipeline zu Ende laufen, statt hier sofort abzubrechen."""
+    if not os.environ.get("FIRESTORE_ENABLED"):
+        return
+    try:
+        fs_client = firestore_db.connect()
+        firestore_db.replace_own_squad(fs_client, fetched_at, own_squad_rows)
+        firestore_db.replace_market_listings(fs_client, fetched_at, market_rows)
+        firestore_db.replace_league_ranking(fs_client, fetched_at, ranking_rows)
+        firestore_db.upsert_own_budget(fs_client, fetched_at, own_user_id, budget)
+        firestore_db.upsert_season_context(fs_client, fetched_at, season_context)
+        firestore_db.replace_manager_budgets(fs_client, fetched_at, manager_budget_rows)
+    except Exception as exc:
+        print(f"Warnung: Firestore-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
+        raise firestore_db.FirestoreWriteError(fetched_at, str(exc)) from exc
 
 
 def _days_until(iso_timestamp: str | None) -> int | None:
