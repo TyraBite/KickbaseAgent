@@ -8,6 +8,7 @@ from src.dashboard_export import (
     _build_alle_spieler,
     _build_budget_plan,
     _build_eigenes_team,
+    _build_players_map,
     _build_spekulation,
     _build_transfermarkt,
     _build_wunschkader,
@@ -333,3 +334,98 @@ class ExportLightModeTests(unittest.TestCase):
         names = [r["name"] for r in data["transfermarkt"]]
         self.assertIn("Hajdari", names)
         self.assertNotIn("StaleOnly", names)
+
+
+class BuildPlayersMapTests(unittest.TestCase):
+    def _all_players_row(self, **overrides):
+        row = {
+            "player_id": "p1", "name": "Krauß", "position": "Mittelfeld",
+            "team_id": "t1", "team_name": "Bremen", "market_value": 10_000_000,
+            "average_points": 120, "starting_rank": 1, "status_code": 0,
+        }
+        row.update(overrides)
+        return row
+
+    def _light_row(self, **overrides):
+        row = {
+            "player_id": "p1", "name": "Krauß", "position": "Mittelfeld",
+            "team_name": "Bremen", "status_code": 0, "starting_rank": 1,
+            "market_value": 10_500_000, "average_points": 122, "total_points": 488,
+            "market_value_change_7d": 50_000, "market_value_low_92d": 9_800_000,
+            "market_value_high_92d": 10_600_000, "market_value_in_drop_phase": False,
+        }
+        row.update(overrides)
+        return row
+
+    def test_heavy_mode_builds_from_all_players_without_team_id(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row()], own_squad=[], market_listings=[],
+            predictions=None, previous_players=None, is_light=False,
+        )
+        self.assertNotIn("team_id", result["p1"])
+        self.assertEqual(result["p1"]["market_value"], 10_000_000)
+
+    def test_heavy_mode_history_fields_absent_when_not_in_light_path(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row()], own_squad=[], market_listings=[],
+            predictions=None, previous_players=None, is_light=False,
+        )
+        self.assertNotIn("market_value_change_7d", result["p1"])
+
+    def test_heavy_mode_overlays_own_squad_history_fields(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row()], own_squad=[self._light_row()],
+            market_listings=[], predictions=None, previous_players=None, is_light=False,
+        )
+        self.assertEqual(result["p1"]["market_value_change_7d"], 50_000)
+        self.assertEqual(result["p1"]["market_value"], 10_500_000)
+
+    def test_market_listings_overlay_same_as_own_squad(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row()], own_squad=[],
+            market_listings=[self._light_row(player_id="p1")],
+            predictions=None, previous_players=None, is_light=False,
+        )
+        self.assertEqual(result["p1"]["market_value_change_7d"], 50_000)
+
+    def test_ml_prediction_set_only_for_predicted_ids(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row(player_id="p1"), self._all_players_row(player_id="p2", name="Foo")],
+            own_squad=[], market_listings=[],
+            predictions={"predictions": {"p1": 45_000}}, previous_players=None, is_light=False,
+        )
+        self.assertEqual(result["p1"]["ml_prediction"], 45_000)
+        self.assertNotIn("ml_prediction", result["p2"])
+
+    def test_light_mode_untouched_players_carried_forward_unchanged(self):
+        previous = {"p9": {"player_id": "p9", "name": "Unberuehrt", "market_value": 1_000_000}}
+        result = _build_players_map(
+            all_players=None, own_squad=[], market_listings=[],
+            predictions=None, previous_players=previous, is_light=True,
+        )
+        self.assertEqual(result["p9"], previous["p9"])
+
+    def test_light_mode_touched_player_gets_fresh_values_not_stale(self):
+        previous = {"p1": {"player_id": "p1", "name": "Krauß", "market_value": 9_000_000,
+                            "market_value_change_7d": -100_000}}
+        result = _build_players_map(
+            all_players=None, own_squad=[self._light_row(market_value_change_7d=50_000)],
+            market_listings=[], predictions=None, previous_players=previous, is_light=True,
+        )
+        self.assertEqual(result["p1"]["market_value_change_7d"], 50_000)
+        self.assertEqual(result["p1"]["market_value"], 10_500_000)
+
+    def test_light_mode_preserves_ml_prediction_when_predictions_is_none(self):
+        previous = {"p1": {"player_id": "p1", "name": "Krauß", "ml_prediction": 12_345}}
+        result = _build_players_map(
+            all_players=None, own_squad=[], market_listings=[],
+            predictions=None, previous_players=previous, is_light=True,
+        )
+        self.assertEqual(result["p1"]["ml_prediction"], 12_345)
+
+    def test_light_mode_new_player_not_in_previous_snapshot_does_not_crash(self):
+        result = _build_players_map(
+            all_players=None, own_squad=[self._light_row(player_id="p_new")],
+            market_listings=[], predictions=None, previous_players={}, is_light=True,
+        )
+        self.assertEqual(result["p_new"]["market_value"], 10_500_000)

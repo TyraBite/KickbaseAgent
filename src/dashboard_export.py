@@ -615,6 +615,81 @@ def _resolve_heavy_data(
     }
 
 
+def _build_players_map(
+    all_players: list[dict] | None,
+    own_squad,
+    market_listings,
+    predictions: dict | None,
+    previous_players: dict[str, dict] | None,
+    is_light: bool,
+) -> dict[str, dict]:
+    """Baut/aktualisiert die players-Map (player_id -> rohe Felder +
+    ml_prediction). Heavy: kompletter Rebuild aus den ~450 all_players-
+    Zeilen (team_id wird NICHT uebernommen - niemand client-seitig braucht
+    ihn). Light: startet als Kopie der VORHERIGEN Map - die anderen ~380
+    Spieler bleiben dadurch unveraendert, kein Re-Fetch.
+
+    In BEIDEN Modi werden anschliessend own_squad+market_listings (immer
+    taggenau frisch, siehe fetcher.run()) auf die Basis ueberlagert - das
+    ist das EINZIGE, was in einem Light-Lauf tatsaechlich veraendert wird.
+    History-Felder werden nur uebernommen wenn die Zeile sie tatsaechlich
+    hat (Feld bleibt UNGESETZT statt explizit null - sonst wuerden fuer
+    ~380 Spieler pro Light-Lauf vorhandene Werte verloren gehen, obwohl sie
+    gar nicht angefasst wurden).
+
+    ml_prediction wird nur fuer player_ids in predictions['predictions']
+    gesetzt/ueberschrieben - alle anderen behalten den Wert aus `base`
+    (Light: der letzte bekannte Stand; Heavy: keiner, da `base` dort frisch
+    aufgebaut wird)."""
+    if is_light:
+        base: dict[str, dict] = {pid: dict(p) for pid, p in (previous_players or {}).items()}
+    else:
+        base = {
+            p["player_id"]: {
+                "player_id": p["player_id"],
+                "name": p["name"],
+                "position": p["position"],
+                "team_name": p["team_name"],
+                "status_code": p["status_code"],
+                "starting_rank": p["starting_rank"],
+                "market_value": p["market_value"],
+                "average_points": p["average_points"],
+            }
+            for p in (all_players or [])
+            if p.get("player_id")
+        }
+
+    HISTORY_FIELDS = (
+        "market_value_change_7d", "market_value_low_92d",
+        "market_value_high_92d", "market_value_in_drop_phase",
+    )
+    for row in list(own_squad) + list(market_listings):
+        pid = row["player_id"]
+        entry = dict(base.get(pid) or {"player_id": pid})
+        entry.update({
+            "name": row["name"],
+            "position": row["position"],
+            "team_name": row["team_name"],
+            "status_code": row["status_code"],
+            "starting_rank": row["starting_rank"],
+            "market_value": row["market_value"],
+            "average_points": row["average_points"],
+            "total_points": row["total_points"],
+        })
+        for field in HISTORY_FIELDS:
+            value = row[field]
+            if value is not None:
+                entry[field] = value
+        base[pid] = entry
+
+    predictions_by_id = (predictions or {}).get("predictions", {})
+    for pid, value in predictions_by_id.items():
+        if pid in base:
+            base[pid]["ml_prediction"] = value
+
+    return base
+
+
 def export() -> dict:
     load_dotenv()
     email = os.environ.get("KICKBASE_EMAIL")
