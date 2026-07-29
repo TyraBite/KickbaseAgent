@@ -36,10 +36,10 @@ def _appearance_rate(total_points, average_points, current_matchday) -> str:
     return f"~{round(appearances / current_matchday * 100)}% (geschaetzt)"
 
 
-def _cost_per_point(value, total_points) -> str:
-    if value is None or not total_points:
+def _cost_per_point(value, average_points) -> str:
+    if value is None or not average_points:
         return "unbekannt"
-    return str(round(value / total_points))
+    return str(round(value / average_points))
 
 
 def _market_value_trend(p: sqlite3.Row) -> str:
@@ -86,7 +86,7 @@ def _player_line(p: sqlite3.Row, current_matchday, predictions: dict | None = No
         f"Punkte gesamt: {_fmt_points(p['total_points'])} | "
         f"Einsatzzahl: {_appearances(p['total_points'], p['average_points'])} | "
         f"Einsatzquote: {_appearance_rate(p['total_points'], p['average_points'], current_matchday)} | "
-        f"Kosten/Punkt: {_cost_per_point(p['market_value'], p['total_points'])}"
+        f"Kosten/Punkt: {_cost_per_point(p['market_value'], p['average_points'])}"
         f"{_ml_prediction_hint(p['player_id'], predictions)}"
     )
 
@@ -122,7 +122,7 @@ def _market_line(p: sqlite3.Row, current_matchday, predictions: dict | None = No
         f"Preis: {p['price']} | Marktwert: {p['market_value']} ({_market_value_trend(p)}) | "
         f"Punkteschnitt: {_fmt_points(p['average_points'])} | "
         f"Punkte gesamt: {_fmt_points(p['total_points'])} | "
-        f"Kosten/Punkt: {_cost_per_point(p['price'], p['total_points'])} | "
+        f"Kosten/Punkt: {_cost_per_point(p['price'], p['average_points'])} | "
         f"Angeboten von: {anbieter}{delta_hint}{extra}"
         f"{_ml_prediction_hint(p['player_id'], predictions)}"
     )
