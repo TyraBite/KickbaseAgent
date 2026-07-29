@@ -94,7 +94,6 @@ export interface RawWunschkaderTarget {
   player_id: string;
   role: string;
   note?: string;
-  actual_bid?: number;
 }
 
 export interface BudgetPlanSellRow {

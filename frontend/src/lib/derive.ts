@@ -45,21 +45,14 @@ export function statusLabel(statusCode: number | null): string | null {
   return `Status-Code ${statusCode} (Bedeutung in v4-API nicht zweifelsfrei bestätigt)`;
 }
 
-// 1:1 Port von dashboard_export.py::_estimate_price() (schon in WunschkaderTab.tsx
-// vorhanden, wandert nur hierher)
-export function estimatePrice(marketValue: number | null): number | null {
-  if (!marketValue) return null;
-  return Math.round(marketValue * 1.1);
-}
-
-export function plannedPriceFor(
-  target: { actual_bid?: number },
-  marketValue: number | null,
-  isOwn: boolean
-): number | null {
-  if (target.actual_bid !== undefined) return target.actual_bid;
+// Eingeplanter Preis fuer ein Ziel: 0 wenn schon im eigenen Kader (bereits
+// bezahlt, nicht nochmal einplanen), sonst das eigene laufende Hoechstgebot
+// falls eins existiert (echte Kickbase-Daten aus dem Transfermarkt-Listing -
+// praeziser als jede Schaetzung), sonst der reine Marktwert.
+export function plannedPriceFor(marketValue: number | null, isOwn: boolean, liveBid: number | null): number | null {
   if (isOwn) return 0;
-  return estimatePrice(marketValue);
+  if (liveBid !== null) return liveBid;
+  return marketValue;
 }
 
 const NEXT_MARKET_VALUE_UPDATE_HOUR = 22;
@@ -353,8 +346,9 @@ export function buildBudgetPlan(params: {
   sellListIds: string[];
   targets: RawWunschkaderTarget[];
   ownBudgetExact: number | null;
+  listingsByPlayerId: ReadonlyMap<string, TransfermarktListing>;
 }): BudgetPlan {
-  const { players, ownSquadIds, sellListIds, targets, ownBudgetExact } = params;
+  const { players, ownSquadIds, sellListIds, targets, ownBudgetExact, listingsByPlayerId } = params;
   const sellRows: BudgetPlanSellRow[] = sellListIds
     .filter((pid) => ownSquadIds.has(pid) && players[pid])
     .map((pid) => ({ player_id: pid, market_value: players[pid].market_value }));
@@ -366,7 +360,9 @@ export function buildBudgetPlan(params: {
     const isOwn = ownSquadIds.has(t.player_id);
     if (isOwn) return sum;
     const marketValue = players[t.player_id]?.market_value ?? null;
-    return sum + (plannedPriceFor(t, marketValue, isOwn) || 0);
+    const listing = listingsByPlayerId.get(t.player_id);
+    const liveBid = listing?.is_own_leading_bid && listing.leading_bid_price != null ? listing.leading_bid_price : null;
+    return sum + (plannedPriceFor(marketValue, isOwn, liveBid) || 0);
   }, 0);
   return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
 }

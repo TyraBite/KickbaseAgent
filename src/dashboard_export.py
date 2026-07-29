@@ -161,7 +161,6 @@ def _build_wunschkader_targets(wunschkader: dict, players_map: dict) -> list[dic
             "player_id": t.get("player_id"),
             "role": t.get("role"),
             "note": t.get("note"),
-            "actual_bid": t.get("actual_bid"),
         }
         for t in targets
     ]

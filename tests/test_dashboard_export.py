@@ -79,15 +79,15 @@ class FinalizeFirestoreWriteTests(unittest.TestCase):
 
 class BuildWunschkaderTargetsTests(unittest.TestCase):
     def test_passes_through_player_id_and_overlay_fields(self):
-        wunschkader = {"targets": [{"player_id": "p1", "role": "Starter", "note": "geprüft", "actual_bid": 16_000_000}]}
+        wunschkader = {"targets": [{"player_id": "p1", "role": "Starter", "note": "geprüft"}]}
         players_map = {"p1": {"player_id": "p1", "name": "Krauß"}}
 
         rows = _build_wunschkader_targets(wunschkader, players_map)
 
-        self.assertEqual(rows[0], {"player_id": "p1", "role": "Starter", "note": "geprüft", "actual_bid": 16_000_000})
+        self.assertEqual(rows[0], {"player_id": "p1", "role": "Starter", "note": "geprüft"})
 
     def test_keeps_target_even_when_player_id_unknown(self):
-        wunschkader = {"targets": [{"player_id": "p_missing", "role": "Starter", "note": None, "actual_bid": None}]}
+        wunschkader = {"targets": [{"player_id": "p_missing", "role": "Starter", "note": None}]}
 
         rows = _build_wunschkader_targets(wunschkader, players_map={})
 
