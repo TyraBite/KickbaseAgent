@@ -1,3 +1,49 @@
+export interface PositionCalibrationEntry {
+  k: number | null;
+  n: number;
+}
+
+export interface Calibration {
+  calibrated_at?: string;
+  n: number;
+  global_k: number | null;
+  position_k: Record<string, PositionCalibrationEntry>;
+}
+
+export interface PlayerRecord {
+  player_id: string;
+  name: string;
+  position: string;
+  team_name: string | null;
+  status_code: number | null;
+  starting_rank: number | null;
+  market_value: number | null;
+  average_points: number | null;
+  // Nur vorhanden fuer Spieler in own_squad/market_listings (light-path):
+  market_value_change_7d?: number;
+  market_value_low_92d?: number;
+  market_value_high_92d?: number;
+  market_value_in_drop_phase?: boolean;
+  total_points?: number;
+  // Nur vorhanden, wenn das ML-Modell einen Wert produziert hat:
+  ml_prediction?: number;
+}
+
+export interface TransfermarktListing {
+  player_id: string;
+  price: number;
+  price_delta_pct: number | null;
+  offering_username: string | null;
+  is_system_offer: boolean;
+  pending_offers_count: number | null;
+  leading_bid_username: string | null;
+  leading_bid_price: number | null;
+  is_own_leading_bid: boolean;
+  listed_at: string | null;
+  expires_at: string | null;
+  expiry_is_estimate: boolean;
+}
+
 export interface SpekulationRow {
   name: string;
   position: string;
@@ -35,11 +81,20 @@ export interface WunschkaderRow {
   ml_prediction: number | null;
 }
 
-export interface RawWunschkaderTarget {
+// ALT (kept temporarily under a new name during the migration window):
+export interface LegacyRawWunschkaderTarget {
   name: string;
   position: string;
   role?: string;
   note?: string;
+}
+
+// NEU:
+export interface RawWunschkaderTarget {
+  player_id: string;
+  role: string;
+  note?: string;
+  actual_bid?: number;
 }
 
 export interface BudgetPlanSellRow {
@@ -169,19 +224,31 @@ export interface MlAccuracyTrendEntry {
 }
 
 export interface DashboardSnapshot {
-  spekulation: SpekulationRow[];
-  wunschkader: WunschkaderRow[];
-  wunschkader_raw: { targets: RawWunschkaderTarget[]; formation?: string | null; sell_list?: string[] } | null;
-  wunschkader_watchlist: WunschkaderRow[];
+  // NEU
+  players: Record<string, PlayerRecord>;
+  calibration: Calibration | null;
+  transfermarkt_listings: TransfermarktListing[];
+  own_squad_ids: string[];
+  owned_by: Record<string, string>;
+  wunschkader_targets: RawWunschkaderTarget[];
+  wunschkader_sell_list: string[] | null;
+
+  // ALT — optional, rein zur Compile-Zeit-Ueberbrueckung waehrend Tasks 15-19.
+  // WIRD IN TASK 20 KOMPLETT ENTFERNT. Kein Firestore-Bezug, kein Live-Risiko.
+  alle_spieler?: AlleSpielerRow[];
+  transfermarkt?: TransfermarktRow[];
+  eigenes_team_split?: EigenesTeamSplit;
+  spekulation?: SpekulationRow[];
+  wunschkader_raw?: { targets: LegacyRawWunschkaderTarget[]; formation?: string | null; sell_list?: string[] } | null;
+
+  // UNVERAENDERT
   wunschkader_formation: string | null;
-  alle_spieler: AlleSpielerRow[];
-  transfermarkt: TransfermarktRow[];
-  eigenes_team_split: EigenesTeamSplit;
   ligaanalyse: LigaanalyseRow[];
   ml_metrics: MlMetrics | null;
   ml_accuracy_trend: MlAccuracyTrendEntry[] | null;
-  budget_plan: BudgetPlan | null;
   signal_thresholds: SignalThresholds;
   own_budget_exact: number | null;
+  own_available_budget: number | null;
+  fetched_at: string;
   [key: string]: unknown;
 }
