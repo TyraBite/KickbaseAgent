@@ -343,14 +343,19 @@ export interface BudgetPlan {
 export function buildBudgetPlan(params: {
   players: Record<string, PlayerRecord>;
   ownSquadIds: Set<string>;
-  sellListIds: string[];
   targets: RawWunschkaderTarget[];
   ownBudgetExact: number | null;
   listingsByPlayerId: ReadonlyMap<string, TransfermarktListing>;
 }): BudgetPlan {
-  const { players, ownSquadIds, sellListIds, targets, ownBudgetExact, listingsByPlayerId } = params;
-  const sellRows: BudgetPlanSellRow[] = sellListIds
-    .filter((pid) => ownSquadIds.has(pid) && players[pid])
+  const { players, ownSquadIds, targets, ownBudgetExact, listingsByPlayerId } = params;
+  // Verkaufserloese: nicht aus einer separaten, manuell gepflegten Liste
+  // (Bug, gefunden 2026-07-29, siehe WunschkaderTab.tsx), sondern automatisch
+  // aus dem eigenen Kader abgeleitet - jeder Spieler im eigenen Kader, der
+  // NICHT (mehr) unter den aktuellen Wunschkader-Zielen steht, ist ein
+  // Verkaufskandidat.
+  const targetPlayerIds = new Set(targets.map((t) => t.player_id));
+  const sellRows: BudgetPlanSellRow[] = [...ownSquadIds]
+    .filter((pid) => !targetPlayerIds.has(pid) && players[pid])
     .map((pid) => ({ player_id: pid, market_value: players[pid].market_value }));
   const sellProceeds = sellRows.reduce((sum, r) => sum + (r.market_value || 0), 0);
   const cash = ownBudgetExact || 0;
