@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
-import { buildAlleSpielerRows, buildBudgetPlan, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
+import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -145,14 +145,16 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
   const bench = useMemo(() => editState.filter(isBench), [editState]);
 
   // Geplanter Preis fuer die aktuell geoeffnete Detailansicht - ausserhalb von
-  // buildBudgetPlan() (das summiert nur ueber alle Ziele), daher hier
-  // inline nach demselben Muster wie buildBudgetPlan intern.
+  // buildBudgetPlan() (das summiert nur ueber alle Ziele), daher hier per
+  // liveBidFor()/plannedPriceFor() (derive.ts) - dieselben Funktionen, die
+  // buildBudgetPlan() intern nutzt, damit Kachel-Einzelpreis und Budget-Summe
+  // garantiert nie divergieren (Review-Fund 2026-07-29: vorher war der
+  // Live-Gebots-Ausdruck hier separat dupliziert).
   const selectedPlannedPrice = useMemo(() => {
     if (!selected) return null;
     const computed = resolvedByPlayerId.get(selected.player_id);
     if (!computed) return null;
-    const listing = listingsByPlayerId.get(selected.player_id);
-    const liveBid = listing?.is_own_leading_bid && listing.leading_bid_price != null ? listing.leading_bid_price : null;
+    const liveBid = liveBidFor(selected.player_id, listingsByPlayerId);
     return plannedPriceFor(computed.market_value, ownSquadIds.has(selected.player_id), liveBid);
   }, [selected, resolvedByPlayerId, listingsByPlayerId, ownSquadIds]);
 
@@ -194,6 +196,20 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
   const [saveStatus, setSaveStatus] = useState("");
 
   async function handleSave() {
+    // Absicherung gegen die einmalige Migration (migrate_wunschkader_player_ids.py):
+    // solange die noch nicht gegen den aktuellen Firestore-Wunschkader-Doc
+    // gelaufen ist, kann _build_wunschkader_targets() (dashboard_export.py)
+    // Ziele ohne player_id durchreichen (nur stderr-Warnung, kein Datenverlust
+    // serverseitig). Ein Save von hier aus wuerde mit merge:true das gesamte
+    // targets-Array ersetzen und damit die name-Felder unwiderruflich
+    // wegwerfen, die das Migrationsskript zum Aufloesen braucht - deshalb
+    // lieber hart blockieren als stillschweigend Daten verlieren.
+    if (editState.some((t) => !t.player_id)) {
+      setSaveStatus(
+        "Speichern blockiert: mindestens ein Ziel hat keine player_id (Migration noch nicht gelaufen?) — Firestore-Konsole pruefen."
+      );
+      return;
+    }
     setSaveStatus("Speichere…");
     try {
       const updatedAt = new Date().toISOString().slice(0, 10);

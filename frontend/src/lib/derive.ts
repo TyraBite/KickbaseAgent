@@ -340,6 +340,18 @@ export interface BudgetPlan {
   pool: number; committed: number; remaining: number;
 }
 
+// Eigenes laufendes Hoechstgebot fuer einen Spieler, falls er aktuell auf dem
+// Transfermarkt steht UND wir dort selbst fuehren (is_own_leading_bid) - sonst
+// null (dann greift in plannedPriceFor() der Marktwert-Fallback). Einzige
+// Quelle fuer diese Ableitung im ganzen Frontend (Review-Fund 2026-07-29:
+// buildBudgetPlan() und WunschkaderTab.tsx's DetailModal-Preisanzeige hatten
+// denselben Ausdruck byte-identisch dupliziert - genau das Divergenz-Risiko,
+// das diese ganze players-Map-Umstellung vermeiden soll).
+export function liveBidFor(playerId: string, listingsByPlayerId: ReadonlyMap<string, TransfermarktListing>): number | null {
+  const listing = listingsByPlayerId.get(playerId);
+  return listing?.is_own_leading_bid && listing.leading_bid_price != null ? listing.leading_bid_price : null;
+}
+
 export function buildBudgetPlan(params: {
   players: Record<string, PlayerRecord>;
   ownSquadIds: Set<string>;
@@ -365,8 +377,7 @@ export function buildBudgetPlan(params: {
     const isOwn = ownSquadIds.has(t.player_id);
     if (isOwn) return sum;
     const marketValue = players[t.player_id]?.market_value ?? null;
-    const listing = listingsByPlayerId.get(t.player_id);
-    const liveBid = listing?.is_own_leading_bid && listing.leading_bid_price != null ? listing.leading_bid_price : null;
+    const liveBid = liveBidFor(t.player_id, listingsByPlayerId);
     return sum + (plannedPriceFor(marketValue, isOwn, liveBid) || 0);
   }, 0);
   return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
