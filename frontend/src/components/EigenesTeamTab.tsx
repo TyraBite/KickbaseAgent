@@ -1,19 +1,26 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { DashboardSnapshot, EigenesTeamRow, WunschkaderRow } from "../types";
-import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
+import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 
 // Felder gekuerzt ggue. der alten index.html: cost_per_point weggelassen
 // (redundant zu Signal, beide leiten sich aus Marktwert/Punkte-Schnitt ab),
 // 92-Tage-Tief/Hoch weggelassen (Spekulations-Konzept "guenstig einsteigen",
-// nicht "eigenen Spieler halten/verkaufen") - schneller Port, echter
-// Feld-Audit folgt spaeter (siehe Plan).
+// nicht "eigenen Spieler halten/verkaufen"). Trend 7T/Signal/Status-Text
+// zusaetzlich aus der Kachel raus in die Detailansicht verschoben (User-
+// Feedback nach erstem Feld-Audit 2026-07-29) - Kachel zeigt nur noch
+// Marktwert/Schnitt/ML-Prognose/Startelf-Rang, Status als kompaktes Badge
+// statt Text-Zeile.
 const TREND_7D_THRESHOLDS = { flat: 200_000, strong: 1_500_000 };
+const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+
+type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; row: WunschkaderRow } | null;
 
 export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
   const split = data.eigenes_team_split ?? { verkaufen: [], bleibt: [] };
   const watchlist = data.wunschkader_watchlist ?? [];
   const thresholds = data.signal_thresholds;
+  const [selected, setSelected] = useState<Selected>(null);
 
   return (
     <div>
@@ -21,7 +28,7 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
         {split.verkaufen.length ? (
           <CardGrid>
             {split.verkaufen.map((row) => (
-              <PlayerCard key={row.player_id} row={row} thresholds={thresholds} />
+              <PlayerCard key={row.player_id} row={row} onSelect={() => setSelected({ kind: "player", row })} />
             ))}
           </CardGrid>
         ) : (
@@ -33,7 +40,7 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
         {watchlist.length ? (
           <CardGrid>
             {watchlist.map((row) => (
-              <WunschkaderWatchlistCard key={row.name} row={row} thresholds={thresholds} />
+              <WunschkaderWatchlistCard key={row.name} row={row} onSelect={() => setSelected({ kind: "watchlist", row })} />
             ))}
           </CardGrid>
         ) : (
@@ -45,13 +52,20 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
         {split.bleibt.length ? (
           <CardGrid>
             {split.bleibt.map((row) => (
-              <PlayerCard key={row.player_id} row={row} thresholds={thresholds} />
+              <PlayerCard key={row.player_id} row={row} onSelect={() => setSelected({ kind: "player", row })} />
             ))}
           </CardGrid>
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">Keine Spieler in dieser Gruppe.</p>
         )}
       </Section>
+
+      {selected?.kind === "player" && (
+        <PlayerDetailModal row={selected.row} thresholds={thresholds} onClose={() => setSelected(null)} />
+      )}
+      {selected?.kind === "watchlist" && (
+        <WatchlistDetailModal row={selected.row} thresholds={thresholds} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }
@@ -69,24 +83,58 @@ function CardGrid({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">{children}</div>;
 }
 
-function CardShell({ header, children }: { header: ReactNode; children: ReactNode }) {
+function CardShell({
+  header,
+  children,
+  onSelect,
+  toneClass,
+}: {
+  header: ReactNode;
+  children: ReactNode;
+  onSelect: () => void;
+  toneClass?: string;
+}) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`cursor-pointer rounded-2xl border p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:hover:border-brand-600 ${
+        toneClass ?? "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+      }`}
+    >
       {header}
       <dl className="space-y-1.5 text-sm">{children}</dl>
     </div>
   );
 }
 
+function MlPredictionRow({ value }: { value: number | null }) {
+  return (
+    <Row label="ML-Prognose">
+      <span className={trendClass(value)}>
+        {trendArrow(value, ML_PREDICTION_THRESHOLDS)} {fmtSigned(value)}
+      </span>
+    </Row>
+  );
+}
+
 function PlayerCard({
   row,
-  thresholds,
+  onSelect,
 }: {
   row: EigenesTeamRow;
-  thresholds: DashboardSnapshot["signal_thresholds"];
+  onSelect: () => void;
 }) {
   return (
     <CardShell
+      onSelect={onSelect}
       header={
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <TeamCrest teamName={row.team_name} />
@@ -97,9 +145,109 @@ function PlayerCard({
               {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
             </Badge>
           )}
+          {row.status_label && <Badge tone="crit">{row.status_label}</Badge>}
         </div>
       }
     >
+      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+      <MlPredictionRow value={row.ml_prediction} />
+      <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+    </CardShell>
+  );
+}
+
+function WunschkaderWatchlistCard({
+  row,
+  onSelect,
+}: {
+  row: WunschkaderRow;
+  onSelect: () => void;
+}) {
+  const tone = cardTone(row.status);
+  return (
+    <CardShell
+      onSelect={onSelect}
+      toneClass={CARD_TONE_CLASSES[tone]}
+      header={
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <TeamCrest teamName={row.team_name} />
+          <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+          {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
+        </div>
+      }
+    >
+      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+      <Row label="Schnitt">{fmtNum(row.points_avg)}</Row>
+      <MlPredictionRow value={row.ml_prediction} />
+      <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+    </CardShell>
+  );
+}
+
+function useEscapeClose(onClose: () => void) {
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+}
+
+function DetailModalShell({ header, onClose, children }: { header: ReactNode; onClose: () => void; children: ReactNode }) {
+  useEscapeClose(onClose);
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+      >
+        <div className="mb-4 flex items-start justify-between gap-2">
+          {header}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Schließen"
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            ✕
+          </button>
+        </div>
+        <dl className="space-y-2 text-sm">{children}</dl>
+      </div>
+    </div>
+  );
+}
+
+function PlayerDetailModal({
+  row,
+  thresholds,
+  onClose,
+}: {
+  row: EigenesTeamRow;
+  thresholds: DashboardSnapshot["signal_thresholds"];
+  onClose: () => void;
+}) {
+  return (
+    <DetailModalShell
+      onClose={onClose}
+      header={
+        <div className="flex flex-wrap items-center gap-2">
+          <TeamCrest teamName={row.team_name} />
+          <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+        </div>
+      }
+    >
+      {row.sell_signal && (
+        <Row label="Empfehlung">
+          <Badge tone={row.sell_signal === "halten" ? "good" : "warn"}>
+            {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
+          </Badge>
+        </Row>
+      )}
       <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
       <Row label="Trend 7T">
         <span className={trendClass(row.market_value_change_7d)}>
@@ -110,26 +258,29 @@ function PlayerCard({
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>
-      <Row label="ML-Prognose">{fmtSigned(row.ml_prediction)}</Row>
+      <MlPredictionRow value={row.ml_prediction} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
       <Row label="Status">{row.status_label ?? "—"}</Row>
-    </CardShell>
+    </DetailModalShell>
   );
 }
 
-function WunschkaderWatchlistCard({
+function WatchlistDetailModal({
   row,
   thresholds,
+  onClose,
 }: {
   row: WunschkaderRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
+  onClose: () => void;
 }) {
   return (
-    <CardShell
+    <DetailModalShell
+      onClose={onClose}
       header={
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <TeamCrest teamName={row.team_name} />
-          <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+          <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
           <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
         </div>
       }
@@ -139,9 +290,9 @@ function WunschkaderWatchlistCard({
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>
-      <Row label="ML-Prognose">{fmtSigned(row.ml_prediction)}</Row>
+      <MlPredictionRow value={row.ml_prediction} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
       <Row label="Status">{row.status ?? "—"}</Row>
-    </CardShell>
+    </DetailModalShell>
   );
 }

@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { AlleSpielerRow, DashboardSnapshot, RawWunschkaderTarget, WunschkaderRow } from "../types";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
-import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
+import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum } from "../format";
 
 const MAX_SQUAD_SIZE = 17;
@@ -50,27 +50,6 @@ function computedFor(name: string, wunschkader: WunschkaderRow[], alleSpieler: A
     status: fromWunschkader?.status ?? liveStatus,
   };
 }
-
-type CardTone = "own" | "other" | "free" | "market";
-
-// Leitet die Kachel-Einfaerbung aus dem status-Text ab (siehe computedFor):
-// "Markt (...)" hat Vorrang vor Eigentuemer-Faerbung (ein gerade gelisteter
-// Spieler ist sofort handelbar, unabhaengig davon wem er noch gehoert).
-// Unbekannt (status null/"Nicht gefunden") faellt auf neutral zurueck, gleiche
-// Farbe wie "own" - kein falsches Signal, solange der Status nicht sicher ist.
-function cardTone(status: string | null): CardTone {
-  if (status?.startsWith("Markt (")) return "market";
-  if (status?.startsWith("Bei ")) return "other";
-  if (status === "Frei") return "free";
-  return "own";
-}
-
-const CARD_TONE_CLASSES: Record<CardTone, string> = {
-  own: "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900",
-  other: "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40",
-  free: "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
-  market: "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
-};
 
 // 1:1 Portierung von _estimate_price() aus src/dashboard_export.py.
 function estimatePrice(marketValue: number | null): number | null {

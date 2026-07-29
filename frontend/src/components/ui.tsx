@@ -84,6 +84,30 @@ export function Badge({ tone, children }: { tone: "good" | "warn" | "crit"; chil
   return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${toneClass}`}>{children}</span>;
 }
 
+export type CardTone = "own" | "other" | "free" | "market";
+
+// Leitet die Kachel-Einfaerbung aus einem status-Text ab (siehe
+// WunschkaderTab.tsx computedFor / status_label-Feldern): "Markt (...)" hat
+// Vorrang vor Eigentuemer-Faerbung (ein gerade gelisteter Spieler ist sofort
+// handelbar, unabhaengig davon wem er noch gehoert). Unbekannt (status null/
+// "Nicht gefunden") faellt auf neutral zurueck, gleiche Farbe wie "own" -
+// kein falsches Signal, solange der Status nicht sicher ist. Geteilt
+// zwischen WunschkaderTab (eigene Kacheln) und EigenesTeamTab (Watchlist),
+// gleiche status-Semantik ("Markt (...)"/"Bei X"/"Frei"/"Eigener Kader").
+export function cardTone(status: string | null): CardTone {
+  if (status?.startsWith("Markt (")) return "market";
+  if (status?.startsWith("Bei ")) return "other";
+  if (status === "Frei") return "free";
+  return "own";
+}
+
+export const CARD_TONE_CLASSES: Record<CardTone, string> = {
+  own: "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900",
+  other: "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40",
+  free: "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
+  market: "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
+};
+
 // 1:1 Portierung von signalPill() aus der bestehenden index.html - gleiche
 // Schwellen (DATA.signal_thresholds), gleiche 3 Zustaende.
 export function SignalBadge({
