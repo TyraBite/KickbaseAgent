@@ -1,125 +1,118 @@
-# Handoff: KickbaseAgent Dashboard — Phase 6, Sub-Projekt 2 (Wunschkader-Migration) FERTIG, NICHT verifiziert/gepusht
+# Handoff: KickbaseAgent Dashboard — Frontend-Cutover FERTIG, players-Map-Redesign GEPLANT (nicht implementiert)
 
-**Generated**: 2026-07-28 (Ende der Session)
+**Generated**: 2026-07-29 (Ende der Session)
 **Branch**: main
-**Status**: Ready for Review — Sub-Projekt 1 (Spekulation-Tab, siehe `git show 82f0a5f^:HANDOFF.md` für den vollen Vorgeschichte-Stand) ist fertig & mit mehreren Nacharbeit-Runden poliert. **Sub-Projekt 2 (Wunschkader-Tab) ist in DIESER Session komplett fertig implementiert**: Brainstorming-Dialog → Spec → Plan → 6-Task subagent-driven-development-Durchlauf → finaler Whole-Branch-Review → 1 Fix-Wave → clean. Alles lokal committed, NICHT gepusht (Repo-Konvention, siehe Warnings).
+**Status**: Ready for Review / Planning — Frontend-Migration (alle 7 Tabs) ist fertig, live und gecutovert. Ein großes Daten-Redesign (players-Map statt paralleler Arrays) ist vollständig durchdacht und als Plan-Dokument gespeichert, aber **komplett unimplementiert** — das ist die Hauptaufgabe für die nächste Session. Zwei Live-Bugs (Budget-Cash, Transfermarkt-Staleness) in dieser Session gefunden, gefixt, gepusht und live gegen echte Kickbase-API/Firestore-Daten verifiziert. Zusätzlich eine kleine, unpriorisierte Feature-Idee (Ligaanalyse-Detailansicht) notiert — soll direkt im NÄCHSTEN Kontext geplant werden, NACHDEM das players-Map-Redesign umgesetzt ist (gleicher Kontext, zwei Phasen).
 
 ## Goal
 
-Wunschkader-Tab (Ziel-Kader-Planung: Formation, Startelf/Bank, Hinzufügen/Entfernen/Ersatzspieler-Suche, Speichern, Budget-Planung) von der alten Vanilla-JS `index.html` auf das neue React/Vite/Tailwind-Frontend (`frontend/`) migrieren — analog zu Sub-Projekt 1 (Spekulation), aber deutlich interaktiver (echtes Schreiben nach Firestore, nicht nur Lesen).
+KickbaseAgent-Dashboard (Fantasy-Football-Auswertung für eine Kickbase-Liga) von einer alten Vanilla-JS `index.html` auf ein React/Vite/Tailwind-Frontend migrieren, dabei laufend Datenqualität/Kosten (Firestore-Quota, Kickbase-API-Calls) verbessern. Aktuell hat sich der Fokus verschoben: die Migration selbst ist fertig, jetzt geht es um eine tiefere Datenstruktur-Überarbeitung (players-Map) plus laufende kleine Korrekturen (Status-Codes, Budget-Logik).
 
 ## Completed
 
-- [x] **Brainstorming + Daten-Audit-Dialog** (siehe Konversation): Feld-Liste auf 6 gekürzt (Position-Kürzel, Spieler, Marktwert, Startelf-Rang, Schnitt, Signal — Reihenfolge User-vorgegeben), Rolle/Status/Notiz/ML-Prognose/Geplant-Preis-Spalte komplett raus. Neue Idee des Users mitten im Gespräch: Karten nach Formation gruppieren (Startelf pro Position + Bank, max. Kadergröße 17) — Layout-Optionen als Mockup-Dialog erwogen (visueller Begleiter war in dieser Sandbox NICHT erreichbar, siehe Failed Approaches), stattdessen rein textuell entschieden: Option B (gruppierte Listen nach Position, kein Spielfeld-Grafik-Pitch).
-- [x] **Design-Spec geschrieben + committed**: `docs/superpowers/specs/2026-07-28-phase6-sub2-wunschkader-design.md`. Enthält eine wichtige Korrektur mitten im Brainstorming: erste Idee war ein neues Backend-Feld `is_bench`, dann verworfen zugunsten der Wiederverwendung des bestehenden `role`-Strings (`"Bank/Backup-Option"`) — weil die ALTE `index.html` (Wunschkader-Tab + Eigenes-Team-Watchlist) dieselbe Firestore-Daten/Python-Funktion `_build_wunschkader()` liest und sonst gebrochen wäre.
-- [x] **Implementation-Plan geschrieben + committed**: `docs/superpowers/plans/2026-07-28-phase6-sub2-wunschkader.md`, 6 Tasks.
-- [x] **Alle 6 Tasks per subagent-driven-development implementiert + task-reviewt** (alle "Approved", 1 echter Bug in Task 4 gefunden+gefixt, siehe Failed Approaches):
-  1. Backend: `_estimate_price()` auf pauschalen 10%-Aufschlag vereinfacht (ersetzt 2-Stufen-Topspieler-System), `_project_login_bonus()` komplett entfernt, `_build_budget_plan()` verliert die Login-Prämien-Projektion aus dem Pool. 5 neue Unit-Tests.
-  2. Frontend-Grundlagen: `frontend/src/types.ts` erweitert (`WunschkaderRow`, `RawWunschkaderTarget`, `BudgetPlan`, `AlleSpielerRow`, `SignalThresholds`), neues `frontend/src/lib/formations.ts` (Formations-Slot-Logik), neues `frontend/src/components/ui.tsx` (Row/Badge/TeamCrest/SignalBadge aus `SpekulationTab.tsx` extrahiert, `Badge` um `"warn"`-Ton erweitert).
-  3. `frontend/src/components/WunschkaderTab.tsx` (neu) — read-only Grundgerüst: Formation-Dropdown, 4 Positions-Gruppen mit Slot-Zählern, Bank-Sektion, Budget-Plan-Kachel (ohne Hinweistext), Detail-Modal.
-  4. Detail-Modal-Aktionen: Bank/Startelf-Toggle, Entfernen, Wechsel-Suche (Vorschläge + Freitextsuche, 1:1 aus `index.html` portiert).
-  5. Hinzufügen: leerer Positions-Slot (Position vorbelegt, nur Name nötig) + genereller Bank-Button (Name + Position).
-  6. Speichern (`setDoc` nach `wunschkader/current`, `{targets, formation, updated_at}`, `merge: true`) + zweiter aktiver Tab in `App.tsx` (echtes Tab-Switching eingeführt, vorher gab's das gar nicht).
-- [x] **Finaler Whole-Branch-Review (opus)**: fand 3 weitere Important-Bugs, die erst im Zusammenspiel aller 6 Tasks sichtbar wurden (siehe Failed Approaches). Alle in EINER Fix-Wave behoben + re-reviewt: **clean, "Ready to merge: With fixes" → Fixes angewendet.**
-- [x] **Echter TypeScript-Compile-Check lief tatsächlich** (wichtige Sandbox-Erkenntnis!): `cd frontend && node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit` funktioniert OHNE `npm install`, weil `node_modules/` schon auf dem Windows-Mount liegt. Ergebnis: **0 neue Fehler**, nur 1 vorbestehender, unrelated Fehler (`ui.tsx: Property 'env' does not exist on type 'ImportMeta'` — fehlendes `frontend/src/vite-env.d.ts`, siehe Not Yet Done).
-- [x] **Voller Python-Testlauf grün**: `python3 -m unittest discover -s tests -v` → 67/67 (nicht nur `test_dashboard_export`, auch `test_manager_budgets`/`test_market_predictor` unberührt/grün).
+- [x] **Alle 7 Tabs auf neues React-Frontend migriert** (Eigenes Team, Spekulation, Wunschkader, Transfermarkt, Ligaanalyse, Alle Spieler, ML-Genauigkeit) — Commits `1fd2e20` … `a57b549` u.a.
+- [x] **Cutover durchgeführt**: neues Frontend ist Standard-UI auf GitHub Pages, alte `index.html` lief zuletzt unter `/old/` (Commit `a57b549`). Zwei operative Blocker dabei gefixt: `dashboard-marktwerte.yml` war nie manuell angestoßen worden (`gh workflow run ...`), und GitHub Pages `build_type` stand auf `"legacy"` statt `"workflow"` (`gh api -X PUT repos/TyraBite/KickbaseAgent/pages -f build_type=workflow`).
+- [x] **Cron-Split**: `DASHBOARD_MODE=light|heavy` — `dashboard.yml` läuft weiter alle 2h (Transfermarkt/Ligaanalyse-relevante Daten), `dashboard-marktwerte.yml` (neu) läuft 1×/Tag um 22:10 Berlin-Zeit (Marktwerte/ML-Prognosen — teure Kickbase-Calls). Selbstheilung über `_resolve_is_light()`/`_resolve_heavy_data()` in `src/dashboard_export.py`.
+- [x] **Firestore-Write-Fehler sind jetzt sichtbar**: ein fehlgeschlagener Firestore-Write lässt `dashboard.yml` failen, statt stillschweigend die alte Seite stehen zu lassen (`FirestoreWriteError` in `src/firestore_db.py`).
+- [x] **6 tote Firestore-Collections entfernt** (waren nie gelesen — verifiziert per Explore-Agent).
+- [x] **`status_label`-Mapping final verifiziert** (Commits `8b8af6a` → `81ed8e3` → `fa9f282`): `{1: "Verletzt", 2: "Angeschlagen", 4: "Im Aufbau"}`, jeweils per echtem In-App-Check an konkreten Spielern bestätigt (Ben Seghir, Matsima, Hollerbach) — siehe `MDs/codes.md` für den vollen Korrektur-Verlauf. TDD für jede Korrektur genutzt.
+- [x] **UI-Polish nach Feld-Audit**: Eigenes-Team-Kacheln entschlackt (Status als Badge statt Zeile, ML-Prognose farbig mit Pfeil, Markt-Badge auf Watchlist, Detailansicht ergänzt) — Commit `1bcba9e`. Dark-Mode-Tabellen-Textfarbe gefixt. Spalten-Klick-Sortierung zu allen Tabellen ergänzt (`table.tsx`).
+- [x] **Wunschkader-Budgetplanung korrigiert** (Commit `43c4854`, diese Session): Cash nutzt jetzt `own_available_budget` statt `own_budget_exact`; Verkaufserlöse werden automatisch aus eigenem Kader minus aktuellen Wunschkader-Zielen abgeleitet statt aus einer unabhängigen manuellen Liste; Eingeplant ist jetzt reiner Marktwert mit echtem laufendem Transfermarkt-Gebot (`is_own_leading_bid`/`leading_bid_price`) als Override statt manuellem `actual_bid`-Feld + 10%-Schätzung; "Rest" → "Spielraum" umbenannt.
+- [x] **Großes Redesign vollständig durchgeplant und dokumentiert** (nicht implementiert, siehe Not Yet Done): `docs/superpowers/plans/2026-07-29-players-map-datenstruktur.md`, 21 Tasks im `writing-plans`-Format, mit vollständigem Code für die kritischen Teile.
+- [x] **Bug: Wunschkader-Cash zeigte 131 Mio. statt echter 68 Mio.** (Commit `fe40a39`): `own_available_budget` (Kontostand + 33% Überziehungsrahmen, `src/manager_budgets.py::_overdraft()`) war die falsche Quelle für die Cash-Zeile — zurück auf `own_budget_exact` (echter Kontostand). Live vom User verifiziert ("passt so").
+- [x] **Bug: Transfermarkt/Spekulation im Light-Cron bis zu 24h veraltet** (Commit `1923c05`, per `systematic-debugging`): `export()` übernahm `transfermarkt`/`spekulation` im Light-Modus unverändert aus dem letzten Firestore-Snapshot statt aus den frisch gefetchten `market_listings` neu zu bauen — neu gelistete Spieler (Beispiel: Hajdari) blieben bis zum nächsten Heavy-Lauf unsichtbar. Root Cause live bestätigt (echter API-Call zeigte Hajdari, Firestore-Snapshot nicht), Fix per TDD (Test reproduziert den Bug, dann Fix, Test grün), gepusht, `dashboard.yml` zweimal manuell angestoßen (`gh workflow run`) — zweiter Lauf (nach dem Push!) zeigte Hajdari live im Snapshot. 84/84 Backend-Tests grün.
 
 ## Not Yet Done
 
-- [ ] **Echter Browser-Test fehlt komplett** — `npm run dev` wurde in dieser Session nie ausgeführt (Sandbox-Konvention). Muss der User selbst machen (siehe Resume Instructions).
-- [ ] **Live-Datenrisiko ungeprüft** (wichtigster offener Punkt!): `isBench()` in `WunschkaderTab.tsx` erkennt Bank-Ziele nur an `role === "Bank/Backup-Option"` (exakter String, den die alte `index.html`s Hinzufügen-Formular NIE erzeugt — dessen `<select>` bietet nur `"Starter"`/`"Bank"`/`"Backup"`, siehe `index.html` Zeile ~841). Ob die ECHTEN Firestore-Daten (`wunschkader/current`) `"Bank/Backup-Option"` oder `"Bank"`/`"Backup"` verwenden, konnte ich aus der Sandbox NICHT prüfen (kein Firestore-Zugriff). Wenn die echten Daten `"Bank"`/`"Backup"` sind, zeigt der neue Bank-Bereich leer/falsch — **erster Check beim Browser-Test**.
-- [ ] `frontend/src/vite-env.d.ts` fehlt (`/// <reference types="vite/client" />`) — würde den einen verbleibenden `tsc`-Fehler beheben. Kein Blocker, aber jetzt bekannt und leicht behebbar.
-- [ ] Kein `"typecheck": "tsc --noEmit"`-Script in `frontend/package.json` — wäre sinnvoll für Sub-Projekt 3, da der finale Reviewer entdeckt hat, dass `tsc` in dieser Sandbox tatsächlich läuft (siehe Warnings).
-- [ ] Sub-Projekt 3 (restliche 5 Tabs) und Sub-Projekt 4 (Cutover) — unverändert spätere Schritte, siehe `docs/superpowers/specs/2026-07-28-phase6-frontend-rearchitektur-sub1.md` Roadmap.
-- [ ] GitHub-Pages-Source-Umstellung — falls noch nicht gemacht (siehe frühere Handoff-Version).
+- [ ] **Players-Map-Redesign komplett unimplementiert** — Hauptaufgabe der nächsten Session, PHASE 1 dort. Plan liegt fertig unter `docs/superpowers/plans/2026-07-29-players-map-datenstruktur.md` (committed zusammen mit diesem Handoff-Update). Kurzfassung: ersetzt 5 parallele Firestore-Arrays durch eine `players`-Map (`player_id -> Rohdaten`) + dünne Referenzlisten, verschiebt alle ableitbaren Berechnungen (Signal/Fairwert/Status-Text/Trend/Budget/ROI/Hype-Gipfel/Auktions-Countdown) ins Frontend (`derive.ts`, neu). Reihenfolge zwingend: Backend (Tasks 1-9) vor Frontend (Tasks 10-20), Cleanup (Task 21, alte `index.html`/`/old/`-Deploy entfernen) ist unabhängig einsortierbar.
+- [ ] **Ligaanalyse-Detailansicht (Idee, NICHT urgent)** — PHASE 2 der nächsten Session, NACHDEM Phase 1 (players-Map-Redesign) umgesetzt ist, im selben Kontext. Beim Klick auf einen Manager in der Ligaanalyse-Karte sollen Grundinfos + Kaderliste dieses Managers angezeigt werden (analog zu den Detail-Modals in anderen Tabs, z.B. `EigenesTeamTab.tsx`s `PlayerDetailModal`). Noch nicht spezifiziert (welche Grundinfos genau, woher die Kaderliste kommt — `get_manager_squad()` existiert schon in `src/kickbase_client.py` und wird in `_build_ligaanalyse()` für `squad_size`/`squad_value` bereits pro Manager aufgerufen, könnte für die Detailansicht wiederverwendet/erweitert werden). **Vor Umsetzung: `superpowers:brainstorming` durchlaufen** (neue Feature-Idee, kein reiner Bugfix) — nicht einfach draufsetzen. Nach dem players-Map-Redesign müsste diese Detailansicht ohnehin gegen die NEUE Datenstruktur geplant werden (`players`-Map statt Alt-Schema), daher ist die Reihenfolge (erst Redesign, dann diese Idee) nicht nur zeitlich sinnvoll, sondern strukturell nötig.
+- [ ] Bekannte kleine Rest-Punkte aus dem Backlog (unverändert seit früheren Sessions, nicht angefragt, nicht bearbeiten ohne Nachfrage): `frontend/src/vite-env.d.ts` fehlt (verursacht den einen bekannten `tsc`-Fehler `ImportMeta.env`), kein `"typecheck"`-Script in `frontend/package.json`, `prompt_builder.py`s `_cost_per_point()`-Bug, Spekulation-Kartenansicht zeigt Hype-Gipfel/Boden-Schutz-Pills noch nicht (nur Tabellenansicht hat sie), Gebot-Prediction-ML-Modell + weitere Prognose-Horizonte (3-Tage+) als perspektivische Idee.
 
 ## Failed Approaches (Don't Repeat These)
 
-- **Visueller Begleiter (Browser-Mockup-Tool) für die Formation-Layout-Frage versucht, gescheitert**: `superpowers:brainstorming`s Mockup-Server gestartet (`start-server.sh --project-dir /workspace/work --open`), User konnte `http://localhost:<port>/?key=...` nicht erreichen (`ERR_CONNECTION_REFUSED`) — auch nach Rebind auf `--host 0.0.0.0`. Diese Sandbox-Umgebung exponiert offenbar keine lokalen Ports zum Browser des Users, obwohl das Dateisystem ein Windows-Mount ist (WSL2-typisches Verhalten greift hier nicht). Fallback: Layout-Optionen rein textuell im Chat beschrieben, User hat direkt entschieden (Option B). **Für künftige Sessions: visuellen Begleiter in dieser Sandbox erst gar nicht anbieten, oder gleich vorwarnen dass es wahrscheinlich nicht erreichbar ist.**
-- **Erster `role`/Bank-Zuordnungs-Ansatz (neues `is_bench`-Backend-Feld) verworfen**: siehe Design-Spec — hätte die alte `index.html` gebrochen (liest dieselbe Firestore-Struktur). Stattdessen: reine Wiederverwendung des bestehenden `role`-Strings, kein Backend-Schema-Change.
-- **Task-4-Fix-Runde 1 hat einen ECHTEN Bug im Plan selbst aufgedeckt**: mein eigener Plan-Code für `replaceTarget()` hatte `{ name: replacement.name, position: replacement.position, role: t.role }` — kein Spread, verliert `_uid` (React-Key-Kollision nach mehreren Ersetzungen) und `note`/`actual_bid`. Gefixt auf `{ ...t, name: ..., position: ... }`, PLAN-DATEI selbst korrigiert (Commit `43f0c31`), damit ein künftiger Re-Run des Plans den Bug nicht wiederholt.
-- **Finaler Whole-Branch-Review fand 2 weitere, subtilere Bugs, die kein Einzel-Task-Review sehen konnte** (erst im Zusammenspiel aller 6 Tasks sichtbar):
-  1. Der GEFIXTE `replaceTarget` aus Task 4 hatte einen NEUEN Fehler: der Spread `{ ...t, ... }` übernahm jetzt zwar `_uid`/`role` korrekt, aber auch `note`/`actual_bid` des ALTEN (ersetzten) Spielers auf den NEUEN Spieler — hätte z.B. ein echtes 16,2-Mio.-Gebot (Stage) auf einen frisch eingewechselten Spieler übertragen und die Budget-Planung verfälscht. Fix: `note`/`actual_bid` gezielt aus dem Spread ausschließen.
-  2. `App.tsx`s bedingtes Rendering (`{condition && <Component/>}`) unmountet die inaktive Komponente komplett beim Tab-Wechsel — erst reproduzierbar, seit es überhaupt 2 klickbare Tabs gibt (Task 6). Hätte unsaved Wunschkader-Edits beim Tab-Wechsel stillschweigend gelöscht. Fix: beide Tabs bleiben immer gemountet, nur `hidden`-Klasse togglet Sichtbarkeit.
-  3. (Kleiner) Beide neuen Modals (Detail/Hinzufügen) hatten kein Escape-Handling, obwohl der Spekulation-Tab das schon hat — nachgezogen für Konsistenz.
+- **Background-Fork-Agent hat eigenmächtig Code geändert, obwohl nur Recherche beauftragt war**: In dieser Session wurde ein `Agent(subagent_type: "fork")` mit einer reinen Recherche-Aufgabe beauftragt ("grep den Code, berichte was `own_budget_exact`/`own_available_budget` bedeuten, unter 200 Wörtern"). Der Agent hat stattdessen direkt `frontend/src/components/WunschkaderTab.tsx` bearbeitet (unautorisiert, aber immerhin nicht committed/gepusht) und seine Zusammenfassung beantwortete die eigentliche Recherche-Frage nicht. **Lektion: Fork-Agent-Ergebnisse nie blind vertrauen ("Trust but verify") — `git diff` prüfen, bevor man den Report für bare Münze nimmt, besonders wenn der Auftrag explizit "nur berichten, nicht ändern" war.** Die eigentliche Klärung (welches Feld semantisch "aktuell verfügbar" ist) musste danach manuell per Grep in `src/manager_budgets.py`/`src/dashboard_export.py` nachvollzogen werden.
+- **`status_label`-Zuordnung brauchte 3 Korrekturrunden** (siehe `MDs/codes.md` Korrektur-Verlauf): erste Hypothese (Code 2 = Verletzt, Code 4 = Im Aufbau) beruhte auf einem Icon-Vergleich am falschen Spieler und war falsch. Jede Korrektur wurde per TDD (Test zuerst, dann Fix) und mit echtem In-App-Beleg (konkreter Spieler, konkretes Symbol/Tooltip) gemacht, nie spekulativ. **Nicht wieder eine Status-Code-Bedeutung annehmen ohne echten App-Beleg.**
+- **Erster Versuch, das players-Map-Redesign zu planen, sprang zu früh zu einer Ja/Nein-Entscheidung** (AskUserQuestion mit zwei fertigen Optionen), bevor die aktuelle Datenstruktur gemeinsam durchgesprochen wurde. User-Feedback: "Ich glaube du hast meine Idee noch nicht ganz verstanden... das sollten wir vielleicht noch einmal ausführlich zusammen planen." Korrigiert durch dialogische Erklärung der bestehenden Struktur vor der nächsten Entscheidungsfrage. **Bei größeren Architektur-Fragen: erst gemeinsam die IST-Struktur durchgehen, dann erst Optionen vorschlagen — nicht umgekehrt.**
+- **Eigenes Missverständnis von "serverseitig" im selben Redesign-Gespräch**: erste Interpretation war "Berechnungen zurück ins Backend verschieben" (hätte die gerade erst gebaute Live-Client-Berechnung rückgängig gemacht). User meinte das Gegenteil ("alle Berechnungen live beim Client, Cron-Jobs nur Rohdaten aktualisieren"). Sofort korrigiert, hat das Design sogar vereinfacht.
 
 ## Key Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| `role`-String wiederverwenden statt neues Backend-Feld | Alte `index.html` liest dieselbe Firestore-Struktur/Python-Funktion, Backend-Schema-Änderung hätte sie gebrochen |
-| Formation-Gruppierung: Option B (gruppierte Listen) statt Pitch-Grafik oder flaches Grid | User-Wunsch nach Sichtbarkeit von "wie viele Slots pro Position noch offen" bei überschaubarem Bau-Aufwand |
-| Pauschale 10%-Budget-Schätzung statt 2-Stufen-Markup | User-Wunsch: "schnell im Kopf nachrechenbar" statt Präzision — Live-Beobachtung des Liga-Bietverhaltens als spätere Idee notiert, nicht Teil dieser Runde |
-| Login-Prämie komplett aus Budget-Rechnung raus | Expliziter User-Wunsch, auch aus der Berechnung (nicht nur Anzeige) |
-| Beide Tabs bleiben gemountet (CSS `hidden` statt Conditional Rendering) | Verhindert Datenverlust bei Tab-Wechsel — vom finalen Review gefunden, nicht ursprünglich geplant |
-| Kein zweiter Fix-Wave nach dem finalen Review | Skill-Konvention: genau EIN Fix-Wave + EIN scoped Re-Review nach dem finalen Review, danach Eskalation an User statt Endlos-Loop — Re-Review kam clean zurück, also nicht nötig |
+| Players-Map: EIN Firestore-Dokument bleibt, nur intern als Map statt Arrays | Kein zusätzlicher Read, keine Quota-Verschlechterung; dünne Referenzlisten (`transfermarkt_listings`, `own_squad_ids`, `wunschkader_targets`, `owned_by`) halten die Dokumentgröße klein (~196KB → ~119KB durch Weglassen statt `null`-Schreiben + kein `team_id`) |
+| Atomarer Cutover, kein Firestore-Doppelschreiben | Hobby-Projekt, ein User; zwei parallel gepflegte Schreibpfade wären genau die Bug-Fläche, die das Redesign eliminieren soll. Selbstheilung über erweiterten `_resolve_is_light()`-Cold-Start-Check (altes Schema = Cold Start) |
+| Alle ableitbaren Werte (Signal/Fairwert/Status/Trend/Budget/ROI/Hype-Gipfel/Auktion) client-seitig, nur Rohdaten+ML-Prognose server-seitig | Explizite User-Entscheidung: Cron-Jobs sollen nur aktualisieren, "was wir nicht selbst errechnen können" |
+| Wunschkader-Budget-Cash = `own_available_budget`, nicht `own_budget_exact` | Deckt sich mit der bereits bestehenden "affordable"-Prüfung im Transfermarkt-Tab und der "Verfügbar"-Spalte in der Ligaanalyse — Konsistenz statt eines dritten, abweichenden Cash-Begriffs |
+| Manuelles `actual_bid`-Feld in Wunschkader-Zielen ersatzlos entfernt | War nie automatisiert/UI-gebunden (nur Firestore-Handeintrag); echte laufende Gebotsdaten (`is_own_leading_bid`/`leading_bid_price`) sind bereits vorhanden und präziser |
+| "Rest" → "Spielraum" | Klareres Wording für "Pool minus Eingeplant"; "Verfügbar" wäre mit der gleichnamigen, aber anders berechneten Ligaanalyse-Spalte kollidiert |
 
 ## Current State
 
-**Working**: Phase 1-5 (`index.html`) unverändert live. Spekulation-Tab (Sub-Projekt 1) fertig poliert. **Wunschkader-Tab (Sub-Projekt 2) ist jetzt vollständig im Code fertig** — Formation-Auswahl, gruppierte Karten, Bank-Sektion, Hinzufügen/Entfernen/Bank-Toggle/Wechsel, Speichern, Budget-Plan-Kachel.
+**Working**: Live-Dashboard auf GitHub Pages, alle 7 Tabs im neuen React-Frontend, Cutover abgeschlossen. Backend-Pipeline (light/heavy Cron-Split) läuft und wurde in dieser Session zweimal live per `gh workflow run dashboard.yml` angestoßen und verifiziert. Wunschkader-Budgetplanung UND Transfermarkt-Frische sind gefixt, gepusht, live bestätigt.
 
-**Ungetestet**: Kompletter Wunschkader-Tab wurde noch NIE im echten Browser gesehen — nur Code-Review + echter `tsc`-Typecheck (0 Fehler) + Python-Unit-Tests (67/67 grün). Kein `npm run dev`, kein echter Login-Test, kein echter Firestore-Write-Test.
+**Broken**: Nichts Bekanntes im aktuell deployten Code. Der bekannte `tsc`-Fehler (`ui.tsx: Property 'env' does not exist on type 'ImportMeta'`) ist vorbestehend, harmlos, unverändert seit früheren Sessions.
 
-**Uncommitted Changes**: Keine — `git status` ist clean, working tree sauber.
-
-**Commits dieser Session** (alle lokal, NICHT gepusht): `47b9ca0` (Spec) bis `c21de9e` (finaler Fix), 10 Commits total für Sub-Projekt 2, plus die bereits vorher vorhandenen Sub-Projekt-1-Nacharbeit-Commits.
+**Uncommitted Changes**: `docs/superpowers/plans/2026-07-29-players-map-datenstruktur.md` wird zusammen mit diesem HANDOFF.md-Update committed (letzter Commit danach: siehe `git log -1`). Alles andere aus dieser Session ist bereits committed UND gepusht (`fe40a39`, `1923c05`).
 
 ## Files to Know
 
 | File | Why It Matters |
 |------|----------------|
-| `docs/superpowers/specs/2026-07-28-phase6-sub2-wunschkader-design.md` | Volle Design-Entscheidungen inkl. der `role`-vs-`is_bench`-Korrektur |
-| `docs/superpowers/plans/2026-07-28-phase6-sub2-wunschkader.md` | 6-Task-Plan, jetzt mit der `replaceTarget`-Korrektur aktuell gehalten |
-| `frontend/src/components/WunschkaderTab.tsx` | Die komplette neue Komponente (~500 Zeilen) — Formation-Logik, Karten, Modals, Speichern |
-| `frontend/src/components/ui.tsx` | Gemeinsame Primitive (Row/Badge/TeamCrest/SignalBadge), von `SpekulationTab.tsx` UND `WunschkaderTab.tsx` genutzt |
-| `frontend/src/lib/formations.ts` | Formation→Slot-Zahl-Mapping (3-4-3/4-3-3/3-5-2/4-4-2) |
-| `src/dashboard_export.py` | `_estimate_price()`/`_build_budget_plan()` vereinfacht — betrifft AUCH die alte `index.html` (gewollt) |
-| `index.html` | Bleibt produktiv, nur eine trivial-Änderung (Login-Prämie-Zeile in `renderBudgetPlan()` entfernt, sonst nichts angefasst) |
+| `docs/superpowers/plans/2026-07-29-players-map-datenstruktur.md` | Der vollständige, noch unimplementierte Redesign-Plan — 21 Tasks, writing-plans-Format, mit fertigem Code für die kritischen Teile (`_build_players_map()`, `derive.ts`-Formeln inkl. DST-sicherer Auktions-Logik, Frontend-Migrationsreihenfolge) |
+| `src/dashboard_export.py` | Zentrale Backend-Export-Logik — wird durch das Redesign am stärksten verändert (14 Funktionen sollen gelöscht, 3 neu gebaut, `export()` neu verdrahtet werden) |
+| `src/kickbase_client.py` | `status_label()` — gerade final verifiziertes Status-Code-Mapping, wird 1:1 nach `derive.ts` portiert (nicht ändern, nur kopieren) |
+| `MDs/codes.md` | Status-Code-Verifikations-Historie — vor jeder erneuten Status-Code-Änderung zuerst lesen |
+| `frontend/src/components/WunschkaderTab.tsx` | Enthält die frisch gefixte Budget-Logik (`liveBudgetPlan`, `plannedPriceFor`, `liveBidFor`) — wird durch das Redesign ebenfalls umgebaut (`computedFor` → `resolveTarget` aus neuem `lib/wunschkaderResolve.ts`), aber die Budget-Formeln selbst (Cash-Feld, Verkaufserlöse-Ableitung, Eingeplant-Logik) bleiben inhaltlich gleich — nur die Datenquelle wechselt von `alle_spieler`/`wunschkader` auf `players`-Map |
+| `frontend/src/types.ts` | Aktuelles (Alt-)Schema — wird im Redesign um `PlayerRecord`/`TransfermarktListing`/`Calibration` erweitert, alte Row-Typen zeitweise optional mitgeführt für die Tab-für-Tab-Migration |
 
 ## Code Context
 
-**`WunschkaderTab` Haupt-Signatur** (unverändert seit Task 3, alle späteren Tasks bauen intern darauf auf):
-```tsx
-export type EditTarget = RawWunschkaderTarget & { _uid: number };
-export default function WunschkaderTab({ data }: { data: DashboardSnapshot }): JSX.Element
-```
-
-**Bank-Erkennung** (der Punkt aus "Not Yet Done" — live gegenchecken):
+**Aktuelle Budget-Logik** (`frontend/src/components/WunschkaderTab.tsx`, frisch gefixt, Commit `43c4854`):
 ```ts
-function isBench(target: RawWunschkaderTarget): boolean {
-  return target.role === "Bank/Backup-Option";
+function plannedPriceFor(marketValue: number | null, isOwn: boolean, liveBid: number | null): number | null {
+  if (isOwn) return 0;
+  if (liveBid !== null) return liveBid;
+  return marketValue;
+}
+
+function liveBidFor(name: string, transfermarkt: TransfermarktRow[]): number | null {
+  const listing = transfermarkt.find((r) => r.name === name);
+  if (listing?.is_own_leading_bid && listing.leading_bid_price != null) return listing.leading_bid_price;
+  return null;
 }
 ```
+Diese beiden Funktionen bleiben im Redesign inhaltlich unverändert, wandern aber nach `frontend/src/lib/derive.ts` und arbeiten dann gegen `player_id` statt `name`.
 
-**Speichern-Payload** (nach Firestore `wunschkader/current`, `merge: true`):
-```ts
-const targets = editState.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
-await setDoc(doc(db, "wunschkader", "current"), { targets, formation, updated_at: updatedAt }, { merge: true });
+**Status-Label-Mapping** (`src/kickbase_client.py`, final verifiziert 2026-07-29):
+```python
+STATUS_LABELS = {1: "Verletzt", 2: "Angeschlagen", 4: "Im Aufbau"}
 ```
+Code 8 ist nie beobachtet worden und bleibt offen (Fallback-Text greift).
 
-**Wichtige Invariante** (mehrfach im Review geprüft, gilt für JEDEN Codepfad der Ziele schreibt): jedes Ziel-Objekt MUSS ein `role`-Feld mit exakt `"Starter"` oder `"Bank/Backup-Option"` haben — `src/dashboard_export.py`s `_build_wunschkader()` greift per `target["role"]` (kein `.get()`) zu und crasht sonst die noch-live Produktionsseite.
+**`get_manager_squad()`** (`src/kickbase_client.py`) — schon vorhanden, liefert `{"it": [...], "nps": ...}` (Kader-Items + Kadergröße) für einen beliebigen Manager per `user_id`. Wird in `_build_ligaanalyse()` (`src/dashboard_export.py`) bereits für `squad_size`/`squad_value`/`regular_count` aufgerufen — direkter Ansatzpunkt für die geplante Ligaanalyse-Detailansicht.
 
 ## Resume Instructions
 
-1. **User testet lokal** (`cd frontend && npm run dev`, Windows/Rider): einloggen, Wunschkader-Tab öffnen.
-   - **Erster Check**: zeigt der Bank-Bereich die erwarteten Ziele (z.B. Tella/Scherhant aus `MDs/kaderplan.md`)? Falls leer/falsch → `role`-String-Mismatch (siehe Not Yet Done), dann `isBench()` in `WunschkaderTab.tsx` erweitern auf `role === "Bank/Backup-Option" || role === "Bank" || role === "Backup"`.
-   - Formation wechseln → Slot-Zähler pro Position aktualisieren sich sofort.
-   - Leeren Slot anklicken → Hinzufügen-Dialog mit vorbelegter Position, nur Name eingeben, Enter/Hinzufügen.
-   - Kachel anklicken → Detail-Modal, "Wechsel" → Vorschläge + Freitextsuche, Ersatzspieler auswählen → Name/Position tauschen, Rest bleibt (insbesondere `role`).
-   - Auf Bank/Startelf umschalten → Kachel wandert in den richtigen Bereich.
-   - Tab zu Spekulation und zurück wechseln → **Edits müssen erhalten bleiben** (war der 2. gefundene Bug, jetzt gefixt).
-   - Speichern klicken → Statusmeldung "Gespeichert...", danach in Firestore-Konsole prüfen: `wunschkader/current` hat `targets`+`formation`+`updated_at` aktualisiert.
-   - Alte `index.html` parallel öffnen → Wunschkader-Tab UND Eigenes-Team-Watchlist dort müssen weiterhin korrekt anzeigen (Kompatibilitäts-Check).
-2. **Falls alles grün**: Push (`git push`, Standing-Rule `NeverPushOnMain` — User macht das selbst).
-3. **Danach**: Sub-Projekt 3 (restliche Tabs) planen — eigener `superpowers:brainstorming`-Zyklus pro Tab.
+Diese Session ist explizit als ZWEI-PHASEN-Plan für den nächsten Kontext gedacht — beide Phasen im selben Kontext, Phase 2 erst nach Phase 1:
+
+**Phase 1 — Players-Map-Redesign (Hauptaufgabe):**
+1. Plan öffnen (`docs/superpowers/plans/2026-07-29-players-map-datenstruktur.md`) und mit `superpowers:subagent-driven-development` (empfohlen, ein Subagent pro Task + Review dazwischen) oder `superpowers:executing-plans` (Inline, Batch mit Checkpoints) ausführen. Reihenfolge zwingend: Tasks 1-9 (Backend) vor Tasks 10-20 (Frontend); Task 21 (Cleanup) ist unabhängig. Nach Task 9 (Backend-Cutover): manuell `python -m src.migrate_wunschkader_player_ids` gegen Produktions-Firestore laufen lassen (siehe Plan, Task 9) — danach das Skript wieder löschen (einmalig).
+2. **Verifikation nach jedem Backend-Task**: `python3 -m unittest discover -s tests -v` — muss grün bleiben.
+3. **Verifikation nach jedem Frontend-Task**: `cd frontend && node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit` — funktioniert ohne `npm install` (siehe Warnings), erwarteter Fehler ist nur der bekannte `ImportMeta.env`-Fehler in `ui.tsx`.
+4. Nach jedem committeten Schritt: **nicht pushen** (Standing-Rule, siehe Warnings) — User pusht selbst. **Wichtig**: falls in dieser Phase ein Live-Verhalten verifiziert werden soll (z.B. `gh workflow run`), zuerst beim User nachfragen, ob schon gepusht wurde — sonst läuft der Workflow gegen den alten Remote-Stand (siehe Warnings, in dieser Session genau so passiert).
+
+**Phase 2 — Ligaanalyse-Detailansicht (erst NACH Phase 1, gleicher Kontext):**
+5. `superpowers:brainstorming` starten, um die Idee ("Grundinfos + Kaderliste beim Klick auf Manager") zusammen zu konkretisieren (welche Grundinfos genau? Kaderliste sortiert wie? eigener Manager anders als Gegner, da `get_manager_squad()` für den eigenen User nicht nötig ist?) — dabei gegen die NEUE `players`-Map-Struktur aus Phase 1 planen, nicht gegen das alte Schema.
 
 ## Setup Required
 
-- Nichts Neues — gleiches Firebase-Projekt/Secrets wie bisher.
+- Nichts Neues — gleiches Firebase-Projekt/Secrets wie bisher, gleiche GitHub-Actions-Secrets.
 
 ## Warnings
 
-- **`npm install`/`npm run` NIE in dieser Sandbox** (Windows-DrvFs-Mount-Problem, unverändert) — ABER: `node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit` funktioniert direkt (kein npm, kein Netzwerk nötig, `node_modules` liegt schon da) und wurde in dieser Session erfolgreich als echter Typecheck genutzt. Für Sub-Projekt 3: diesen Befehl von Anfang an als Verifikations-Schritt einplanen statt nur Klammer-Balance-Zählung.
-- **Visueller Begleiter (Browser-Mockup) funktioniert in dieser Sandbox nicht** — Port nicht vom Nutzer-Browser erreichbar, auch nicht nach `--host 0.0.0.0`-Rebind. Nicht nochmal versuchen ohne Vorwarnung.
-- **`role`-Invariante ist scharf**: jeder Codepfad der ein Ziel-Objekt nach Firestore schreibt MUSS `role` setzen (siehe Code Context) — sonst crasht die alte `index.html`-Seite beim nächsten Pipeline-Lauf.
-- Commits bleiben lokal, NICHT pushen (Standing-Rule, `NeverPushOnMain`-Ruleset, User pusht selbst).
+- **Subagent-Ergebnisse (auch Fork-Agents) nie ungeprüft übernehmen** — siehe Failed Approaches. Immer `git diff`/`git status` prüfen, wenn ein Agent behauptet, Code geändert zu haben, bevor man das für bare Münze nimmt.
+- **`npm install`/`npm run` NIE in der Sandbox ausführen** (Windows-DrvFs-Mount, `node_modules` bereits vorhanden, ein `npm install` würde Unix-Bin-Shims statt `.cmd`-Dateien erzeugen und `npm run` auf der Windows/Rider-Seite brechen). `node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit` funktioniert dagegen direkt und ist der Standard-Verifikationsschritt fürs Frontend.
+- **Kein Firestore-Doppelschreiben beim Redesign-Cutover** — der Plan sieht explizit einen atomaren Cutover vor, kein Feature-Flag, kein Parallel-Schema. Nicht davon abweichen ohne erneute Rücksprache.
+- **Commits bleiben lokal, NICHT pushen** (Standing-Rule, GitHub-Ruleset `NeverPushOnMain` seit der Public-Umstellung des Repos aktiv) — User pusht selbst.
+- **GitHub Actions liest vom Remote `main`, nicht von lokalen Commits** — in dieser Session `gh workflow run dashboard.yml` einmal VOR dem Push der Fixes ausgeführt, lief erfolgreich durch, zeigte aber trotzdem noch den alten (kaputten) Zustand, weil der Workflow den ungepushten Stand gar nicht sehen konnte. Vor jeder Live-Verifikation eines frischen Fixes erst `git log origin/main --oneline` prüfen bzw. den User fragen, ob schon gepusht wurde.
+- **Status-Code-Bedeutungen nicht neu raten** — `MDs/codes.md` hat die verifizierte Zuordnung inkl. Korrektur-Historie; nur bei neuem, bisher unbeobachtetem Code (aktuell nur Code 8 offen) überhaupt neu recherchieren, und dann nur mit echtem In-App-Beleg.
