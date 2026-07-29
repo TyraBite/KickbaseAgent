@@ -27,36 +27,27 @@ interface Computed {
 // serverseitig berechnete Wunschkader-Zeile nehmen (hat Fairwert-Signal
 // gegen die eigene Position berechnet), sonst auf die allgemeine
 // Alle-Spieler-Liste zurueckfallen (frisch hinzugefuegte Ziele haben noch
-// keine Wunschkader-Zeile, bis der naechste Pipeline-Lauf durch ist).
-// `status` (Ownership/Marktlage-Text) gibt es nur serverseitig - dafuer
-// braucht es owned_by/market_by_name-Kontext, den der Client nicht hat -
-// bleibt fuer frisch hinzugefuegte Ziele bis zum naechsten Sync leer.
+// keine Wunschkader-Zeile, bis der naechste Pipeline-Lauf durch ist) -
+// UND pro einzelnem Feld, nicht pro Quelle: eine wunschkader-Zeile kann ein
+// Feld mit null haben, das in alleSpieler trotzdem bekannt ist (z.B. ein
+// Snapshot von vor einem Schema-Update, siehe team_name-Nachzieh-Bug
+// 2026-07-29) - ohne Per-Feld-Fallback bliebe das Feld dann dauerhaft leer.
+// `status` (Ownership/Marktlage-Text) gibt es nur serverseitig als echten
+// Text mit dem "Markt (...)"-Sonderfall - der Fallback ueber owner
+// ("Eigener Kader"/"Frei"/Manager-Name, auf AlleSpielerRow immer vorhanden)
+// bildet denselben Text nach, nur ohne den market_by_name-Kontext, den der
+// Client nicht hat.
 function computedFor(name: string, wunschkader: WunschkaderRow[], alleSpieler: AlleSpielerRow[]): Computed {
   const fromWunschkader = wunschkader.find((r) => r.name === name);
-  if (fromWunschkader) {
-    return {
-      market_value: fromWunschkader.market_value,
-      points_avg: fromWunschkader.points_avg,
-      starting_rank: fromWunschkader.starting_rank,
-      signal: fromWunschkader.signal,
-      team_name: fromWunschkader.team_name,
-      status: fromWunschkader.status,
-    };
-  }
   const live = alleSpieler.find((p) => p.name === name);
-  if (!live) return { market_value: null, points_avg: null, starting_rank: null, signal: null, team_name: null, status: null };
-  // owner ("Eigener Kader"/"Frei"/Manager-Name) ist auf AlleSpielerRow immer
-  // vorhanden - daraus laesst sich derselbe status-Text ableiten wie
-  // serverseitig (nur ohne den "Markt (...)"-Sonderfall, der market_by_name-
-  // Kontext braucht, den der Client nicht hat).
-  const status = live.owner === "Frei" || live.owner === "Eigener Kader" ? live.owner : `Bei ${live.owner}`;
+  const liveStatus = live ? (live.owner === "Frei" || live.owner === "Eigener Kader" ? live.owner : `Bei ${live.owner}`) : null;
   return {
-    market_value: live.market_value,
-    points_avg: live.points_avg,
-    starting_rank: live.starting_rank,
-    signal: live.signal,
-    team_name: live.team_name,
-    status,
+    market_value: fromWunschkader?.market_value ?? live?.market_value ?? null,
+    points_avg: fromWunschkader?.points_avg ?? live?.points_avg ?? null,
+    starting_rank: fromWunschkader?.starting_rank ?? live?.starting_rank ?? null,
+    signal: fromWunschkader?.signal ?? live?.signal ?? null,
+    team_name: fromWunschkader?.team_name ?? live?.team_name ?? null,
+    status: fromWunschkader?.status ?? liveStatus,
   };
 }
 

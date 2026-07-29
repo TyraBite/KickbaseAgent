@@ -71,10 +71,13 @@ function auctionLabel(row: SpekulationRow, now: number): string {
   return `läuft ab in ${formatDurationMs(remainingMs)}`;
 }
 
+type ViewMode = "cards" | "table";
+
 export default function SpekulationTab({ rows }: { rows: SpekulationRow[] }) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
   const [selected, setSelected] = useState<SpekulationRow | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const now = useNow(60_000);
 
   const visible = useMemo(() => {
@@ -115,12 +118,32 @@ export default function SpekulationTab({ rows }: { rows: SpekulationRow[] }) {
             ))}
           </select>
         </label>
+        <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setViewMode("cards")}
+            className={`px-3 py-2 ${viewMode === "cards" ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"}`}
+          >
+            Karten
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            className={`px-3 py-2 ${viewMode === "table" ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"}`}
+          >
+            Liste
+          </button>
+        </div>
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
-        {visible.map((r) => (
-          <SpekulationCard key={r.name} row={r} now={now} onSelect={() => setSelected(r)} />
-        ))}
-      </div>
+      {viewMode === "cards" ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
+          {visible.map((r) => (
+            <SpekulationCard key={r.name} row={r} now={now} onSelect={() => setSelected(r)} />
+          ))}
+        </div>
+      ) : (
+        <SpekulationTable rows={visible} now={now} onSelect={setSelected} />
+      )}
       <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
       {selected && <SpekulationDetailModal row={selected} now={now} onClose={() => setSelected(null)} />}
     </div>
@@ -168,6 +191,75 @@ function SpekulationCard({
           <AuctionValue row={row} now={now} />
         </Row>
       </dl>
+    </div>
+  );
+}
+
+function SpekulationTable({
+  rows,
+  now,
+  onSelect,
+}: {
+  rows: SpekulationRow[];
+  now: number;
+  onSelect: (row: SpekulationRow) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+      <table className="w-full min-w-[720px] text-left text-sm">
+        <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+          <tr>
+            <th className="px-3 py-2">Spieler</th>
+            <th className="px-3 py-2">ML-Prognose</th>
+            <th className="px-3 py-2">Rendite%</th>
+            <th className="px-3 py-2">Preis</th>
+            <th className="px-3 py-2">Trend 7T</th>
+            <th className="px-3 py-2">Auktion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.name}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(r)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(r);
+                }
+              }}
+              className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/60 dark:hover:bg-slate-800/40"
+            >
+              <td className="px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <TeamCrest teamName={r.team_name} />
+                  <span className="font-medium text-slate-900 dark:text-slate-50">{r.name}</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[r.position] ?? r.position}</span>
+                  {r.is_hype_gipfel && <Badge tone="crit">Hype-Gipfel</Badge>}
+                  {r.near_floor && <Badge tone="good">Boden-Schutz</Badge>}
+                </div>
+              </td>
+              <td className="px-3 py-2 tabular-nums">
+                <span className={trendClass(r.ml_prediction)}>
+                  {trendArrow(r.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(r.ml_prediction)}
+                </span>
+              </td>
+              <td className="px-3 py-2 tabular-nums">{r.roi_pct.toFixed(1)}%</td>
+              <td className="px-3 py-2 tabular-nums">{fmtNum(r.price)}</td>
+              <td className="px-3 py-2 tabular-nums">
+                <span className={trendClass(r.market_value_change_7d)}>
+                  {trendArrow(r.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(r.market_value_change_7d)}
+                </span>
+              </td>
+              <td className="px-3 py-2">
+                <AuctionValue row={r} now={now} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
