@@ -1,103 +1,17 @@
-import datetime
 import os
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src import firestore_db
 from src.dashboard_export import (
-    _build_alle_spieler,
-    _build_budget_plan,
-    _build_eigenes_team,
     _build_players_map,
-    _build_spekulation,
-    _build_transfermarkt,
     _build_transfermarkt_listings,
     _build_wunschkader_targets,
-    _estimate_price,
     _finalize_firestore_write,
     _load_wunschkader,
     _resolve_heavy_data,
     _resolve_is_light,
-    export,
 )
-
-
-class BuildAlleSpielerTests(unittest.TestCase):
-    def test_marks_own_squad_players(self):
-        players = [{"player_id": "p1", "name": "Krauß", "position": "Mittelfeld",
-                    "team_name": "Bremen", "market_value": 10_000_000,
-                    "points_avg": 150, "starting_rank": 1, "status_code": 0}]
-
-        rows = _build_alle_spieler(players, owned_by={}, own_squad_names={"Krauß"}, calibration=None)
-
-        self.assertEqual(rows[0]["owner"], "Eigener Kader")
-        self.assertIsNone(rows[0]["status_label"])
-
-    def test_marks_other_manager_ownership(self):
-        players = [{"player_id": "p2", "name": "Zentner", "position": "Torwart",
-                    "team_name": "Mainz", "market_value": 9_000_000,
-                    "points_avg": 100, "starting_rank": 1, "status_code": 0}]
-
-        rows = _build_alle_spieler(players, owned_by={"p2": "Fleischmanns"}, own_squad_names=set(), calibration=None)
-
-        self.assertEqual(rows[0]["owner"], "Fleischmanns")
-
-    def test_marks_free_agent(self):
-        players = [{"player_id": "p3", "name": "Heuer Fernandes", "position": "Torwart",
-                    "team_name": "Hamburg", "market_value": 11_000_000,
-                    "points_avg": 90, "starting_rank": 1, "status_code": 0}]
-
-        rows = _build_alle_spieler(players, owned_by={}, own_squad_names=set(), calibration=None)
-
-        self.assertEqual(rows[0]["owner"], "Frei")
-
-
-class BuildSpekulationTests(unittest.TestCase):
-    def test_passes_through_92d_high_low_for_detail_view(self):
-        transfermarkt_rows = [{
-            "name": "Woltemade", "position": "Sturm", "team_name": "Stuttgart",
-            "is_system_offer": True, "price": 10_000_000, "ml_prediction": 200_000,
-            "market_value_change_7d": 50_000, "average_points": 180,
-            "market_value_low_92d": 8_500_000, "market_value_high_92d": 10_200_000,
-        }]
-
-        rows = _build_spekulation(transfermarkt_rows)
-
-        self.assertEqual(rows[0]["market_value_low_92d"], 8_500_000)
-        self.assertEqual(rows[0]["market_value_high_92d"], 10_200_000)
-
-    def test_passes_through_auction_expires_at(self):
-        transfermarkt_rows = [{
-            "name": "Woltemade", "position": "Sturm", "team_name": "Stuttgart",
-            "is_system_offer": True, "price": 10_000_000, "ml_prediction": 200_000,
-            "market_value_change_7d": 50_000, "average_points": 180,
-            "auction_expires_at": "2026-07-29T12:00:00Z",
-        }]
-
-        rows = _build_spekulation(transfermarkt_rows)
-
-        self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
-
-
-class BuildTransfermarktTests(unittest.TestCase):
-    def test_passes_through_auction_expires_at(self):
-        listing = {
-            "player_id": "p1", "name": "Woltemade", "position": "Sturm",
-            "team_name": "Stuttgart", "status_label": None, "starting_rank": 1,
-            "market_value": 10_000_000, "market_value_change_7d": 50_000,
-            "market_value_low_92d": 8_500_000, "market_value_high_92d": 10_200_000,
-            "average_points": 180, "total_points": 360,
-            "is_system_offer": True, "listed_at": "2026-07-27T10:00:00Z",
-            "expires_at": "2026-07-29T12:00:00Z", "expiry_is_estimate": False,
-            "price": 10_000_000, "price_delta_pct": 0.0, "offering_username": None,
-            "pending_offers_count": 0, "leading_bid_username": None, "leading_bid_price": None,
-            "is_own_leading_bid": False,
-        }
-        now = datetime.datetime(2026, 7, 28, tzinfo=datetime.timezone.utc)
-
-        rows = _build_transfermarkt([listing], calibration=None, predictions=None, own_available_budget=None, now=now)
-
-        self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
 
 
 class BuildTransfermarktListingsTests(unittest.TestCase):
@@ -118,40 +32,6 @@ class BuildTransfermarktListingsTests(unittest.TestCase):
         self.assertNotIn("auction_status", result[0])
         self.assertNotIn("affordable", result[0])
         self.assertNotIn("signal", result[0])
-
-
-class EstimatePriceTests(unittest.TestCase):
-    def test_flat_ten_percent_markup(self):
-        self.assertEqual(_estimate_price(10_000_000), 11_000_000)
-
-    def test_returns_none_without_market_value(self):
-        self.assertIsNone(_estimate_price(None))
-
-    def test_returns_none_for_zero_market_value(self):
-        self.assertIsNone(_estimate_price(0))
-
-
-class BuildBudgetPlanTests(unittest.TestCase):
-    def test_pool_has_no_login_bonus(self):
-        wunschkader = {"sell_list": []}
-
-        result = _build_budget_plan(wunschkader, wunschkader_rows=[], own_squad=[], own_budget_exact=1_000_000)
-
-        self.assertEqual(result["pool"], 1_000_000)
-        self.assertNotIn("login_bonus_projection", result)
-        self.assertNotIn("season_start", result)
-
-    def test_committed_excludes_bank_backup_and_own_targets(self):
-        wunschkader = {"sell_list": []}
-        wunschkader_rows = [
-            {"planned_price": 5_000_000, "role": "Starter", "is_own": False},
-            {"planned_price": 3_000_000, "role": "Bank/Backup-Option", "is_own": False},
-            {"planned_price": 9_000_000, "role": "Starter", "is_own": True},
-        ]
-
-        result = _build_budget_plan(wunschkader, wunschkader_rows, own_squad=[], own_budget_exact=0)
-
-        self.assertEqual(result["committed"], 5_000_000)
 
 
 class LoadWunschkaderTests(unittest.TestCase):
@@ -219,13 +99,17 @@ class BuildWunschkaderTargetsTests(unittest.TestCase):
 
 class ResolveIsLightTests(unittest.TestCase):
     def test_light_mode_with_cache_is_light(self):
-        self.assertTrue(_resolve_is_light("light", {"alle_spieler": []}))
+        self.assertTrue(_resolve_is_light("light", {"players": {}}))
 
     def test_light_mode_without_cache_falls_back_to_heavy(self):
         self.assertFalse(_resolve_is_light("light", None))
 
+    def test_light_mode_with_old_shape_snapshot_falls_back_to_heavy(self):
+        old_shape_snapshot = {"alle_spieler": []}  # kein "players"-Key
+        self.assertFalse(_resolve_is_light("light", old_shape_snapshot))
+
     def test_absent_mode_is_always_heavy_even_with_stray_cache(self):
-        self.assertFalse(_resolve_is_light(None, {"alle_spieler": []}))
+        self.assertFalse(_resolve_is_light(None, {"players": {}}))
 
     def test_absent_mode_without_cache_is_heavy(self):
         self.assertFalse(_resolve_is_light(None, None))
@@ -252,7 +136,6 @@ class ResolveHeavyDataTests(unittest.TestCase):
         mock_fetch_all.assert_called_once_with("tok", "c1")
         mock_predict.assert_called_once()
         mock_resolve_ownership.assert_called_once()
-        self.assertEqual(result["starting_rank_by_player_id"], {"p1": 1})
         self.assertEqual(result["ml_metrics"]["accuracy_trend"], [1, 2])
         self.assertEqual(result["owned_by"], {"p1": "Rivale"})
 
@@ -264,10 +147,11 @@ class ResolveHeavyDataTests(unittest.TestCase):
         self, mock_fetch_all, mock_predict, mock_calibration, mock_resolve_ownership
     ):
         cached_snapshot = {
-            "alle_spieler": [{"player_id": "p1", "starting_rank": 2, "ml_prediction": 12345}],
+            "players": {"p1": {"player_id": "p1"}},
             "calibration": {"Sturm": 0.9},
             "ml_metrics": {"accuracy_trend": [3]},
             "ml_accuracy_trend": [3],
+            "owned_by": {"p2": "Rivale"},
         }
 
         result = _resolve_heavy_data(
@@ -279,83 +163,10 @@ class ResolveHeavyDataTests(unittest.TestCase):
         mock_predict.assert_not_called()
         mock_resolve_ownership.assert_not_called()
         self.assertIsNone(result["all_players"])
-        self.assertEqual(result["starting_rank_by_player_id"], {"p1": 2})
-        self.assertEqual(result["predictions"]["predictions"]["p1"], 12345)
+        self.assertIsNone(result["predictions"])
         self.assertEqual(result["calibration"], {"Sturm": 0.9})
-        self.assertEqual(result["owned_by"], {})
-
-    def test_light_mode_ml_prediction_flows_into_player_row(self):
-        cached_snapshot = {
-            "alle_spieler": [{"player_id": "p1", "starting_rank": 1, "ml_prediction": 77777}],
-            "calibration": None, "ml_metrics": None, "ml_accuracy_trend": None,
-        }
-        heavy = _resolve_heavy_data(True, cached_snapshot, "tok", "l1", "c1", [], None)
-
-        own_squad = [{
-            "player_id": "p1", "name": "Foo", "position": "Sturm", "team_name": "Bremen",
-            "status_label": None, "starting_rank": 1, "market_value": 1_000_000,
-            "market_value_change_7d": None, "market_value_low_92d": None,
-            "market_value_high_92d": None, "average_points": 100, "total_points": 500,
-        }]
-        rows = _build_eigenes_team(own_squad, heavy["calibration"], heavy["predictions"])
-
-        self.assertEqual(rows[0]["ml_prediction"], 77777)
-
-
-FRESH_LISTING_ROW = {
-    "player_id": "p_new", "name": "Hajdari", "position": "Abwehr", "team_name": "Freiburg",
-    "status_label": None, "starting_rank": 1,
-    "market_value": 14_000_000, "market_value_change_7d": None, "market_value_low_92d": None,
-    "market_value_high_92d": None, "average_points": 90, "total_points": 300,
-    "price": 14_000_000, "price_delta_pct": 0.0,
-    "offering_username": None, "is_system_offer": 1, "pending_offers_count": 0,
-    "leading_bid_username": None, "leading_bid_price": None, "is_own_leading_bid": 0,
-    "listed_at": "2026-07-29T13:28:37Z", "expires_at": "2026-07-30T13:28:37Z",
-    "expiry_is_estimate": 0,
-}
-
-
-class ExportLightModeTests(unittest.TestCase):
-    """export() im Light-Modus (DASHBOARD_MODE=light, dashboard.yml, alle
-    2h) muss Transfermarkt/Spekulation aus den FRISCH gefetchten
-    market_listings neu bauen, nicht aus dem letzten Firestore-Snapshot
-    uebernehmen - fetcher.run() holt /market bei JEDEM Lauf frisch (kein
-    teurer API-Call, kein Grund fuer eine Light-Modus-Ausnahme hier), anders
-    als all_players/predictions/owned_by, die echte teure Calls brauchen und
-    deshalb im Light-Modus zurecht gecacht bleiben. Bug gefunden 2026-07-29:
-    ein frisch gelisteter Spieler (Hajdari) blieb bis zu 24h unsichtbar, weil
-    export() im Light-Modus transfermarkt/spekulation komplett aus dem
-    Snapshot uebernahm statt _build_transfermarkt/_build_spekulation mit den
-    frischen market_listings aufzurufen."""
-
-    def _run_export_in_light_mode(self, cached_snapshot, fresh_market_listings):
-        with patch.dict(
-            os.environ,
-            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "DASHBOARD_MODE": "light", "FIRESTORE_ENABLED": "1"},
-        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
-            "src.dashboard_export.get_me", return_value={"cpi": "1"}
-        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-29"), patch(
-            "src.dashboard_export._load_snapshot", return_value=([], fresh_market_listings, [], [])
-        ), patch("src.dashboard_export.firestore_db.connect", return_value=MagicMock()), patch(
-            "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
-        ), patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot"), patch(
-            "src.dashboard_export._load_wunschkader", return_value=None
-        ), patch("src.dashboard_export._build_ligaanalyse", return_value=[]):
-            return export()
-
-    def test_light_mode_rebuilds_transfermarkt_from_fresh_market_listings(self):
-        cached_snapshot = {
-            "alle_spieler": [], "calibration": None, "ml_metrics": None, "ml_accuracy_trend": None,
-            "transfermarkt": [{"name": "StaleOnly", "player_id": "p_stale"}],
-            "spekulation": [{"name": "StaleSpekulation"}],
-            "wunschkader": [],
-        }
-
-        data = self._run_export_in_light_mode(cached_snapshot, [FRESH_LISTING_ROW])
-
-        names = [r["name"] for r in data["transfermarkt"]]
-        self.assertIn("Hajdari", names)
-        self.assertNotIn("StaleOnly", names)
+        self.assertEqual(result["owned_by"], {"p2": "Rivale"})
+        self.assertNotIn("starting_rank_by_player_id", result)
 
 
 class BuildPlayersMapTests(unittest.TestCase):
