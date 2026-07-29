@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
-import type { AlleSpielerRow, DashboardSnapshot, RawWunschkaderTarget, TransfermarktRow, WunschkaderRow } from "../types";
+import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
+import { buildAlleSpielerRows, buildBudgetPlan, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
+import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum } from "../format";
@@ -14,73 +16,15 @@ function isBench(target: RawWunschkaderTarget): boolean {
   return target.role === "Bank/Backup-Option";
 }
 
-interface Computed {
-  market_value: number | null;
-  points_avg: number | null;
-  starting_rank: number | null;
-  signal: number | null;
-  team_name: string | null;
-  status: string | null;
-}
-
-// 1:1 Logik aus computedFor() in der bestehenden index.html: zuerst die
-// serverseitig berechnete Wunschkader-Zeile nehmen (hat Fairwert-Signal
-// gegen die eigene Position berechnet), sonst auf die allgemeine
-// Alle-Spieler-Liste zurueckfallen (frisch hinzugefuegte Ziele haben noch
-// keine Wunschkader-Zeile, bis der naechste Pipeline-Lauf durch ist) -
-// UND pro einzelnem Feld, nicht pro Quelle: eine wunschkader-Zeile kann ein
-// Feld mit null haben, das in alleSpieler trotzdem bekannt ist (z.B. ein
-// Snapshot von vor einem Schema-Update, siehe team_name-Nachzieh-Bug
-// 2026-07-29) - ohne Per-Feld-Fallback bliebe das Feld dann dauerhaft leer.
-// `status` (Ownership/Marktlage-Text) gibt es nur serverseitig als echten
-// Text mit dem "Markt (...)"-Sonderfall - der Fallback ueber owner
-// ("Eigener Kader"/"Frei"/Manager-Name, auf AlleSpielerRow immer vorhanden)
-// bildet denselben Text nach, nur ohne den market_by_name-Kontext, den der
-// Client nicht hat.
-function computedFor(name: string, wunschkader: WunschkaderRow[], alleSpieler: AlleSpielerRow[]): Computed {
-  const fromWunschkader = wunschkader.find((r) => r.name === name);
-  const live = alleSpieler.find((p) => p.name === name);
-  const liveStatus = live ? (live.owner === "Frei" || live.owner === "Eigener Kader" ? live.owner : `Bei ${live.owner}`) : null;
-  return {
-    market_value: fromWunschkader?.market_value ?? live?.market_value ?? null,
-    points_avg: fromWunschkader?.points_avg ?? live?.points_avg ?? null,
-    starting_rank: fromWunschkader?.starting_rank ?? live?.starting_rank ?? null,
-    signal: fromWunschkader?.signal ?? live?.signal ?? null,
-    team_name: fromWunschkader?.team_name ?? live?.team_name ?? null,
-    status: fromWunschkader?.status ?? liveStatus,
-  };
-}
-
-// Eingeplanter Preis fuer ein Ziel: 0 wenn schon im eigenen Kader (bereits
-// bezahlt, nicht nochmal einplanen), sonst das eigene laufende Hoechstgebot
-// falls eins existiert (echte Kickbase-Daten aus dem Transfermarkt-Listing -
-// praeziser als jede Schaetzung), sonst der reine Marktwert. Frueher gab es
-// hier einen manuellen actual_bid-Fallback plus 10%-Aufschlags-Schaetzung -
-// beides raus (User-Entscheidung 2026-07-29): ein manuelles Feld ist
-// ueberfluessig, sobald wir den echten Gebotsstand schon haben, und fuer noch
-// nicht gekaufte Spieler zaehlt ohnehin nur der Marktwert.
-function plannedPriceFor(marketValue: number | null, isOwn: boolean, liveBid: number | null): number | null {
-  if (isOwn) return 0;
-  if (liveBid !== null) return liveBid;
-  return marketValue;
-}
-
-// Eigenes laufendes Hoechstgebot fuer einen Spieler, falls er aktuell auf dem
-// Transfermarkt steht UND wir dort selbst fuehren (is_own_leading_bid) - sonst
-// null (dann greift in plannedPriceFor() der Marktwert-Fallback).
-function liveBidFor(name: string, transfermarkt: TransfermarktRow[]): number | null {
-  const listing = transfermarkt.find((r) => r.name === name);
-  if (listing?.is_own_leading_bid && listing.leading_bid_price != null) return listing.leading_bid_price;
-  return null;
-}
-
 // Zaehlt Nicht-Bank-Ziele pro Verein - Basis fuer die Max-3-pro-Verein-Warnung
-// (Kickbase-Regel: max. 3 Startelf-Spieler desselben Vereins).
-function countByClub(targets: EditTarget[], teamNameFor: (name: string) => string | null): Record<string, number> {
+// (Kickbase-Regel: max. 3 Startelf-Spieler desselben Vereins). teamNameFor
+// bekommt jetzt die player_id statt des Namens (player_id ist der
+// verlaessliche Join-Key seit der players-Map-Umstellung).
+function countByClub(targets: EditTarget[], teamNameFor: (playerId: string) => string | null): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const t of targets) {
     if (isBench(t)) continue;
-    const club = teamNameFor(t.name);
+    const club = teamNameFor(t.player_id);
     if (!club) continue;
     counts[club] = (counts[club] ?? 0) + 1;
   }
@@ -88,27 +32,40 @@ function countByClub(targets: EditTarget[], teamNameFor: (name: string) => strin
 }
 
 // 1:1 portiert aus scoreReplacementPool()/suggestReplacements()/
-// searchReplacementPool() der bestehenden index.html.
-function scoreReplacementPool(alleSpieler: AlleSpielerRow[], target: { name: string; position: string; market_value: number | null; points_avg: number | null }) {
+// searchReplacementPool() der bestehenden index.html - jetzt gegen player_id
+// statt Name selbst-exkludierend und mit average_points (AlleSpielerRow aus
+// derive.ts) statt des alten points_avg-Feldnamens.
+function scoreReplacementPool(
+  alleSpieler: AlleSpielerRow[],
+  target: { player_id?: string; position: string; market_value: number | null; average_points: number | null }
+) {
   const pool = alleSpieler.filter(
-    (p) => p.position === target.position && p.name !== target.name && (p.owner === "Frei" || p.owner === "Eigener Kader")
+    (p) => p.position === target.position && p.player_id !== target.player_id && (p.owner === "Frei" || p.owner === "Eigener Kader")
   );
   const mv = target.market_value || 0;
-  const pts = target.points_avg || 0;
+  const pts = target.average_points || 0;
   return pool
     .map((p) => {
       const mvDist = mv ? Math.abs((p.market_value || 0) - mv) / mv : 0;
-      const ptsDist = pts ? Math.abs((p.points_avg || 0) - pts) / pts : 0;
+      const ptsDist = pts ? Math.abs((p.average_points || 0) - pts) / pts : 0;
       return { ...p, distance: mvDist + ptsDist };
     })
     .sort((a, b) => a.distance - b.distance);
 }
 
-function suggestReplacements(alleSpieler: AlleSpielerRow[], target: { name: string; position: string; market_value: number | null; points_avg: number | null }, count = 3) {
+function suggestReplacements(
+  alleSpieler: AlleSpielerRow[],
+  target: { player_id?: string; position: string; market_value: number | null; average_points: number | null },
+  count = 3
+) {
   return scoreReplacementPool(alleSpieler, target).slice(0, count);
 }
 
-function searchReplacementPool(alleSpieler: AlleSpielerRow[], target: { name: string; position: string; market_value: number | null; points_avg: number | null }, query: string) {
+function searchReplacementPool(
+  alleSpieler: AlleSpielerRow[],
+  target: { player_id?: string; position: string; market_value: number | null; average_points: number | null },
+  query: string
+) {
   const q = query.toLowerCase();
   return scoreReplacementPool(alleSpieler, target)
     .filter((p) => p.name.toLowerCase().includes(q))
@@ -121,72 +78,83 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
   );
   let nextUid = 0;
   const [editState, setEditState] = useState<EditTarget[]>(() =>
-    (data.wunschkader_raw?.targets ?? []).map((t) => ({ ...t, _uid: nextUid++ }))
+    (data.wunschkader_targets ?? []).map((t) => ({ ...t, _uid: nextUid++ }))
   );
   const [selected, setSelected] = useState<EditTarget | null>(null);
   const [addDialog, setAddDialog] = useState<{ presetPosition: Position | null } | null>(null);
 
-  const wunschkader = data.wunschkader ?? [];
-  const alleSpieler = data.alle_spieler ?? [];
-  const transfermarkt = data.transfermarkt ?? [];
+  const alleSpieler = useMemo(
+    () => buildAlleSpielerRows(data.players, data.own_squad_ids, data.owned_by, data.calibration),
+    [data.players, data.own_squad_ids, data.owned_by, data.calibration]
+  );
   const thresholds = data.signal_thresholds;
 
-  const ownSquadNames = useMemo(
-    () => new Set(alleSpieler.filter((p) => p.owner === "Eigener Kader").map((p) => p.name)),
-    [alleSpieler]
+  const ownSquadIds = useMemo(() => new Set(data.own_squad_ids), [data.own_squad_ids]);
+  const listingsByPlayerId = useMemo(
+    () => new Map(data.transfermarkt_listings.map((l) => [l.player_id, l])),
+    [data.transfermarkt_listings]
   );
+
+  // Ein Ziel kennt nur noch seine player_id - Name/Position/Marktwert/etc.
+  // sind rein abgeleitet ueber resolveTarget(). Einmal pro eindeutiger
+  // player_id in editState aufgeloest statt bei jedem Render-Ort erneut, damit
+  // jede Kachel/Detailansicht garantiert denselben Wert sieht.
+  const resolvedByPlayerId = useMemo(() => {
+    const map = new Map<string, ResolvedTarget>();
+    for (const t of editState) {
+      if (!map.has(t.player_id)) {
+        map.set(t.player_id, resolveTarget(t.player_id, data.players, ownSquadIds, listingsByPlayerId, data.owned_by, data.calibration));
+      }
+    }
+    return map;
+  }, [editState, data.players, ownSquadIds, listingsByPlayerId, data.owned_by, data.calibration]);
 
   const clubCounts = useMemo(
-    () => countByClub(editState, (name) => computedFor(name, wunschkader, alleSpieler).team_name),
-    [editState, wunschkader, alleSpieler]
+    () => countByClub(editState, (playerId) => resolvedByPlayerId.get(playerId)?.team_name ?? null),
+    [editState, resolvedByPlayerId]
   );
 
-  // Verkaufserloese kamen bisher aus wunschkader_raw.sell_list - einer
-  // manuell gepflegten, vom aktuellen Wunschkader unabhaengigen Liste (Bug,
-  // gefunden 2026-07-29). Jetzt automatisch aus dem eigenen Kader abgeleitet:
-  // jeder Spieler im eigenen Kader, der NICHT (mehr) unter den aktuellen
-  // Wunschkader-Zielen steht, ist ein Verkaufskandidat - exakt dieselbe
-  // Regel wie split.verkaufen in EigenesTeamTab.tsx.
-  const liveBudgetPlan = useMemo(() => {
-    const ownByName = new Map(alleSpieler.filter((p) => p.owner === "Eigener Kader").map((p) => [p.name, p]));
-    const targetNames = new Set(editState.map((t) => t.name));
-    const sellRows = [...ownByName.values()]
-      .filter((p) => !targetNames.has(p.name))
-      .map((p) => ({ name: p.name, market_value: p.market_value }));
-    const sellProceeds = sellRows.reduce((sum, r) => sum + (r.market_value || 0), 0);
-
-    // Cash = own_budget_exact, der echte Kontostand (Bug, gefunden
-    // 2026-07-29): own_available_budget ist Kontostand PLUS erlaubter
-    // Ueberziehungsrahmen (33% des Teamwerts, src/manager_budgets.py
-    // OVERDRAFT_FACTOR) - also die theoretische Gesamt-Kaufkraft inkl.
-    // Kredit, nicht das Geld, das gerade real auf dem Konto liegt. Zeigte
-    // faelschlich 131 Mio. statt der echten 68 Mio. Kickbase-Kontostand.
-    const cash = data.own_budget_exact || 0;
-    const pool = cash + sellProceeds;
-
-    const committed = editState.reduce((sum, t) => {
-      if (isBench(t)) return sum;
-      const isOwn = ownSquadNames.has(t.name);
-      if (isOwn) return sum;
-      const marketValue = computedFor(t.name, wunschkader, alleSpieler).market_value;
-      const liveBid = liveBidFor(t.name, transfermarkt);
-      return sum + (plannedPriceFor(marketValue, isOwn, liveBid) || 0);
-    }, 0);
-
-    return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
-  }, [alleSpieler, data.own_budget_exact, editState, ownSquadNames, transfermarkt, wunschkader]);
+  // Verkaufserloese/Cash/Pool/Eingeplant kommen jetzt komplett aus
+  // buildBudgetPlan() (derive.ts) - dieselbe Logik, die auch EigenesTeamTab
+  // fuer die Verkaufskandidaten-Ableitung nutzt (Bug, gefunden 2026-07-29:
+  // die alte wunschkader_raw.sell_list war eine separate, manuell gepflegte
+  // Liste, unabhaengig vom aktuellen Wunschkader-Stand).
+  const liveBudgetPlan: BudgetPlan = useMemo(
+    () =>
+      buildBudgetPlan({
+        players: data.players,
+        ownSquadIds,
+        targets: editState,
+        ownBudgetExact: data.own_budget_exact,
+        listingsByPlayerId,
+      }),
+    [data.players, ownSquadIds, editState, data.own_budget_exact, listingsByPlayerId]
+  );
 
   const byPosition = useMemo(() => {
     const groups: Record<Position, EditTarget[]> = { Torwart: [], Abwehr: [], Mittelfeld: [], Sturm: [] };
     for (const t of editState) {
       if (isBench(t)) continue;
-      const pos = (t.position as Position) in groups ? (t.position as Position) : "Sturm";
+      const resolvedPosition = resolvedByPlayerId.get(t.player_id)?.position;
+      const pos = resolvedPosition && (resolvedPosition as Position) in groups ? (resolvedPosition as Position) : "Sturm";
       groups[pos].push(t);
     }
     return groups;
-  }, [editState]);
+  }, [editState, resolvedByPlayerId]);
 
   const bench = useMemo(() => editState.filter(isBench), [editState]);
+
+  // Geplanter Preis fuer die aktuell geoeffnete Detailansicht - ausserhalb von
+  // buildBudgetPlan() (das summiert nur ueber alle Ziele), daher hier
+  // inline nach demselben Muster wie buildBudgetPlan intern.
+  const selectedPlannedPrice = useMemo(() => {
+    if (!selected) return null;
+    const computed = resolvedByPlayerId.get(selected.player_id);
+    if (!computed) return null;
+    const listing = listingsByPlayerId.get(selected.player_id);
+    const liveBid = listing?.is_own_leading_bid && listing.leading_bid_price != null ? listing.leading_bid_price : null;
+    return plannedPriceFor(computed.market_value, ownSquadIds.has(selected.player_id), liveBid);
+  }, [selected, resolvedByPlayerId, listingsByPlayerId, ownSquadIds]);
 
   function toggleBench(uid: number) {
     setEditState((prev) =>
@@ -205,7 +173,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
       prev.map((t) => {
         if (t._uid !== uid) return t;
         const { note: _note, ...keep } = t;
-        return { ...keep, name: replacement.name, position: replacement.position };
+        return { ...keep, player_id: replacement.player_id };
       })
     );
     setSelected(null);
@@ -216,8 +184,11 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     setSelected((prev) => (prev && prev._uid === uid ? { ...prev, note } : prev));
   }
 
-  function addTarget(target: { name: string; position: Position; role: string }) {
-    setEditState((prev) => [...prev, { ...target, _uid: prev.length ? Math.max(...prev.map((t) => t._uid)) + 1 : 0 }]);
+  function addTarget(target: { player_id: string; position: Position; role: string }) {
+    setEditState((prev) => [
+      ...prev,
+      { player_id: target.player_id, role: target.role, _uid: prev.length ? Math.max(...prev.map((t) => t._uid)) + 1 : 0 },
+    ]);
   }
 
   const [saveStatus, setSaveStatus] = useState("");
@@ -281,7 +252,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
               {targets.map((t) => {
-                const computed = computedFor(t.name, wunschkader, alleSpieler);
+                const computed = resolvedByPlayerId.get(t.player_id)!;
                 return (
                   <TargetCard
                     key={t._uid}
@@ -307,7 +278,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
         </div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
           {bench.map((t) => {
-            const computed = computedFor(t.name, wunschkader, alleSpieler);
+            const computed = resolvedByPlayerId.get(t.player_id)!;
             return (
               <TargetCard
                 key={t._uid}
@@ -328,12 +299,8 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
       {selected && (
         <DetailModal
           target={selected}
-          computed={computedFor(selected.name, wunschkader, alleSpieler)}
-          plannedPrice={plannedPriceFor(
-            computedFor(selected.name, wunschkader, alleSpieler).market_value,
-            ownSquadNames.has(selected.name),
-            liveBidFor(selected.name, transfermarkt)
-          )}
+          computed={resolvedByPlayerId.get(selected.player_id)!}
+          plannedPrice={selectedPlannedPrice}
           thresholds={thresholds}
           alleSpieler={alleSpieler}
           onClose={() => setSelected(null)}
@@ -347,6 +314,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
       {addDialog && (
         <AddTargetModal
           presetPosition={addDialog.presetPosition}
+          alleSpieler={alleSpieler}
           onAdd={addTarget}
           onClose={() => setAddDialog(null)}
         />
@@ -363,7 +331,7 @@ function TargetCard({
   onSelect,
 }: {
   target: EditTarget;
-  computed: Computed;
+  computed: ResolvedTarget;
   thresholds: DashboardSnapshot["signal_thresholds"];
   clubCount: number;
   onSelect: () => void;
@@ -384,8 +352,8 @@ function TargetCard({
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <TeamCrest teamName={computed.team_name} />
-        <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[target.position] ?? target.position}</span>
-        <span className="font-semibold text-slate-900 dark:text-slate-50">{target.name}</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[computed.position] ?? computed.position}</span>
+        <span className="font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
         {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
         {clubCount >= 4 && (
           <Badge tone="warn">
@@ -396,7 +364,7 @@ function TargetCard({
       <dl className="space-y-1.5 text-sm">
         <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
         <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-        <Row label="Schnitt">{fmtNum(computed.points_avg)}</Row>
+        <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
         <Row label="Signal">
           <SignalBadge signal={computed.signal} thresholds={thresholds} />
         </Row>
@@ -430,7 +398,7 @@ function DetailModal({
   onNoteChange,
 }: {
   target: EditTarget;
-  computed: Computed;
+  computed: ResolvedTarget;
   plannedPrice: number | null;
   thresholds: DashboardSnapshot["signal_thresholds"];
   alleSpieler: AlleSpielerRow[];
@@ -451,7 +419,12 @@ function DetailModal({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  const targetForSearch = { name: target.name, position: target.position, market_value: computed.market_value, points_avg: computed.points_avg };
+  const targetForSearch = {
+    player_id: target.player_id,
+    position: computed.position,
+    market_value: computed.market_value,
+    average_points: computed.average_points,
+  };
   const suggestions = suggestReplacements(alleSpieler, targetForSearch);
   const searchResults = search.trim() ? searchReplacementPool(alleSpieler, targetForSearch, search.trim()) : [];
 
@@ -464,8 +437,8 @@ function DetailModal({
         <div className="mb-4 flex items-start justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <TeamCrest teamName={computed.team_name} />
-            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[target.position] ?? target.position}</span>
-            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{target.name}</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[computed.position] ?? computed.position}</span>
+            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
           </div>
           <button
             type="button"
@@ -479,11 +452,11 @@ function DetailModal({
         <dl className="mb-4 space-y-2 text-sm">
           <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
           <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-          <Row label="Schnitt">{fmtNum(computed.points_avg)}</Row>
+          <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
           <Row label="Signal">
             <SignalBadge signal={computed.signal} thresholds={thresholds} />
           </Row>
-          <Row label="Status">{computed.status ?? "—"}</Row>
+          <Row label="Status">{computed.status}</Row>
           <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
           <Row label="Geplanter Preis">{fmtNum(plannedPrice)}</Row>
         </dl>
@@ -531,7 +504,7 @@ function DetailModal({
                     onClick={() => onReplace(s)}
                     className="rounded-full border border-brand-300 bg-brand-50 px-3 py-1 text-xs text-brand-800 hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-300"
                   >
-                    {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.points_avg)})
+                    {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
                   </button>
                 ))}
               </div>
@@ -555,7 +528,7 @@ function DetailModal({
                       onClick={() => onReplace(s)}
                       className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                     >
-                      {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.points_avg)})
+                      {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
                     </button>
                   ))
                 ) : (
@@ -570,7 +543,7 @@ function DetailModal({
   );
 }
 
-function BudgetPlanCard({ plan }: { plan: NonNullable<DashboardSnapshot["budget_plan"]> }) {
+function BudgetPlanCard({ plan }: { plan: BudgetPlan }) {
   const remainingTone = plan.remaining >= 0 ? "text-brand-600 dark:text-brand-400" : "text-red-600 dark:text-red-400";
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -603,15 +576,18 @@ function BudgetPlanCard({ plan }: { plan: NonNullable<DashboardSnapshot["budget_
 
 function AddTargetModal({
   presetPosition,
+  alleSpieler,
   onAdd,
   onClose,
 }: {
   presetPosition: Position | null;
-  onAdd: (target: { name: string; position: Position; role: string }) => void;
+  alleSpieler: AlleSpielerRow[];
+  onAdd: (target: { player_id: string; position: Position; role: string }) => void;
   onClose: () => void;
 }) {
-  const [name, setName] = useState("");
   const [position, setPosition] = useState<Position>(presetPosition ?? "Sturm");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -621,12 +597,15 @@ function AddTargetModal({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
+  const effectivePosition = presetPosition ?? position;
+  const searchTarget = { position: effectivePosition, market_value: 0, average_points: 0 };
+  const results = search.trim() ? searchReplacementPool(alleSpieler, searchTarget, search.trim()) : [];
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!selected) return;
     onAdd({
-      name: trimmed,
+      player_id: selected.player_id,
       position: presetPosition ?? position,
       role: presetPosition ? "Starter" : "Bank/Backup-Option",
     });
@@ -643,18 +622,13 @@ function AddTargetModal({
         <h3 className="text-base font-semibold text-slate-900 dark:text-slate-50">
           Ziel hinzufügen{presetPosition ? ` (${presetPosition})` : ""}
         </h3>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Name"
-          autoFocus
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        />
         {!presetPosition && (
           <select
             value={position}
-            onChange={(e) => setPosition(e.target.value as Position)}
+            onChange={(e) => {
+              setPosition(e.target.value as Position);
+              setSelected(null);
+            }}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           >
             {POSITIONS.map((p) => (
@@ -663,6 +637,40 @@ function AddTargetModal({
               </option>
             ))}
           </select>
+        )}
+        <input
+          type="text"
+          value={selected ? selected.name : search}
+          onChange={(e) => {
+            setSelected(null);
+            setSearch(e.target.value);
+          }}
+          placeholder="Spieler suchen…"
+          autoFocus
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        />
+        {!selected && search.trim() && (
+          <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
+            {results.length ? (
+              results.map((p) => (
+                <button
+                  key={p.player_id}
+                  type="button"
+                  onClick={() => {
+                    setSelected(p);
+                    setSearch("");
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  {p.name} ({fmtNum(p.market_value)}, Ø{fmtNum(p.average_points)})
+                </button>
+              ))
+            ) : (
+              <p className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
+                Keine Treffer (freie Spieler/eigener Kader, Position {effectivePosition}).
+              </p>
+            )}
+          </div>
         )}
         <div className="flex justify-end gap-2">
           <button
@@ -674,7 +682,8 @@ function AddTargetModal({
           </button>
           <button
             type="submit"
-            className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
+            disabled={!selected}
+            className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
           >
             Hinzufügen
           </button>
