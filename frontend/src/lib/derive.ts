@@ -1,4 +1,5 @@
-import type { Calibration, PlayerRecord } from "../types";
+import { formatDurationMs } from "../format";
+import type { Calibration, PlayerRecord, TransfermarktListing } from "../types";
 
 // 1:1 Port von dashboard_export.py::_k_per_point()
 export function costPerPoint(marketValue: number | null, averagePoints: number | null): number | null {
@@ -59,4 +60,64 @@ export function plannedPriceFor(
   if (target.actual_bid !== undefined) return target.actual_bid;
   if (isOwn) return 0;
   return estimatePrice(marketValue);
+}
+
+const NEXT_MARKET_VALUE_UPDATE_HOUR = 22;
+const NO_EXPIRY_SENTINEL_SECONDS = 9_999_999;
+
+function berlinParts(date: Date) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin", hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const map: Record<string, number> = {};
+  for (const p of dtf.formatToParts(date)) if (p.type !== "literal") map[p.type] = Number(p.value);
+  return map as { year: number; month: number; day: number; hour: number; minute: number; second: number };
+}
+
+// 1:1 Port von dashboard_export.py::_next_update_cutoff() - DST-sicher ueber
+// Intl.DateTimeFormat statt hartkodiertem UTC-Offset.
+export function nextUpdateCutoff(now: Date): Date {
+  const p = berlinParts(now);
+  const localNowAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  let cutoffLocalAsUtc = Date.UTC(p.year, p.month - 1, p.day, NEXT_MARKET_VALUE_UPDATE_HOUR, 0, 0, 0);
+  if (localNowAsUtc >= cutoffLocalAsUtc) cutoffLocalAsUtc += 24 * 3600 * 1000;
+  const offsetMinutes = Math.round((localNowAsUtc - now.getTime()) / 60000);
+  return new Date(cutoffLocalAsUtc - offsetMinutes * 60000);
+}
+
+// 1:1 Port von dashboard_export.py::_auction_status()
+export function auctionLabelAndRemaining(
+  listedAt: string | null,
+  expiresAt: string | null,
+  expiryIsEstimate: boolean,
+  now: Date
+): { label: string; remainingSeconds: number } {
+  if (!expiresAt) {
+    return { label: "kein Zeitlimit", remainingSeconds: NO_EXPIRY_SENTINEL_SECONDS };
+  }
+  const remainingMs = new Date(expiresAt).getTime() - now.getTime();
+  const remainingSeconds = Math.max(Math.round(remainingMs / 1000), 0);
+  if (remainingSeconds <= 0) return { label: "Frist abgelaufen", remainingSeconds: 0 };
+  const suffix = expiryIsEstimate ? " (geschätzt)" : "";
+  return { label: `läuft ab in ${formatDurationMs(remainingMs)}${suffix}`, remainingSeconds };
+}
+
+export interface AuctionStatus { label: string; remainingSeconds: number; urgent: boolean }
+
+export function auctionStatus(
+  listedAt: string | null,
+  expiresAt: string | null,
+  expiryIsEstimate: boolean,
+  now: Date
+): AuctionStatus {
+  const { label, remainingSeconds } = auctionLabelAndRemaining(listedAt, expiresAt, expiryIsEstimate, now);
+  const cutoffSeconds = (nextUpdateCutoff(now).getTime() - now.getTime()) / 1000;
+  const urgent = remainingSeconds > 0 && remainingSeconds < cutoffSeconds;
+  return { label, remainingSeconds, urgent };
+}
+
+export function isAffordable(price: number | null, ownAvailableBudget: number | null): boolean {
+  return ownAvailableBudget !== null && price !== null && price <= ownAvailableBudget;
 }
