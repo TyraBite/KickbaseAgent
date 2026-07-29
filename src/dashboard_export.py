@@ -632,18 +632,7 @@ def export() -> dict:
         cached_snapshot = firestore_db.get_dashboard_snapshot(firestore_db.connect())
     is_light = _resolve_is_light(mode, cached_snapshot)
 
-    firestore_write_failed = False
-    try:
-        fetched_at = fetcher.run()
-    except firestore_db.FirestoreWriteError as exc:
-        # fetcher.run() hat die lokalen (SQLite) Daten bereits fertig - nur der
-        # Firestore-Schreibzugriff fuer Kader/Markt/Liga/Budget ist gescheitert
-        # (siehe fetcher._write_firestore). Die Pipeline laeuft trotzdem zu Ende
-        # (Predictions/Snapshot-Aufbau/der eigene Firestore-Schreibversuch unten),
-        # der Fehler wird erst ganz am Ende gemeldet (_finalize_firestore_write) -
-        # analog zu _load_wunschkader() oben, nur zeitlich verzoegert statt sofort.
-        fetched_at = exc.fetched_at
-        firestore_write_failed = True
+    fetched_at = fetcher.run()
 
     token, _user, leagues = login(email, password)
     league_id = leagues[0]["id"]
@@ -730,19 +719,20 @@ def export() -> dict:
         "spekulation": cached_snapshot["spekulation"] if is_light else _build_spekulation(transfermarkt_rows),
     }
 
-    _finalize_firestore_write(data, firestore_write_failed)
+    _finalize_firestore_write(data)
     return data
 
 
-def _finalize_firestore_write(data: dict, firestore_write_failed: bool) -> None:
+def _finalize_firestore_write(data: dict) -> None:
     """Schreibt den fertigen Snapshot nach Firestore (dashboard_snapshot/latest,
     von index.html UND frontend/ live gelesen) und macht jeden Firestore-Ausfall
-    bei seiten-relevanten Daten sichtbar: firestore_write_failed kommt bereits
-    von fetcher.run() (siehe firestore_db.FirestoreWriteError), hier kommt ggf.
-    der eigene Snapshot-Schreibversuch dazu. Genau wie bei _load_wunschkader()
-    oben (siehe Docstring dort) darf ein Firestore-Ausfall bei seiten-relevanten
-    Daten dashboard.yml nicht gruen durchlaufen lassen - sonst bleibt die
-    Live-Seite unbemerkt auf altem Stand."""
+    sichtbar: genau wie bei _load_wunschkader() oben (siehe Docstring dort)
+    darf ein Firestore-Ausfall bei diesem seiten-relevanten Write dashboard.yml
+    nicht gruen durchlaufen lassen - sonst bleibt die Live-Seite unbemerkt auf
+    altem Stand. (fetcher.run() spricht seit der Entfernung der toten Phase-1-
+    Rohdaten-Collections gar nicht mehr mit Firestore - dieser Write hier ist
+    der einzig verbleibende, seiten-relevante.)"""
+    firestore_write_failed = False
     if os.environ.get("FIRESTORE_ENABLED"):
         try:
             fs_client = firestore_db.connect()

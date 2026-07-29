@@ -1,23 +1,23 @@
-"""Firestore-Persistenz fuer Kickbase-Snapshots - Firestore-Pendant zu
-src/db.py (Phase 1 der Firestore-Migration, siehe
-docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md).
+"""Firestore-Persistenz fuer Kickbase-Snapshots.
 
-Additiv zur bestehenden SQLite-DB (data/kickbase.db), kein Ersatz. Jede
-replace_*/upsert_*-Funktion hat dieselbe Signatur (nimmt dieselben Row-Dicts
-entgegen) wie ihr db.py-Pendant, schreibt aber in eine gleichnamige Firestore-
-Collection statt in eine SQLite-Tabelle. Mehrzeilige Writes nutzen Firestore-
+Die urspruengliche "Phase 1" (siehe
+docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md)
+schrieb Kader/Markt/Liga/Budget als eigene Rohdaten-Collections
+(own_squad/market_listings/league_ranking/manager_budgets/season_context/
+own_budget_history), gedacht als spaetere Live-Datenquelle fuers Frontend.
+Wurde nie so implementiert - Phase 2 fuehrte stattdessen den konsolidierten
+dashboard_snapshot/latest-Read ein (upsert_dashboard_snapshot), der Client
+liest NUR dieses eine Dokument. Die 6 Rohdaten-Collections wurden dadurch nie
+gelesen (weder Client noch Pipeline selbst, die haengt an SQLite/src/db.py) -
+am 2026-07-29 als totes Gewicht identifiziert und komplett entfernt (Writes
+UND die Funktionen hier). `firestore.rules` verweigert Client-Reads darauf
+ohnehin explizit.
+
+Verbleibende Collections: `ml_prediction_log`/`ml_accuracy_daily` (ML-
+Bookkeeping, siehe market_predictor.py), `dashboard_snapshot` (der einzige
+vom Frontend gelesene Snapshot) und `wunschkader` (User-editierbare Ziel-
+Config, Schreibpfad ist der Browser). Mehrzeilige Writes nutzen Firestore-
 WriteBatch (max. 500 Operationen/Batch - siehe _write_in_batches).
-
-Dokument-Id-Konvention (laut Spec): `{fetched_at}_{player_id}` bzw.
-`{fetched_at}_{user_id}` fuer Tabellen mit mehreren Zeilen/Tag, nur
-`{fetched_at}` wenn es maximal eine Zeile pro Tag gibt (season_context,
-own_budget_history). `ml_prediction_log` (neue Collection, kein SQLite-
-Pendant) nutzt `{date}_{player_id}_{model_type}` (seit Phase 4: beide
-Modell-Kandidaten werden taeglich geloggt, nicht nur der Tagessieger) -
-ist seit dem Read-Quota-Fix (2026-07-28) nur noch eine KURZLEBIGE
-Staging-Zone (siehe get_recent_prediction_log_entries), NICHT mehr die
-Historie-Quelle. Die eigentliche, langfristige Historie liegt in
-`ml_accuracy_daily` (`{date}_{model_type}`, aggregiert, ~2 Dokumente/Tag).
 """
 
 from google.cloud import firestore
@@ -56,41 +56,6 @@ def _write_in_batches(client: firestore.Client, collection: str, docs: dict[str,
         for doc_id, data in items[start : start + MAX_BATCH_OPS]:
             batch.set(client.collection(collection).document(doc_id), data)
         batch.commit()
-
-
-def replace_own_squad(client: firestore.Client, fetched_at: str, players: list[dict]) -> None:
-    docs = {f"{fetched_at}_{p['player_id']}": {**p, "fetched_at": fetched_at} for p in players}
-    _write_in_batches(client, "own_squad", docs)
-
-
-def replace_market_listings(client: firestore.Client, fetched_at: str, listings: list[dict]) -> None:
-    docs = {
-        f"{fetched_at}_{listing['player_id']}": {**listing, "fetched_at": fetched_at}
-        for listing in listings
-    }
-    _write_in_batches(client, "market_listings", docs)
-
-
-def replace_league_ranking(client: firestore.Client, fetched_at: str, rows: list[dict]) -> None:
-    docs = {f"{fetched_at}_{r['user_id']}": {**r, "fetched_at": fetched_at} for r in rows}
-    _write_in_batches(client, "league_ranking", docs)
-
-
-def upsert_own_budget(
-    client: firestore.Client, fetched_at: str, user_id: str | None, budget: float | None
-) -> None:
-    client.collection("own_budget_history").document(fetched_at).set(
-        {"fetched_at": fetched_at, "user_id": user_id, "budget": budget}
-    )
-
-
-def upsert_season_context(client: firestore.Client, fetched_at: str, context: dict) -> None:
-    client.collection("season_context").document(fetched_at).set({**context, "fetched_at": fetched_at})
-
-
-def replace_manager_budgets(client: firestore.Client, fetched_at: str, rows: list[dict]) -> None:
-    docs = {f"{fetched_at}_{r['user_id']}": {**r, "fetched_at": fetched_at} for r in rows}
-    _write_in_batches(client, "manager_budgets", docs)
 
 
 def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict]) -> None:
