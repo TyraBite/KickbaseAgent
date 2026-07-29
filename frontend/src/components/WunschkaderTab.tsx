@@ -155,12 +155,13 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
       .map((p) => ({ name: p.name, market_value: p.market_value }));
     const sellProceeds = sellRows.reduce((sum, r) => sum + (r.market_value || 0), 0);
 
-    // Cash = own_available_budget, nicht own_budget_exact (Bug, gefunden
-    // 2026-07-29): own_budget_exact ist der rohe Kontostand, own_available_budget
-    // beruecksichtigt bereits den Ueberziehungsrahmen - dieselbe Zahl, die
-    // auch die Transfermarkt-"affordable"-Pruefung und Ligaanalyse ("Verfuegbar")
-    // schon nutzen.
-    const cash = data.own_available_budget || 0;
+    // Cash = own_budget_exact, der echte Kontostand (Bug, gefunden
+    // 2026-07-29): own_available_budget ist Kontostand PLUS erlaubter
+    // Ueberziehungsrahmen (33% des Teamwerts, src/manager_budgets.py
+    // OVERDRAFT_FACTOR) - also die theoretische Gesamt-Kaufkraft inkl.
+    // Kredit, nicht das Geld, das gerade real auf dem Konto liegt. Zeigte
+    // faelschlich 131 Mio. statt der echten 68 Mio. Kickbase-Kontostand.
+    const cash = data.own_budget_exact || 0;
     const pool = cash + sellProceeds;
 
     const committed = editState.reduce((sum, t) => {
@@ -173,7 +174,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     }, 0);
 
     return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
-  }, [alleSpieler, data.own_available_budget, editState, ownSquadNames, transfermarkt, wunschkader]);
+  }, [alleSpieler, data.own_budget_exact, editState, ownSquadNames, transfermarkt, wunschkader]);
 
   const byPosition = useMemo(() => {
     const groups: Record<Position, EditTarget[]> = { Torwart: [], Abwehr: [], Mittelfeld: [], Sturm: [] };

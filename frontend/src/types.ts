@@ -183,6 +183,5 @@ export interface DashboardSnapshot {
   budget_plan: BudgetPlan | null;
   signal_thresholds: SignalThresholds;
   own_budget_exact: number | null;
-  own_available_budget: number | null;
   [key: string]: unknown;
 }
