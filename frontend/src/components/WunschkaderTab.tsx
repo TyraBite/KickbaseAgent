@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
-import type { AlleSpielerRow, DashboardSnapshot, RawWunschkaderTarget, WunschkaderRow } from "../types";
+import type { AlleSpielerRow, DashboardSnapshot, RawWunschkaderTarget, TransfermarktRow, WunschkaderRow } from "../types";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum } from "../format";
@@ -51,18 +51,27 @@ function computedFor(name: string, wunschkader: WunschkaderRow[], alleSpieler: A
   };
 }
 
-// 1:1 Portierung von _estimate_price() aus src/dashboard_export.py.
-function estimatePrice(marketValue: number | null): number | null {
-  if (!marketValue) return null;
-  return Math.round(marketValue * 1.1);
+// Eingeplanter Preis fuer ein Ziel: 0 wenn schon im eigenen Kader (bereits
+// bezahlt, nicht nochmal einplanen), sonst das eigene laufende Hoechstgebot
+// falls eins existiert (echte Kickbase-Daten aus dem Transfermarkt-Listing -
+// praeziser als jede Schaetzung), sonst der reine Marktwert. Frueher gab es
+// hier einen manuellen actual_bid-Fallback plus 10%-Aufschlags-Schaetzung -
+// beides raus (User-Entscheidung 2026-07-29): ein manuelles Feld ist
+// ueberfluessig, sobald wir den echten Gebotsstand schon haben, und fuer noch
+// nicht gekaufte Spieler zaehlt ohnehin nur der Marktwert.
+function plannedPriceFor(marketValue: number | null, isOwn: boolean, liveBid: number | null): number | null {
+  if (isOwn) return 0;
+  if (liveBid !== null) return liveBid;
+  return marketValue;
 }
 
-// Spiegelt die planned_price-Prioritaet aus _build_wunschkader() (dashboard_export.py):
-// actual_bid > 0 bei eigenem Kader > geschaetzter Preis.
-function plannedPriceFor(target: RawWunschkaderTarget, marketValue: number | null, isOwn: boolean): number | null {
-  if (target.actual_bid !== undefined) return target.actual_bid;
-  if (isOwn) return 0;
-  return estimatePrice(marketValue);
+// Eigenes laufendes Hoechstgebot fuer einen Spieler, falls er aktuell auf dem
+// Transfermarkt steht UND wir dort selbst fuehren (is_own_leading_bid) - sonst
+// null (dann greift in plannedPriceFor() der Marktwert-Fallback).
+function liveBidFor(name: string, transfermarkt: TransfermarktRow[]): number | null {
+  const listing = transfermarkt.find((r) => r.name === name);
+  if (listing?.is_own_leading_bid && listing.leading_bid_price != null) return listing.leading_bid_price;
+  return null;
 }
 
 // Zaehlt Nicht-Bank-Ziele pro Verein - Basis fuer die Max-3-pro-Verein-Warnung
@@ -119,6 +128,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
 
   const wunschkader = data.wunschkader ?? [];
   const alleSpieler = data.alle_spieler ?? [];
+  const transfermarkt = data.transfermarkt ?? [];
   const thresholds = data.signal_thresholds;
 
   const ownSquadNames = useMemo(
@@ -131,18 +141,26 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     [editState, wunschkader, alleSpieler]
   );
 
-  // Rechnet _build_budget_plan() (dashboard_export.py) 1:1 clientseitig nach,
-  // damit die Budget-Zahlen sofort auf jede Wunschkader-Aenderung reagieren
-  // statt erst nach Speichern + naechstem 2h-Cron-Lauf.
+  // Verkaufserloese kamen bisher aus wunschkader_raw.sell_list - einer
+  // manuell gepflegten, vom aktuellen Wunschkader unabhaengigen Liste (Bug,
+  // gefunden 2026-07-29). Jetzt automatisch aus dem eigenen Kader abgeleitet:
+  // jeder Spieler im eigenen Kader, der NICHT (mehr) unter den aktuellen
+  // Wunschkader-Zielen steht, ist ein Verkaufskandidat - exakt dieselbe
+  // Regel wie split.verkaufen in EigenesTeamTab.tsx.
   const liveBudgetPlan = useMemo(() => {
-    const sellList = data.wunschkader_raw?.sell_list ?? [];
     const ownByName = new Map(alleSpieler.filter((p) => p.owner === "Eigener Kader").map((p) => [p.name, p]));
-    const sellRows = sellList
-      .filter((name) => ownByName.has(name))
-      .map((name) => ({ name, market_value: ownByName.get(name)!.market_value }));
+    const targetNames = new Set(editState.map((t) => t.name));
+    const sellRows = [...ownByName.values()]
+      .filter((p) => !targetNames.has(p.name))
+      .map((p) => ({ name: p.name, market_value: p.market_value }));
     const sellProceeds = sellRows.reduce((sum, r) => sum + (r.market_value || 0), 0);
 
-    const cash = data.own_budget_exact || 0;
+    // Cash = own_available_budget, nicht own_budget_exact (Bug, gefunden
+    // 2026-07-29): own_budget_exact ist der rohe Kontostand, own_available_budget
+    // beruecksichtigt bereits den Ueberziehungsrahmen - dieselbe Zahl, die
+    // auch die Transfermarkt-"affordable"-Pruefung und Ligaanalyse ("Verfuegbar")
+    // schon nutzen.
+    const cash = data.own_available_budget || 0;
     const pool = cash + sellProceeds;
 
     const committed = editState.reduce((sum, t) => {
@@ -150,11 +168,12 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
       const isOwn = ownSquadNames.has(t.name);
       if (isOwn) return sum;
       const marketValue = computedFor(t.name, wunschkader, alleSpieler).market_value;
-      return sum + (plannedPriceFor(t, marketValue, isOwn) || 0);
+      const liveBid = liveBidFor(t.name, transfermarkt);
+      return sum + (plannedPriceFor(marketValue, isOwn, liveBid) || 0);
     }, 0);
 
     return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
-  }, [alleSpieler, data.wunschkader_raw, data.own_budget_exact, editState, ownSquadNames, wunschkader]);
+  }, [alleSpieler, data.own_available_budget, editState, ownSquadNames, transfermarkt, wunschkader]);
 
   const byPosition = useMemo(() => {
     const groups: Record<Position, EditTarget[]> = { Torwart: [], Abwehr: [], Mittelfeld: [], Sturm: [] };
@@ -184,7 +203,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     setEditState((prev) =>
       prev.map((t) => {
         if (t._uid !== uid) return t;
-        const { note: _note, actual_bid: _bid, ...keep } = t;
+        const { note: _note, ...keep } = t;
         return { ...keep, name: replacement.name, position: replacement.position };
       })
     );
@@ -309,7 +328,11 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
         <DetailModal
           target={selected}
           computed={computedFor(selected.name, wunschkader, alleSpieler)}
-          plannedPrice={plannedPriceFor(selected, computedFor(selected.name, wunschkader, alleSpieler).market_value, ownSquadNames.has(selected.name))}
+          plannedPrice={plannedPriceFor(
+            computedFor(selected.name, wunschkader, alleSpieler).market_value,
+            ownSquadNames.has(selected.name),
+            liveBidFor(selected.name, transfermarkt)
+          )}
           thresholds={thresholds}
           alleSpieler={alleSpieler}
           onClose={() => setSelected(null)}
@@ -569,7 +592,7 @@ function BudgetPlanCard({ plan }: { plan: NonNullable<DashboardSnapshot["budget_
           <div className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{fmtNum(plan.committed)}</div>
         </div>
         <div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">= Rest</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">= Spielraum</div>
           <div className={`font-semibold tabular-nums ${remainingTone}`}>{fmtNum(plan.remaining)}</div>
         </div>
       </div>

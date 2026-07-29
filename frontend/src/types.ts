@@ -40,7 +40,6 @@ export interface RawWunschkaderTarget {
   position: string;
   role?: string;
   note?: string;
-  actual_bid?: number;
 }
 
 export interface BudgetPlanSellRow {
@@ -107,6 +106,8 @@ export interface TransfermarktRow extends PlayerRow {
   auction_remaining_seconds: number | null;
   auction_urgent: boolean;
   auction_expires_at: string | null;
+  leading_bid_price: number | null;
+  is_own_leading_bid: boolean;
 }
 
 export interface EigenesTeamRow extends PlayerRow {
@@ -182,5 +183,6 @@ export interface DashboardSnapshot {
   budget_plan: BudgetPlan | null;
   signal_thresholds: SignalThresholds;
   own_budget_exact: number | null;
+  own_available_budget: number | null;
   [key: string]: unknown;
 }
