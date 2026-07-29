@@ -651,11 +651,16 @@ def export() -> dict:
     starting_rank_by_player_id = heavy["starting_rank_by_player_id"]
     owned_by = heavy["owned_by"]
 
+    # transfermarkt_rows IMMER frisch aus market_listings bauen (auch im
+    # Light-Modus): fetcher.run() holt /market bei jedem Lauf (alle 2h) neu,
+    # _build_transfermarkt ist ein reiner In-Memory-Transform (kein
+    # zusaetzlicher API-/Firestore-Call) - anders als all_players/predictions
+    # gibt es hier keinen Kostengrund fuer eine Light-Modus-Ausnahme. Bug
+    # gefunden 2026-07-29: neu gelistete Spieler (z.B. Hajdari) blieben bis zu
+    # 24h (bis zum naechsten Heavy-Lauf) auf dem Transfermarkt unsichtbar,
+    # weil hier bisher der veraltete Firestore-Snapshot uebernommen wurde.
     now = datetime.datetime.now(datetime.timezone.utc)
-    transfermarkt_rows = (
-        cached_snapshot["transfermarkt"] if is_light
-        else _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
-    )
+    transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
 
     own_squad_names = {r["name"] for r in own_squad}
 
@@ -716,7 +721,7 @@ def export() -> dict:
         ),
         "wunschkader_raw": wunschkader_config,
         "budget_plan": budget_plan,
-        "spekulation": cached_snapshot["spekulation"] if is_light else _build_spekulation(transfermarkt_rows),
+        "spekulation": _build_spekulation(transfermarkt_rows),
     }
 
     _finalize_firestore_write(data)

@@ -16,6 +16,7 @@ from src.dashboard_export import (
     _load_wunschkader,
     _resolve_heavy_data,
     _resolve_is_light,
+    export,
 )
 
 
@@ -276,3 +277,59 @@ class ResolveHeavyDataTests(unittest.TestCase):
         rows = _build_eigenes_team(own_squad, heavy["calibration"], heavy["predictions"])
 
         self.assertEqual(rows[0]["ml_prediction"], 77777)
+
+
+FRESH_LISTING_ROW = {
+    "player_id": "p_new", "name": "Hajdari", "position": "Abwehr", "team_name": "Freiburg",
+    "status_label": None, "starting_rank": 1,
+    "market_value": 14_000_000, "market_value_change_7d": None, "market_value_low_92d": None,
+    "market_value_high_92d": None, "average_points": 90, "total_points": 300,
+    "price": 14_000_000, "price_delta_pct": 0.0,
+    "offering_username": None, "is_system_offer": 1, "pending_offers_count": 0,
+    "leading_bid_username": None, "leading_bid_price": None, "is_own_leading_bid": 0,
+    "listed_at": "2026-07-29T13:28:37Z", "expires_at": "2026-07-30T13:28:37Z",
+    "expiry_is_estimate": 0,
+}
+
+
+class ExportLightModeTests(unittest.TestCase):
+    """export() im Light-Modus (DASHBOARD_MODE=light, dashboard.yml, alle
+    2h) muss Transfermarkt/Spekulation aus den FRISCH gefetchten
+    market_listings neu bauen, nicht aus dem letzten Firestore-Snapshot
+    uebernehmen - fetcher.run() holt /market bei JEDEM Lauf frisch (kein
+    teurer API-Call, kein Grund fuer eine Light-Modus-Ausnahme hier), anders
+    als all_players/predictions/owned_by, die echte teure Calls brauchen und
+    deshalb im Light-Modus zurecht gecacht bleiben. Bug gefunden 2026-07-29:
+    ein frisch gelisteter Spieler (Hajdari) blieb bis zu 24h unsichtbar, weil
+    export() im Light-Modus transfermarkt/spekulation komplett aus dem
+    Snapshot uebernahm statt _build_transfermarkt/_build_spekulation mit den
+    frischen market_listings aufzurufen."""
+
+    def _run_export_in_light_mode(self, cached_snapshot, fresh_market_listings):
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "DASHBOARD_MODE": "light", "FIRESTORE_ENABLED": "1"},
+        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+            "src.dashboard_export.get_me", return_value={"cpi": "1"}
+        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-29"), patch(
+            "src.dashboard_export._load_snapshot", return_value=([], fresh_market_listings, [], [])
+        ), patch("src.dashboard_export.firestore_db.connect", return_value=MagicMock()), patch(
+            "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
+        ), patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot"), patch(
+            "src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value=[]):
+            return export()
+
+    def test_light_mode_rebuilds_transfermarkt_from_fresh_market_listings(self):
+        cached_snapshot = {
+            "alle_spieler": [], "calibration": None, "ml_metrics": None, "ml_accuracy_trend": None,
+            "transfermarkt": [{"name": "StaleOnly", "player_id": "p_stale"}],
+            "spekulation": [{"name": "StaleSpekulation"}],
+            "wunschkader": [],
+        }
+
+        data = self._run_export_in_light_mode(cached_snapshot, [FRESH_LISTING_ROW])
+
+        names = [r["name"] for r in data["transfermarkt"]]
+        self.assertIn("Hajdari", names)
+        self.assertNotIn("StaleOnly", names)
