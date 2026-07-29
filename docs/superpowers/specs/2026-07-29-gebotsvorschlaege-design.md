@@ -84,7 +84,33 @@ function suggestBid(
 - Backend (Backfill + laufendes Update): TDD wie gewohnt (`unittest`, gemockte `get_activities_feed`/`get_market_value_history`/Firestore) — Tests für: Systemkauf-Filter (kein `slr`), Aufschlag-Berechnung, Zeiger-Fortschreibung nur bei Erfolg, Fehlerresistenz bei einem fehlschlagenden Einzel-Call.
 - Frontend (`suggestBid()` in `derive.ts`): kein Test-Framework im Projekt vorhanden (Konvention dieser Session) — Verifikation über `tsc --noEmit` + manuelle Prüfung mit echten Daten nach Implementierung.
 
+## Positions-Bedarfs-Analyse über die Liga (jetzt Teil des Scopes)
+
+Der tatsächliche Aufschlag für einen freien Spieler dürfte auch davon abhängen, wie viele Gegner-Kader für diese Position bereits einen Stammspieler haben — Beispiel Torwart: haben schon alle Gegner einen planmäßigen Stamm-Torwart, ist die Konkurrenz um einen neuen Torwart auf dem Markt vermutlich geringer, als wenn die meisten noch einen brauchen. Uniform für alle 4 Positionen modelliert, ohne Formation zu raten:
+
+**Metrik**: `Deckungsgrad(Gegner, Position) = Stammspieler dieser Position im Kader (starting_rank ∈ {1,2}) ÷ tatsächlich aktuell aufgestellte Spieler dieser Position in der echten Startelf`. Die reale Startelf-Zusammensetzung (`current_lineup_player_ids`/"lp", schon in `ranking_rows` vorhanden) verrät direkt, wie viele Plätze ein Gegner bei dieser Position braucht — kein Formations-Raten nötig, kein Referenz-Formation-Tabelle. Beispiel Mittelfeld: 3 Spieler dieser Position in der echten Startelf, aber nur 1 Stammspieler im ganzen Kader → Deckungsgrad ~33%, klarer Bedarf.
+
+**Wo berechnet**: `_build_ligaanalyse()` (`src/dashboard_export.py`) holt für jeden Gegner-Manager ohnehin schon per `get_manager_squad()` den vollen Kader (bisher nur für eine kombinierte `regular_count`-Summe über alle Positionen genutzt) — **keine neuen API-Calls**, nur zusätzliche Auswertung der bereits abgerufenen Daten. Die Funktion wird erweitert, pro Gegner UND Position sowohl die Stammspieler-Zahl als auch die Startelf-Zahl zu zählen.
+
+Deckungsgrad pro Gegner/Position wird auf 1.0 gekappt (mehr Stammspieler als Startelf-Plätze zählt nicht als "Überdeckung"). Steht ein Gegner an dieser Position aktuell mit 0 Spielern in der Startelf (sollte bei einer gültigen Aufstellung nicht vorkommen, aber defensiv behandeln), wird dieser Gegner für diese Position aus dem Durchschnitt ausgeschlossen statt durch 0 zu teilen.
+
+**Speicherung**: nur das league-weite Aggregat landet im Snapshot (neues Feld `position_need`), keine Rohdaten pro einzelnem Gegner — Beispiel-Form:
+```json
+{
+  "Torwart": {"avg_coverage": 0.9, "n_rivals": 10},
+  "Abwehr": {"avg_coverage": 0.72, "n_rivals": 10},
+  "Mittelfeld": {"avg_coverage": 0.55, "n_rivals": 10},
+  "Sturm": {"avg_coverage": 0.80, "n_rivals": 10}
+}
+```
+
+**Anzeige**: separat neben der Perzentil-Gebotsempfehlung (Transfermarkt-Detail + Spekulation-Detail), z.B. "Ligabedarf Mittelfeld: 55% Deckung bei den Gegnern" — bewusst NICHT rechnerisch in die Gebotszahlen eingerechnet (keine kalibrierte Formel dafür vorhanden, würde falsche Präzision suggerieren), sondern als zusätzlicher, separat lesbarer Kontext-Hinweis.
+
 ## Out of Scope / Spätere Ideen (nicht Teil dieser Runde)
 
 - **Budget-Cross-Check der Konkurrenz** (erwogen, dann verworfen): Hinweis wie "X von Y Managern könnten laut verfügbarem Budget mehr bieten" wäre mit den schon vorhandenen `ligaanalyse`-Daten (`available_budget` pro Manager) ohne neue Felder machbar, wurde aber zurückgestellt — sagt nichts über tatsächliches Interesse am Spieler aus, nur über die theoretische Fähigkeit zu überbieten.
-- **Positions-Bedarfs-Analyse über die Liga** (User-Idee, 2026-07-29): der tatsächliche Aufschlag für einen freien Spieler dürfte auch davon abhängen, wie viele Gegner-Kader für diese Position bereits einen Stammspieler haben. Beispiel Torwart: haben schon alle Gegner einen planmäßigen Stamm-Torwart, ist die Konkurrenz um einen neuen Torwart auf dem Markt vermutlich geringer, als wenn die meisten noch einen brauchen. Für Torwart (nur 1 Startplatz, klar abgrenzbar) relativ einfach zu modellieren; für die anderen Positionen (Abwehr/Mittelfeld/Sturm, mehrere Plätze + Rotation) deutlich komplexer, da "Bedarf" dort weniger eindeutig ist als ein einzelner Stammplatz. Explizit als eigene, spätere Erweiterung vorgemerkt — nicht Teil dieser ersten Umsetzung, würde eine eigene Analyse/Planung brauchen (z.B. auf Basis von `_build_ligaanalyse()`s `regular_count`/`starting_rank`-Daten, die schon pro Gegner-Kader vorhanden sind).
+- **Pro-Gegner-Detailansicht des Deckungsgrads**: könnte später sinnvoll mit der separat geplanten Ligaanalyse-Detailansicht (Grundinfos + Kaderliste pro Manager, siehe `HANDOFF.md`) zusammengelegt werden — für DIESES Feature reicht das league-weite Aggregat, keine Rohdaten pro Gegner im Snapshot.
+
+## Umsetzungs-Sperre (wichtig)
+
+**Diese Spec wird NICHT implementiert, solange das players-Map-Redesign** (`docs/superpowers/plans/2026-07-29-players-map-datenstruktur.md`, in einem separaten Worktree/Branch von einem anderen Agenten in Arbeit) **nicht gemerged ist.** Grund: `_build_ligaanalyse()`/`dashboard_export.py`/`types.ts` werden durch das Redesign stark umgebaut — jetzt parallel dagegen zu implementieren hieße doppelte Arbeit oder Merge-Konflikte. Erst nach dem Merge in einem neuen Kontext mit `superpowers:writing-plans` in einen Implementierungsplan überführen.
