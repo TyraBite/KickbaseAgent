@@ -55,9 +55,13 @@ export default function App() {
   const [data, setData] = useState<DashboardSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState("spekulation");
   const now = useNow(60_000);
+  // data.players kann fehlen, wenn der Firestore-Snapshot noch im alten Schema
+  // vorliegt (Deploy-Zeitfenster zwischen Frontend-Push und naechstem Backend-
+  // Lauf, siehe Review-Fund 2026-07-29) - dann NICHT buildTransfermarktRows()
+  // aufrufen, sonst crasht listings.filter() auf undefined ohne ErrorBoundary.
   const transfermarktRows = useMemo(
     () =>
-      data
+      data && data.players
         ? buildTransfermarktRows(data.players, data.transfermarkt_listings, data.calibration, data.own_available_budget, new Date(now))
         : [],
     [data, now]
@@ -88,6 +92,18 @@ export default function App() {
   // Erster Auth-Check läuft noch (verhindert Login-Formular-Aufflackern).
   if (user === undefined) return null;
   if (!user) return <Login />;
+
+  // Snapshot geladen, aber noch im alten Schema (kein "players"-Feld) - kein
+  // ErrorBoundary vorhanden, also hier gezielt abfangen statt weiss auf weiss
+  // abzustuerzen (siehe Review-Fund 2026-07-29).
+  if (data && !data.players) {
+    return (
+      <p className="p-6 text-sm text-slate-500 dark:text-slate-400">
+        Snapshot noch im alten Schema — der nächste Pipeline-Lauf schreibt das neue Format automatisch (bis zu ~2h,
+        oder manuell über GitHub Actions anstoßen).
+      </p>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
