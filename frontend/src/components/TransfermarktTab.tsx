@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import type { DashboardSnapshot, TransfermarktRow } from "../types";
+import { useEffect, useMemo, useState } from "react";
+import type { DashboardSnapshot } from "../types";
+import { buildTransfermarktRows, type TransfermarktRow } from "../lib/derive";
 import { Badge, POSITION_ABBR, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
@@ -48,8 +49,25 @@ function sortRows(rows: TransfermarktRow[], key: SortKey): TransfermarktRow[] {
 const HINT =
   "Signal > 1,25 = deutlich unter Fairwert, < 0,80 = Prämie (siehe MDs/methodik.md). Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Marktwert-Update ab.";
 
+// Auktions-Status kommt jetzt clientseitig aus buildTransfermarktRows() statt als
+// fertiger Server-String - braucht deshalb eine eigene Uhr, die alle 60s neu rendert
+// (analog zu SpekulationTab.tsx, dort noch nicht exportiert - Konsolidierung folgt
+// in Task 17).
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
 export default function TransfermarktTab({ data }: { data: DashboardSnapshot }) {
-  const allRows = data.transfermarkt ?? [];
+  const now = useNow(60_000);
+  const allRows = useMemo(
+    () => buildTransfermarktRows(data.players, data.transfermarkt_listings, data.calibration, data.own_available_budget, new Date(now)),
+    [data.players, data.transfermarkt_listings, data.calibration, data.own_available_budget, now]
+  );
   const thresholds = data.signal_thresholds;
 
   const [position, setPosition] = useState("all");
