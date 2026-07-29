@@ -15,19 +15,27 @@ Stand: 2026-07-25
 | Code | Bedeutung | Verifiziert am |
 |---|---|---|
 | kein Code / 0 | unauffällig / einsatzfähig | — |
-| 1 | ? | |
-| 2 | Verletzt (Medikament-Symbol in der Kickbase-App) | 2026-07-29, direkt in der App gegengecheckt |
+| 1 | Verletzt (rotes Kreuz, Tooltip "Injured"/"out for the time being") | 2026-07-29, direkt in der App gegengecheckt (Ben Seghir) |
+| 2 | ? (Medikament-Symbol beobachtet, genaue Bedeutung/Tooltip-Text nicht sicher gelesen) | |
 | 4 | Im Aufbau (Hantel-Symbol, Reha nach Verletzung) | 2026-07-29, direkt in der App gegengecheckt |
 | 8 | ? | |
 
 Beobachtete Codes bisher: 1, 2, 4.
 
-**Alte Arbeitshypothese unten (1 = verletzt, 2 = angeschlagen) ist durch die
-2026-07-29-Verifikation widerlegt** — 2 ist eindeutig "Verletzt", nicht
-"angeschlagen/fraglich". Was 1 tatsächlich bedeutet, ist damit wieder offen
-(die Korrelationen unten, die 1 mit bestätigten Verletzungen in Verbindung
-brachten, könnten genauso zu "Im Aufbau" oder etwas drittem passen - ohne
-direkte App-Beobachtung für einen Code-1-Spieler bleibt das Spekulation).
+**Reihenfolge der Korrektur (2026-07-29)**: erster Check ergab "2 = Verletzt,
+4 = Im Aufbau". Zweiter Check an einem konkreten Code-1-Spieler (Ben Seghir,
+rotes Kreuz, "Injured"/"out for the time being") zeigte: **1 ist eindeutig
+"Verletzt"**, nicht 2. Die "2 = Verletzt"-Zuordnung wurde daraufhin
+zurückgenommen, weil der User selbst unsicher war, was das beobachtete
+Medikament-Symbol/Tooltip bei Code 2 genau bedeutet ("Stricken"? unklar) -
+lieber offen lassen als raten. Kurz erwogene Gegentheorie "4 = fit, weil
+Großteil der Spieler diesen Status hat" wurde anhand echter Daten verworfen:
+im lokalen Snapshot vom 25.-28.07. hat Code 0 (kein Status) 135 Treffer in
+market_listings, Code 4 nur 6 - Code 4 ist eine kleine Minderheit, nicht der
+Großteil. Die direkte Icon-Beobachtung für Code 4 ("Im Aufbau") bleibt daher
+die bessere Evidenz. Alte Arbeitshypothese unten (1 = verletzt, 2 =
+angeschlagen, nur aus Presse-Korrelation) war zufällig richtig für 1, aber
+nie direkt bestätigt gewesen - Zufallstreffer, kein Beleg.
 
 ### Beobachtungen — noch nicht verifiziert, nicht darauf bauen
 

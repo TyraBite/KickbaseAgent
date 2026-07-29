@@ -262,12 +262,14 @@ def position_label(pos: int) -> str:
     return POSITION_LABELS.get(pos, f"Position {pos}")
 
 
-# 2 und 4 direkt in der Kickbase-App gegengecheckt (User, 2026-07-29):
-# 2 = "Verletzt" (Medikament-Symbol), 4 = "Im Aufbau" (Hantel-Symbol, Reha
-# nach Verletzung). Damit ist die alte Arbeitshypothese aus MDs/codes.md
-# ("1 = verletzt, 2 = angeschlagen") ueberholt - 1 bleibt bewusst
-# unbestaetigt statt die alte, jetzt widerlegte Vermutung fortzuschreiben.
-STATUS_LABELS = {2: "Verletzt", 4: "Im Aufbau"}
+# 1 und 4 direkt in der Kickbase-App gegengecheckt (User, 2026-07-29):
+# 1 = "Verletzt" (rotes Kreuz, Tooltip "Injured"/"out for the time being"),
+# 4 = "Im Aufbau" (Hantel-Symbol, Reha nach Verletzung - Haeufigkeits-
+# Gegencheck gegen echte Daten stuetzt das: Code 4 ist eine kleine
+# Minderheit, nicht der Grossteil, "0"/kein Code dominiert klar). 2 bleibt
+# bewusst unbestaetigt - Icon+Bedeutung ("Stricken"?) war dem User selbst
+# nicht klar genug, um es in die Verifiziert-Tabelle aufzunehmen.
+STATUS_LABELS = {1: "Verletzt", 4: "Im Aufbau"}
 
 
 def status_label(status_code: int) -> str | None:
