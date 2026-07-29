@@ -10,8 +10,11 @@ class StatusLabelTests(unittest.TestCase):
     def test_one_is_verletzt(self):
         self.assertEqual(status_label(1), "Verletzt")
 
+    def test_two_is_angeschlagen(self):
+        self.assertEqual(status_label(2), "Angeschlagen")
+
     def test_four_is_im_aufbau(self):
         self.assertEqual(status_label(4), "Im Aufbau")
 
     def test_unconfirmed_code_falls_back_to_placeholder(self):
-        self.assertEqual(status_label(2), "Status-Code 2 (Bedeutung in v4-API nicht zweifelsfrei bestaetigt)")
+        self.assertEqual(status_label(8), "Status-Code 8 (Bedeutung in v4-API nicht zweifelsfrei bestaetigt)")

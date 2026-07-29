@@ -262,14 +262,13 @@ def position_label(pos: int) -> str:
     return POSITION_LABELS.get(pos, f"Position {pos}")
 
 
-# 1 und 4 direkt in der Kickbase-App gegengecheckt (User, 2026-07-29):
+# Alle 3 direkt in der Kickbase-App gegengecheckt (User, 2026-07-29):
 # 1 = "Verletzt" (rotes Kreuz, Tooltip "Injured"/"out for the time being"),
-# 4 = "Im Aufbau" (Hantel-Symbol, Reha nach Verletzung - Haeufigkeits-
-# Gegencheck gegen echte Daten stuetzt das: Code 4 ist eine kleine
-# Minderheit, nicht der Grossteil, "0"/kein Code dominiert klar). 2 bleibt
-# bewusst unbestaetigt - Icon+Bedeutung ("Stricken"?) war dem User selbst
-# nicht klar genug, um es in die Verifiziert-Tabelle aufzunehmen.
-STATUS_LABELS = {1: "Verletzt", 4: "Im Aufbau"}
+# 2 = "Angeschlagen" (Pillen-Symbol, Tooltip "Sick: Adductor problems -
+# misses team training" - Kickbase nennt das intern "Sick", gemeint ist
+# aber ein day-to-day-Wehwehchen ohne echten Ausfall, nicht Krankheit),
+# 4 = "Im Aufbau" (Hantel-Symbol, Reha nach Verletzung).
+STATUS_LABELS = {1: "Verletzt", 2: "Angeschlagen", 4: "Im Aufbau"}
 
 
 def status_label(status_code: int) -> str | None:

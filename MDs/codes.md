@@ -16,26 +16,27 @@ Stand: 2026-07-25
 |---|---|---|
 | kein Code / 0 | unauffällig / einsatzfähig | — |
 | 1 | Verletzt (rotes Kreuz, Tooltip "Injured"/"out for the time being") | 2026-07-29, direkt in der App gegengecheckt (Ben Seghir) |
-| 2 | ? (Medikament-Symbol beobachtet, genaue Bedeutung/Tooltip-Text nicht sicher gelesen) | |
-| 4 | Im Aufbau (Hantel-Symbol, Reha nach Verletzung) | 2026-07-29, direkt in der App gegengecheckt |
+| 2 | Angeschlagen (Pillen-Symbol, Tooltip "Sick: Adductor problems - misses team training" - Kickbase nennt es "Sick", gemeint ist ein day-to-day-Wehwehchen ohne echten Ausfall) | 2026-07-29, direkt in der App gegengecheckt (Matsima) |
+| 4 | Im Aufbau (Hantel-Symbol, Tooltip "Rehab") | 2026-07-29, direkt in der App gegengecheckt (Hollerbach, Ben Seghir) |
 | 8 | ? | |
 
-Beobachtete Codes bisher: 1, 2, 4.
+Alle 3 beobachteten Codes (1, 2, 4) sind jetzt verifiziert. Nur Code 8 (nie
+beobachtet) bleibt offen.
 
-**Reihenfolge der Korrektur (2026-07-29)**: erster Check ergab "2 = Verletzt,
-4 = Im Aufbau". Zweiter Check an einem konkreten Code-1-Spieler (Ben Seghir,
-rotes Kreuz, "Injured"/"out for the time being") zeigte: **1 ist eindeutig
-"Verletzt"**, nicht 2. Die "2 = Verletzt"-Zuordnung wurde daraufhin
-zurückgenommen, weil der User selbst unsicher war, was das beobachtete
-Medikament-Symbol/Tooltip bei Code 2 genau bedeutet ("Stricken"? unklar) -
-lieber offen lassen als raten. Kurz erwogene Gegentheorie "4 = fit, weil
-Großteil der Spieler diesen Status hat" wurde anhand echter Daten verworfen:
-im lokalen Snapshot vom 25.-28.07. hat Code 0 (kein Status) 135 Treffer in
-market_listings, Code 4 nur 6 - Code 4 ist eine kleine Minderheit, nicht der
-Großteil. Die direkte Icon-Beobachtung für Code 4 ("Im Aufbau") bleibt daher
-die bessere Evidenz. Alte Arbeitshypothese unten (1 = verletzt, 2 =
-angeschlagen, nur aus Presse-Korrelation) war zufällig richtig für 1, aber
-nie direkt bestätigt gewesen - Zufallstreffer, kein Beleg.
+**Korrektur-Verlauf (2026-07-29)**: erster Check ergab fälschlich "2 =
+Verletzt, 4 = Im Aufbau" (Icon richtig zugeordnet, aber am falschen Spieler
+verglichen). Zweiter Check an einem konkreten Code-1-Spieler (Ben Seghir,
+rotes Kreuz, "Injured"/"out for the time being") zeigte: 1 ist "Verletzt".
+Dritter Check an Matsima (Code 2, Pillen-Symbol, Tooltip explizit gelesen:
+"Sick: Adductor problems - misses team training") bestätigte 2 = "Angeschlagen"
+und Hollerbach (Code 4, Hantel-Symbol, "Rehab") bestätigte 4 = "Im Aufbau"
+endgültig. Kurz erwogene Gegentheorie "4 = fit, weil Großteil der Spieler
+diesen Status hat" wurde anhand echter Daten verworfen: im lokalen Snapshot
+vom 25.-28.07. hat Code 0 (kein Status) 135 Treffer in market_listings,
+Code 4 nur 6 - Code 4 ist eine kleine Minderheit, nicht der Großteil. Alte
+Arbeitshypothese unten (1 = verletzt, 2 = angeschlagen, nur aus Presse-
+Korrelation) war in der Grundtendenz richtig, aber nie direkt bestätigt -
+jetzt durch echte App-Beobachtung ersetzt.
 
 ### Beobachtungen — noch nicht verifiziert, nicht darauf bauen
 
