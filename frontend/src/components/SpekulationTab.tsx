@@ -206,7 +206,7 @@ function SpekulationTable({
 }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-      <table className="w-full min-w-[720px] text-left text-sm">
+      <table className="w-full min-w-[720px] text-left text-sm text-slate-700 dark:text-slate-200">
         <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
           <tr>
             <th className="px-3 py-2">Spieler</th>

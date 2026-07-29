@@ -15,12 +15,12 @@ import type { DashboardSnapshot } from "./types";
 type LoadState = "loading" | "error" | "ready";
 
 const TABS = [
-  { key: "transfermarkt", label: "Transfermarkt" },
-  { key: "spekulation", label: "Spekulation" },
   { key: "team", label: "Eigenes Team" },
+  { key: "spekulation", label: "Spekulation" },
   { key: "wunschkader", label: "Wunschkader" },
-  { key: "alle-spieler", label: "Alle Spieler" },
+  { key: "transfermarkt", label: "Transfermarkt" },
   { key: "liga", label: "Ligaanalyse" },
+  { key: "alle-spieler", label: "Alle Spieler" },
   { key: "ml-genauigkeit", label: "ML-Genauigkeit" },
 ];
 
