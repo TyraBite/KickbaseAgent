@@ -1,12 +1,16 @@
-name: Dashboard Export
+name: Dashboard Marktwerte (Heavy)
 
 on:
   schedule:
-    - cron: '15 */2 * * *' # alle 2h zur Minute :15 (Drift zwischen CET/CEST akzeptiert, wie bisher)
+    # einmal/Tag um 22:10 Europe/Berlin (CET-Basis/Winterzeit-Aequivalent:
+    # 21:10 UTC). Waehrend CEST (Sommerzeit) verschiebt sich das lokal auf
+    # ca. 23:10 Uhr - Drift zwischen CET/CEST akzeptiert, wie bisher bei
+    # dashboard.yml (kein DST-Erkennungs-Code, bewusst einfach gehalten).
+    - cron: '10 21 * * *'
   workflow_dispatch: {}
 
 jobs:
-  dashboard-export:
+  dashboard-marktwerte:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,12 +25,11 @@ jobs:
       - name: Write Firebase service account key
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/firebase-service-account.json"
 
-      - name: Fetch data, build dashboard
+      - name: Fetch data, build dashboard (voller Marktwert-Lauf)
         env:
           KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
           KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
           KICKBASE_LEAGUE_START_BUDGET: '80000000'
           FIRESTORE_ENABLED: '1'
-          DASHBOARD_MODE: 'light'
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
         run: python -m src.dashboard_export

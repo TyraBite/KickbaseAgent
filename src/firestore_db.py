@@ -152,6 +152,17 @@ def upsert_dashboard_snapshot(client: firestore.Client, data: dict) -> None:
     client.collection("dashboard_snapshot").document("latest").set(data)
 
 
+def get_dashboard_snapshot(client: firestore.Client) -> dict | None:
+    """Liest den zuletzt geschriebenen Dashboard-Snapshot (dashboard_snapshot/
+    latest, siehe upsert_dashboard_snapshot) - bisher ein reines Schreibziel,
+    jetzt zusaetzlich Lesequelle fuer dashboard_export.export()s
+    DASHBOARD_MODE=light-Zweig. None signalisiert Cold Start (noch nie
+    geschrieben): der Light-Zweig faellt dann automatisch auf den vollen
+    Marktwert-Lauf zurueck (siehe _resolve_is_light in dashboard_export.py)."""
+    doc = client.collection("dashboard_snapshot").document("latest").get()
+    return doc.to_dict() if doc.exists else None
+
+
 def get_wunschkader(client: firestore.Client) -> dict | None:
     """Liest den kompletten Wunschkader-Datensatz (targets/sell_list/
     markup_rules/login_bonus/formation/season_start als EIN Dokument,

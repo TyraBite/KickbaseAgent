@@ -16,6 +16,17 @@ K-Kalibrierung (player_valuation) wird NICHT taeglich neu gerechnet, nur der
 zuletzt gespeicherte Stand gelesen (siehe player_valuation.load_calibration) -
 das haelt diesen Lauf schnell/billig, K aendert sich ohnehin langsam.
 
+Seit der Cadence-Aufspaltung (Heavy/Light, 2026-07-29) steuert die
+Umgebungsvariable DASHBOARD_MODE den Umfang dieses Laufs: fehlt sie (oder ist
+!= 'light', z.B. workflow_dispatch/dashboard-marktwerte.yml), laeuft export()
+den vollen Marktwert-Pfad (fetch_all_players + predict_market_value_changes,
+~12x teurer an Kickbase-API-Calls/ML-Training). 'light' (dashboard.yml, alle
+2h) uebernimmt die marktwert-abgeleiteten Teile stattdessen aus dem letzten
+Firestore-Snapshot (dashboard_snapshot/latest) - Kader/Markt/Liga bleiben
+trotzdem taggenau frisch. Ohne vorherigen Snapshot (Cold Start) faellt
+'light' automatisch auf den vollen Pfad zurueck, siehe _resolve_is_light/
+_resolve_heavy_data.
+
 `python -m src.dashboard_export`
 """
 
@@ -536,12 +547,90 @@ def _load_snapshot(fetched_at: str):
         conn.close()
 
 
+def _resolve_is_light(mode: str | None, cached_snapshot: dict | None) -> bool:
+    """Ein einziger Entscheidungspunkt fuer DASHBOARD_MODE=light vs. voller
+    Lauf - export() verzweigt danach nur noch auf dem resultierenden Bool,
+    keine verstreuten os.environ-Checks. Cold Start (mode=='light' aber kein
+    Snapshot gefunden, z.B. beim allerersten Rollout) faellt automatisch/
+    selbstheilend auf den vollen Lauf zurueck - kein manueller Eingriff
+    noetig. mode ist None/leer (Heavy-Cron, workflow_dispatch) ist IMMER
+    voller Lauf, unabhaengig davon ob zufaellig ein Snapshot existiert."""
+    if mode == "light" and cached_snapshot is None:
+        print(
+            "Warnung: DASHBOARD_MODE=light, aber kein Firestore-Snapshot "
+            "gefunden (Cold Start) - falle automatisch auf den vollen "
+            "Marktwert-Lauf zurueck.",
+            file=sys.stderr,
+        )
+    return mode == "light" and cached_snapshot is not None
+
+
+def _resolve_heavy_data(
+    is_light: bool,
+    cached_snapshot: dict | None,
+    token: str,
+    league_id: str,
+    competition_id: str,
+    ranking_rows,
+    own_name: str | None,
+) -> dict:
+    """Zentrale Weiche fuer alle marktwert-abgeleiteten export()-Eingaben
+    (Heavy: frisch berechnet / Light: aus dem letzten Snapshot uebernommen).
+    predictions wird im Light-Fall synthetisch im selben Format wie eine
+    echte market_predictor-Ausgabe nachgebaut, damit _player_row/
+    _build_eigenes_team/_build_transfermarkt in BEIDEN Modi unveraendert
+    aufrufbar bleiben - kein doppelter Code-Pfad. owned_by wird im Light-
+    Modus nicht gebraucht (nur _build_wunschkader/_build_alle_spieler lesen
+    es, beide im Light-Modus uebersprungen/gecacht) - der eigene Manager-
+    Sweep (resolve_ownership) wird dadurch mit eingespart."""
+    if is_light:
+        alle_spieler = cached_snapshot["alle_spieler"]
+        return {
+            "all_players": None,
+            "predictions": {
+                "predictions": {p["player_id"]: p.get("ml_prediction") for p in alle_spieler}
+            },
+            "calibration": cached_snapshot["calibration"],
+            "starting_rank_by_player_id": {p["player_id"]: p["starting_rank"] for p in alle_spieler},
+            "owned_by": {},
+            "ml_metrics": cached_snapshot["ml_metrics"],
+            "ml_accuracy_trend": cached_snapshot["ml_accuracy_trend"],
+        }
+
+    all_players = player_valuation.fetch_all_players(token, competition_id)
+    predictions = market_predictor.predict_market_value_changes()
+    owned_by = (
+        player_valuation.resolve_ownership(token, league_id, [dict(r) for r in ranking_rows], own_name)
+        if own_name
+        else {}
+    )
+    return {
+        "all_players": all_players,
+        "predictions": predictions,
+        "calibration": player_valuation.load_calibration(),
+        "starting_rank_by_player_id": {p["player_id"]: p["starting_rank"] for p in all_players},
+        "owned_by": owned_by,
+        "ml_metrics": predictions["metrics"] if predictions else None,
+        "ml_accuracy_trend": predictions["metrics"].get("accuracy_trend") if predictions else None,
+    }
+
+
 def export() -> dict:
     load_dotenv()
     email = os.environ.get("KICKBASE_EMAIL")
     password = os.environ.get("KICKBASE_PASSWORD")
     if not email or not password:
         raise RuntimeError("KICKBASE_EMAIL/KICKBASE_PASSWORD fehlen (lokal: .env, GitHub Actions: Secrets)")
+
+    # DASHBOARD_MODE=light (dashboard.yml, alle 2h) uebernimmt die marktwert-
+    # abgeleiteten Teile aus dem letzten Firestore-Snapshot statt sie frisch
+    # zu berechnen (siehe Modul-Docstring). Ohne Firestore/lokal ohne
+    # Credentials wird gar nicht erst versucht zu lesen.
+    mode = os.environ.get("DASHBOARD_MODE")
+    cached_snapshot = None
+    if mode == "light" and os.environ.get("FIRESTORE_ENABLED"):
+        cached_snapshot = firestore_db.get_dashboard_snapshot(firestore_db.connect())
+    is_light = _resolve_is_light(mode, cached_snapshot)
 
     firestore_write_failed = False
     try:
@@ -560,40 +649,42 @@ def export() -> dict:
     league_id = leagues[0]["id"]
     competition_id = get_me(token, league_id).get("cpi") or "1"
 
-    predictions = market_predictor.predict_market_value_changes()
-    calibration = player_valuation.load_calibration()
-
     own_squad, market_listings, ranking_rows, manager_budget_rows = _load_snapshot(fetched_at)
 
     own_budget_row = next((b for b in manager_budget_rows if b["is_own_exact"]), None)
     own_available_budget = own_budget_row["available_budget"] if own_budget_row else None
+    own_name = own_budget_row["name"] if own_budget_row else None
 
-    # Ligaweite Spielerliste (u.a. starting_rank) wird sowohl fuer den
-    # Wunschkader-Abgleich als auch fuer die Stammspieler-Zaehlung in
-    # _build_ligaanalyse gebraucht - einmal holen, nicht doppelt.
-    all_players = player_valuation.fetch_all_players(token, competition_id)
-    starting_rank_by_player_id = {p["player_id"]: p["starting_rank"] for p in all_players}
+    heavy = _resolve_heavy_data(is_light, cached_snapshot, token, league_id, competition_id, ranking_rows, own_name)
+    all_players = heavy["all_players"]
+    predictions = heavy["predictions"]
+    calibration = heavy["calibration"]
+    starting_rank_by_player_id = heavy["starting_rank_by_player_id"]
+    owned_by = heavy["owned_by"]
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    transfermarkt_rows = _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
-
-    own_name = own_budget_row["name"] if own_budget_row else None
-    owned_by = (
-        player_valuation.resolve_ownership(token, league_id, [dict(r) for r in ranking_rows], own_name)
-        if own_name
-        else {}
+    transfermarkt_rows = (
+        cached_snapshot["transfermarkt"] if is_light
+        else _build_transfermarkt(market_listings, calibration, predictions, own_available_budget, now)
     )
+
     own_squad_names = {r["name"] for r in own_squad}
 
+    # wunschkader/current bleibt IMMER frisch (User-editierbare Config, keine
+    # marktwert-abgeleitete Groesse) - nur die daraus berechneten Zeilen
+    # (wunschkader_rows) werden im Light-Modus aus dem Snapshot uebernommen.
     wunschkader_config = _load_wunschkader()
-    wunschkader_rows = []
-    if wunschkader_config:
+    if is_light:
+        wunschkader_rows = cached_snapshot["wunschkader"]
+    elif wunschkader_config:
         # transfermarkt_rows statt roher market_listings, damit auction_status
         # (echte Auktions-Restzeit) fuer die Watchlist-Notiz verfuegbar ist.
         market_by_name = {r["name"]: r for r in transfermarkt_rows}
         wunschkader_rows = _build_wunschkader(
             wunschkader_config, all_players, owned_by, own_squad_names, market_by_name, calibration, predictions
         )
+    else:
+        wunschkader_rows = []
     wunschkader_watchlist = [r for r in wunschkader_rows if not r["is_own"]]
 
     budget_plan = (
@@ -604,6 +695,11 @@ def export() -> dict:
         else None
     )
 
+    # Eigener Kader: IMMER frisch aus dem heutigen own_squad gebaut (nicht der
+    # gecachte eigenes_team_split aus dem letzten Heavy-Lauf) - ein
+    # Kaderwechsel seit dem letzten Heavy-Lauf soll sofort sichtbar sein. Im
+    # Light-Modus liefert heavy["predictions"] dafuer die pro Spieler
+    # gecachte ml_prediction (siehe _resolve_heavy_data).
     eigenes_team_rows = _build_eigenes_team(own_squad, calibration, predictions)
 
     data = {
@@ -612,8 +708,8 @@ def export() -> dict:
         "own_budget_exact": own_budget_row["estimated_budget"] if own_budget_row else None,
         "team_total_value": sum((p["market_value"] or 0) for p in own_squad),
         "calibration": calibration,
-        "ml_metrics": predictions["metrics"] if predictions else None,
-        "ml_accuracy_trend": predictions["metrics"].get("accuracy_trend") if predictions else None,
+        "ml_metrics": heavy["ml_metrics"],
+        "ml_accuracy_trend": heavy["ml_accuracy_trend"],
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "transfermarkt": transfermarkt_rows,
         "eigenes_team_split": _split_eigenes_team(eigenes_team_rows, wunschkader_config),
@@ -625,10 +721,13 @@ def export() -> dict:
         "wunschkader_watchlist": wunschkader_watchlist,
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
         "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
-        "alle_spieler": _build_alle_spieler(all_players, owned_by, own_squad_names, calibration),
+        "alle_spieler": (
+            cached_snapshot["alle_spieler"] if is_light
+            else _build_alle_spieler(all_players, owned_by, own_squad_names, calibration)
+        ),
         "wunschkader_raw": wunschkader_config,
         "budget_plan": budget_plan,
-        "spekulation": _build_spekulation(transfermarkt_rows),
+        "spekulation": cached_snapshot["spekulation"] if is_light else _build_spekulation(transfermarkt_rows),
     }
 
     _finalize_firestore_write(data, firestore_write_failed)

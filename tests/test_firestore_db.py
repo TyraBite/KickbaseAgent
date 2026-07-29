@@ -175,6 +175,28 @@ class UpsertDashboardSnapshotTests(unittest.TestCase):
         client.collection.return_value.document.return_value.set.assert_called_once_with(data)
 
 
+class GetDashboardSnapshotTests(unittest.TestCase):
+    def test_returns_none_when_document_missing(self):
+        client = MagicMock()
+        client.collection.return_value.document.return_value.get.return_value.exists = False
+
+        result = firestore_db.get_dashboard_snapshot(client)
+
+        self.assertIsNone(result)
+
+    def test_returns_dict_when_document_exists(self):
+        client = MagicMock()
+        doc_snapshot = client.collection.return_value.document.return_value.get.return_value
+        doc_snapshot.exists = True
+        doc_snapshot.to_dict.return_value = {"fetched_at": "2026-07-28T22:10:00Z", "alle_spieler": []}
+
+        result = firestore_db.get_dashboard_snapshot(client)
+
+        client.collection.assert_any_call("dashboard_snapshot")
+        client.collection.return_value.document.assert_called_with("latest")
+        self.assertEqual(result["fetched_at"], "2026-07-28T22:10:00Z")
+
+
 class GetWunschkaderTests(unittest.TestCase):
     def test_returns_none_when_document_missing(self):
         client = MagicMock()

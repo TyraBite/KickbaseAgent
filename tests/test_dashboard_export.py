@@ -1,18 +1,21 @@
 import datetime
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src import firestore_db
 from src.dashboard_export import (
     _build_alle_spieler,
     _build_budget_plan,
+    _build_eigenes_team,
     _build_spekulation,
     _build_transfermarkt,
     _build_wunschkader,
     _estimate_price,
     _finalize_firestore_write,
     _load_wunschkader,
+    _resolve_heavy_data,
+    _resolve_is_light,
 )
 
 
@@ -195,3 +198,88 @@ class BuildWunschkaderTests(unittest.TestCase):
                                    market_by_name={}, calibration=None, predictions=None)
 
         self.assertIsNone(rows[0]["team_name"])
+
+
+class ResolveIsLightTests(unittest.TestCase):
+    def test_light_mode_with_cache_is_light(self):
+        self.assertTrue(_resolve_is_light("light", {"alle_spieler": []}))
+
+    def test_light_mode_without_cache_falls_back_to_heavy(self):
+        self.assertFalse(_resolve_is_light("light", None))
+
+    def test_absent_mode_is_always_heavy_even_with_stray_cache(self):
+        self.assertFalse(_resolve_is_light(None, {"alle_spieler": []}))
+
+    def test_absent_mode_without_cache_is_heavy(self):
+        self.assertFalse(_resolve_is_light(None, None))
+
+
+class ResolveHeavyDataTests(unittest.TestCase):
+    @patch("src.dashboard_export.player_valuation.resolve_ownership")
+    @patch("src.dashboard_export.player_valuation.load_calibration")
+    @patch("src.dashboard_export.market_predictor.predict_market_value_changes")
+    @patch("src.dashboard_export.player_valuation.fetch_all_players")
+    def test_heavy_mode_calls_all_expensive_functions(
+        self, mock_fetch_all, mock_predict, mock_calibration, mock_resolve_ownership
+    ):
+        mock_fetch_all.return_value = [{"player_id": "p1", "starting_rank": 1}]
+        mock_predict.return_value = {"metrics": {"accuracy_trend": [1, 2]}, "predictions": {"p1": 50000}}
+        mock_calibration.return_value = {"Sturm": 1.0}
+        mock_resolve_ownership.return_value = {"p1": "Rivale"}
+
+        result = _resolve_heavy_data(
+            is_light=False, cached_snapshot=None, token="tok", league_id="l1",
+            competition_id="c1", ranking_rows=[], own_name="Ich",
+        )
+
+        mock_fetch_all.assert_called_once_with("tok", "c1")
+        mock_predict.assert_called_once()
+        mock_resolve_ownership.assert_called_once()
+        self.assertEqual(result["starting_rank_by_player_id"], {"p1": 1})
+        self.assertEqual(result["ml_metrics"]["accuracy_trend"], [1, 2])
+        self.assertEqual(result["owned_by"], {"p1": "Rivale"})
+
+    @patch("src.dashboard_export.player_valuation.resolve_ownership")
+    @patch("src.dashboard_export.player_valuation.load_calibration")
+    @patch("src.dashboard_export.market_predictor.predict_market_value_changes")
+    @patch("src.dashboard_export.player_valuation.fetch_all_players")
+    def test_light_mode_skips_all_expensive_functions(
+        self, mock_fetch_all, mock_predict, mock_calibration, mock_resolve_ownership
+    ):
+        cached_snapshot = {
+            "alle_spieler": [{"player_id": "p1", "starting_rank": 2, "ml_prediction": 12345}],
+            "calibration": {"Sturm": 0.9},
+            "ml_metrics": {"accuracy_trend": [3]},
+            "ml_accuracy_trend": [3],
+        }
+
+        result = _resolve_heavy_data(
+            is_light=True, cached_snapshot=cached_snapshot, token="tok", league_id="l1",
+            competition_id="c1", ranking_rows=[], own_name="Ich",
+        )
+
+        mock_fetch_all.assert_not_called()
+        mock_predict.assert_not_called()
+        mock_resolve_ownership.assert_not_called()
+        self.assertIsNone(result["all_players"])
+        self.assertEqual(result["starting_rank_by_player_id"], {"p1": 2})
+        self.assertEqual(result["predictions"]["predictions"]["p1"], 12345)
+        self.assertEqual(result["calibration"], {"Sturm": 0.9})
+        self.assertEqual(result["owned_by"], {})
+
+    def test_light_mode_ml_prediction_flows_into_player_row(self):
+        cached_snapshot = {
+            "alle_spieler": [{"player_id": "p1", "starting_rank": 1, "ml_prediction": 77777}],
+            "calibration": None, "ml_metrics": None, "ml_accuracy_trend": None,
+        }
+        heavy = _resolve_heavy_data(True, cached_snapshot, "tok", "l1", "c1", [], None)
+
+        own_squad = [{
+            "player_id": "p1", "name": "Foo", "position": "Sturm", "team_name": "Bremen",
+            "status_label": None, "starting_rank": 1, "market_value": 1_000_000,
+            "market_value_change_7d": None, "market_value_low_92d": None,
+            "market_value_high_92d": None, "average_points": 100, "total_points": 500,
+        }]
+        rows = _build_eigenes_team(own_squad, heavy["calibration"], heavy["predictions"])
+
+        self.assertEqual(rows[0]["ml_prediction"], 77777)
