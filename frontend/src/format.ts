@@ -11,6 +11,11 @@ export function fmtSigned(n: number | null | undefined): string {
   return (n > 0 ? "+" : "") + fmtNum(n);
 }
 
+export function fmtPct(n: number | null | undefined, digits = 1): string {
+  if (n === null || n === undefined) return "–";
+  return `${n.toFixed(digits)}%`;
+}
+
 export function trendClass(n: number | null | undefined): string {
   if (n === null || n === undefined) return "text-slate-400 dark:text-slate-500";
   if (n > 0) return "text-brand-600 dark:text-brand-400";

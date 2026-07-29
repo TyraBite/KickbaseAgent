@@ -3,6 +3,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import Login from "./components/Login";
+import EigenesTeamTab from "./components/EigenesTeamTab";
 import SpekulationTab from "./components/SpekulationTab";
 import WunschkaderTab from "./components/WunschkaderTab";
 import type { DashboardSnapshot } from "./types";
@@ -19,9 +20,8 @@ const TABS = [
   { key: "ml-genauigkeit", label: "ML-Genauigkeit" },
 ];
 
-// Sub-Projekt 1+2: Spekulation und Wunschkader sind migriert, alle anderen
-// Tabs bleiben bis zu ihrem eigenen Sub-Projekt (siehe Phase-6-Plan) deaktiviert.
-const ACTIVE_TABS = new Set(["spekulation", "wunschkader"]);
+// Sub-Projekt 3: Tabs werden nach und nach aktiviert, sobald migriert.
+const ACTIVE_TABS = new Set(["spekulation", "wunschkader", "team"]);
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -106,6 +106,11 @@ export default function App() {
         {loadState === "ready" && data && (
           <div className={activeTab === "wunschkader" ? "" : "hidden"}>
             <WunschkaderTab data={data} />
+          </div>
+        )}
+        {loadState === "ready" && data && (
+          <div className={activeTab === "team" ? "" : "hidden"}>
+            <EigenesTeamTab data={data} />
           </div>
         )}
       </main>
