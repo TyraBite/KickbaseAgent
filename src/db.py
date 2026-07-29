@@ -136,6 +136,33 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def get_market_value_history_cache(conn: sqlite3.Connection, fetched_at: str) -> dict[str, dict]:
+    """Liest bereits HEUTE (fetched_at) erfolgreich abgerufene Marktwert-
+    Historie-Felder je Spieler aus own_squad+market_listings. Basis fuer
+    fetcher._apply_market_value_history()s Skip-wenn-heute-schon-bekannt-
+    Logik: die echte Kickbase-Historie aendert sich ohnehin nur ~1x/Tag,
+    frueher wurde sie trotzdem bei jedem 2h-Lauf neu abgerufen (~12x/Tag
+    identische Requests). Nur Zeilen mit befuelltem market_value_change_7d
+    zaehlen als 'schon abgerufen' (frisch gebaute Rows starten mit None,
+    siehe fetcher._squad_item_to_row/_market_item_to_row)."""
+    cache: dict[str, dict] = {}
+    for table in ("own_squad", "market_listings"):
+        rows = conn.execute(
+            f"""SELECT player_id, market_value_change_7d, market_value_low_92d,
+                       market_value_high_92d, market_value_in_drop_phase
+                FROM {table} WHERE fetched_at = ? AND market_value_change_7d IS NOT NULL""",
+            (fetched_at,),
+        ).fetchall()
+        for player_id, change_7d, low_92d, high_92d, drop_phase in rows:
+            cache[player_id] = {
+                "market_value_change_7d": change_7d,
+                "market_value_low_92d": low_92d,
+                "market_value_high_92d": high_92d,
+                "market_value_in_drop_phase": drop_phase,
+            }
+    return cache
+
+
 def upsert_league_users(conn: sqlite3.Connection, users: list[dict]) -> None:
     if not users:
         return

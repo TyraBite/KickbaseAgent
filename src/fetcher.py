@@ -221,9 +221,11 @@ def _market_item_to_row(
 
 
 def _apply_market_value_history(token: str, league_id: str, row: dict) -> None:
-    """Ergaenzt eine Kader-/Markt-Row um die echte Marktwert-Historie.
-    Ein einzelner fehlgeschlagener Call darf den ganzen Lauf nicht abbrechen
-    (~80 Requests/Tag ueber Kader+Markt), daher try/except pro Spieler."""
+    """Ergaenzt eine Kader-/Markt-Row um die echte Marktwert-Historie (echter
+    API-Call, nur fuer Spieler ohne heutigen Cache-Treffer - siehe
+    _apply_or_reuse_market_value_history/db.get_market_value_history_cache).
+    Ein einzelner fehlgeschlagener Call darf den ganzen Lauf nicht abbrechen,
+    daher try/except pro Spieler."""
     player_id = row.get("player_id")
     if not player_id:
         return
@@ -243,6 +245,20 @@ def _apply_market_value_history(token: str, league_id: str, row: dict) -> None:
     row["market_value_low_92d"] = history.get("lmv")
     row["market_value_high_92d"] = history.get("hmv")
     row["market_value_in_drop_phase"] = 1 if history.get("idp") else 0
+
+
+def _apply_or_reuse_market_value_history(
+    token: str, league_id: str, row: dict, cache: dict[str, dict]
+) -> None:
+    """Nutzt einen bereits heute abgerufenen Cache-Treffer (siehe
+    db.get_market_value_history_cache) statt erneut die Kickbase-API zu
+    fragen - die echte Historie aendert sich ohnehin nur ~1x/Tag, ein
+    2h-Cron braucht sie nicht 12x/Tag identisch neu abzurufen."""
+    cached = cache.get(row.get("player_id"))
+    if cached:
+        row.update(cached)
+    else:
+        _apply_market_value_history(token, league_id, row)
 
 
 def _fetch_activities_feed(token: str, league_id: str) -> list[dict] | None:
@@ -405,8 +421,18 @@ def run() -> str:
     own_player_ids = {row["player_id"] for row in own_squad_rows}
     market_rows = [row for row in market_rows if row["player_id"] not in own_player_ids]
 
+    # Cache-Lookup gegen die HEUTIGEN, noch nicht ueberschriebenen Zeilen
+    # (replace_own_squad/replace_market_listings loeschen sie erst weiter
+    # unten) - vermeidet identische Wiederholungs-Requests innerhalb
+    # desselben Tages, siehe db.get_market_value_history_cache.
+    history_cache_conn = db.connect()
+    try:
+        history_cache = db.get_market_value_history_cache(history_cache_conn, fetched_at)
+    finally:
+        history_cache_conn.close()
+
     for row in own_squad_rows + market_rows:
-        _apply_market_value_history(token, league_id, row)
+        _apply_or_reuse_market_value_history(token, league_id, row, history_cache)
 
     recent_matchday_points = _fetch_recent_matchday_points(
         token, league_id, current_matchday, set(names_by_user_id)
