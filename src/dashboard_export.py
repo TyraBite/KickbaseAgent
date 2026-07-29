@@ -690,6 +690,30 @@ def _build_players_map(
     return base
 
 
+def _build_transfermarkt_listings(market_listings) -> list[dict]:
+    """Reine Markt-Rohfelder je Listing - kein Merge mit Spieler-Stammdaten
+    mehr (die kommen aus der players-Map), kein auction_status/affordable
+    (clientseitig aus listed_at/expires_at/expiry_is_estimate + price +
+    eigenem Budget berechnet, siehe frontend/src/lib/derive.ts)."""
+    return [
+        {
+            "player_id": r["player_id"],
+            "price": r["price"],
+            "price_delta_pct": r["price_delta_pct"],
+            "offering_username": r["offering_username"],
+            "is_system_offer": bool(r["is_system_offer"]),
+            "pending_offers_count": r["pending_offers_count"],
+            "leading_bid_username": r["leading_bid_username"],
+            "leading_bid_price": r["leading_bid_price"],
+            "is_own_leading_bid": bool(r["is_own_leading_bid"]),
+            "listed_at": r["listed_at"],
+            "expires_at": r["expires_at"],
+            "expiry_is_estimate": bool(r["expiry_is_estimate"]),
+        }
+        for r in market_listings
+    ]
+
+
 def export() -> dict:
     load_dotenv()
     email = os.environ.get("KICKBASE_EMAIL")

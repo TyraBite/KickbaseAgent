@@ -11,6 +11,7 @@ from src.dashboard_export import (
     _build_players_map,
     _build_spekulation,
     _build_transfermarkt,
+    _build_transfermarkt_listings,
     _build_wunschkader,
     _estimate_price,
     _finalize_firestore_write,
@@ -97,6 +98,26 @@ class BuildTransfermarktTests(unittest.TestCase):
         rows = _build_transfermarkt([listing], calibration=None, predictions=None, own_available_budget=None, now=now)
 
         self.assertEqual(rows[0]["auction_expires_at"], "2026-07-29T12:00:00Z")
+
+
+class BuildTransfermarktListingsTests(unittest.TestCase):
+    def test_extracts_only_raw_listing_fields(self):
+        listing = {
+            "player_id": "p1", "price": 5_000_000, "price_delta_pct": 2.5,
+            "offering_username": None, "is_system_offer": 1, "pending_offers_count": 0,
+            "leading_bid_username": None, "leading_bid_price": None, "is_own_leading_bid": 0,
+            "listed_at": "2026-07-27T10:00:00Z", "expires_at": "2026-07-29T20:00:00Z",
+            "expiry_is_estimate": 0,
+        }
+
+        result = _build_transfermarkt_listings([listing])
+
+        self.assertEqual(result[0]["player_id"], "p1")
+        self.assertEqual(result[0]["price"], 5_000_000)
+        self.assertIs(result[0]["is_system_offer"], True)
+        self.assertNotIn("auction_status", result[0])
+        self.assertNotIn("affordable", result[0])
+        self.assertNotIn("signal", result[0])
 
 
 class EstimatePriceTests(unittest.TestCase):
