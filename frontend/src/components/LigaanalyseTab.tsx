@@ -51,16 +51,13 @@ function LigaanalyseCard({ row }: { row: LigaanalyseRow }) {
       <dl className="space-y-1.5 text-sm">
         <Row label="Platz">{fmtNum(row.season_placement)}</Row>
         <Row label="Punkte">{fmtNum(row.season_points)}</Row>
-        <Row label="Teamwert">{fmtNum(row.team_value)}</Row>
         <Row label="Kadergröße">{fmtNum(row.squad_size)}</Row>
         <Row label="Verkaufsangebote">{fmtNum(row.sell_count)}</Row>
         <Row label="Stammspieler">{fmtNum(row.regular_count)}</Row>
+        <Row label="Teamwert">{fmtNum(row.team_value)}</Row>
         <Row label="Kaderwert">{fmtNum(row.squad_value)}</Row>
-        <Row label="Budget">
-          {fmtNum(row.estimated_budget)}
-          {!row.is_self && <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">(geschätzt)</span>}
-        </Row>
-        <Row label="Verfügbar">{fmtNum(row.available_budget)}</Row>
+        <Row label={row.is_self ? "Budget" : "Budget (geschätzt)"}>{fmtNum(row.estimated_budget)}</Row>
+        <Row label="Verfügbar (inkl. Kredit)">{fmtNum(row.available_budget)}</Row>
       </dl>
     </div>
   );
