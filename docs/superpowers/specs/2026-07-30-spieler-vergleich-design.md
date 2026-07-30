@@ -18,6 +18,10 @@ Eine geteilte Komponente `PlayerCompareModal` (neue Datei `frontend/src/componen
 
 Beide Seiten (nicht nur eine) bekommen einen kleinen "Wechseln"-Button direkt neben dem Spielernamen. Öffnet denselben Namens-Picker wie Einstiegspunkt 2 und tauscht NUR diese eine Seite aus, ohne das Modal zu schließen — z.B. Ziel A vs. Kandidat 1 vergleichen, dann rechts auf Kandidat 2 wechseln. Symmetrisch für beide Seiten, keine Sonderregel (z.B. "linke Seite ist der fixe Anker") — auch beim Wunschkader-Einstiegspunkt kann das aktuelle Ziel selbst ausgetauscht werden, wenn gewünscht.
 
+## Tausch-Auslöser (nur Wunschkader)
+
+Klick auf einen Ersatzspieler-Vorschlag öffnet jetzt den Vergleich statt sofort zu tauschen (bisheriges `onReplace(s)` direkt am Chip entfällt). `PlayerCompareModal` bekommt einen OPTIONALEN Callback-Prop `onSelectSide?: (playerId: string) => void` — nur wenn übergeben, zeigt die Komponente einen kleinen Button "Diesen als Ersatz wählen" unter der jeweiligen Seite. Der Wunschkader-Einstiegspunkt übergibt diesen Callback (ruft intern das bestehende `onReplace()` auf und schließt beide Modals); Alle Spieler/Eigenes Team übergeben ihn NICHT — dort bleibt der Vergleich rein informativ, kein Handlungs-Button.
+
 ## "Wer ist besser"-Markierung pro Zeile
 
 Farbliche Hervorhebung (grün, wie die bestehenden Signal-/Trend-Badges) auf der Seite mit dem besseren Wert:
