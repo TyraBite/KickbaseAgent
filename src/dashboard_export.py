@@ -448,28 +448,71 @@ def export() -> dict:
         token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, players_map,
     )
 
-    data = {
+    data = _assemble_snapshot(
+        fetched_at=fetched_at,
+        own_available_budget=own_available_budget,
+        own_budget_exact=own_budget_row["estimated_budget"] if own_budget_row else None,
+        calibration=heavy["calibration"],
+        ml_metrics=heavy["ml_metrics"],
+        ml_accuracy_trend=heavy["ml_accuracy_trend"],
+        players_map=players_map,
+        bid_premium_history=bid_premium_history,
+        bid_premium_outcome_counts=bid_premium_outcome_counts,
+        transfermarkt_listings=_build_transfermarkt_listings(market_listings),
+        own_squad_ids=[r["player_id"] for r in own_squad],
+        owned_by=heavy["owned_by"],
+        wunschkader_targets=wunschkader_targets,
+        wunschkader_formation=wunschkader_config.get("formation") if wunschkader_config else None,
+        ligaanalyse_rows=ligaanalyse_result["rows"],
+        position_need=ligaanalyse_result["position_need"],
+    )
+
+    _finalize_firestore_write(data)
+    return data
+
+
+def _assemble_snapshot(
+    fetched_at,
+    own_available_budget,
+    own_budget_exact,
+    calibration,
+    ml_metrics,
+    ml_accuracy_trend,
+    players_map,
+    bid_premium_history,
+    bid_premium_outcome_counts,
+    transfermarkt_listings,
+    own_squad_ids,
+    owned_by,
+    wunschkader_targets,
+    wunschkader_formation,
+    ligaanalyse_rows,
+    position_need,
+) -> dict:
+    """Isoliert das Snapshot-Key-Set von der Datenbeschaffung (Login/
+    Kickbase-API/Firestore) - dadurch kann ein Contract-Test (siehe
+    tests/test_dashboard_export.py::AssembleSnapshotContractTests) Feld-
+    Drift ganz ohne Mocking erkennen, statt erst live als weisser
+    Bildschirm sichtbar zu werden (siehe HANDOFF.md)."""
+    return {
         "fetched_at": fetched_at,
         "own_available_budget": own_available_budget,
-        "own_budget_exact": own_budget_row["estimated_budget"] if own_budget_row else None,
-        "calibration": heavy["calibration"],
-        "ml_metrics": heavy["ml_metrics"],
-        "ml_accuracy_trend": heavy["ml_accuracy_trend"],
+        "own_budget_exact": own_budget_exact,
+        "calibration": calibration,
+        "ml_metrics": ml_metrics,
+        "ml_accuracy_trend": ml_accuracy_trend,
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "players": players_map,
         "bid_premium_history": bid_premium_history,
         "bid_premium_outcome_counts": bid_premium_outcome_counts,
-        "transfermarkt_listings": _build_transfermarkt_listings(market_listings),
-        "own_squad_ids": [r["player_id"] for r in own_squad],
-        "owned_by": heavy["owned_by"],
+        "transfermarkt_listings": transfermarkt_listings,
+        "own_squad_ids": own_squad_ids,
+        "owned_by": owned_by,
         "wunschkader_targets": wunschkader_targets,
-        "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
-        "ligaanalyse": ligaanalyse_result["rows"],
-        "position_need": ligaanalyse_result["position_need"],
+        "wunschkader_formation": wunschkader_formation,
+        "ligaanalyse": ligaanalyse_rows,
+        "position_need": position_need,
     }
-
-    _finalize_firestore_write(data)
-    return data
 
 
 def _finalize_firestore_write(data: dict) -> None:

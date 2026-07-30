@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from src import firestore_db
 from src.dashboard_export import (
+    _assemble_snapshot,
     _build_ligaanalyse,
     _build_players_map,
     _build_transfermarkt_listings,
@@ -576,3 +577,42 @@ class BuildLigaanalyseTests(unittest.TestCase):
             )
 
         self.assertEqual(result["rows"][0]["squad_player_ids"], [])
+
+
+class AssembleSnapshotContractTests(unittest.TestCase):
+    """Kontrakt-Test: haelt export()s Snapshot-Key-Set explizit fest, damit
+    ein versehentlich umbenanntes/entferntes Feld hier als Testfehler
+    auffaellt statt erst live als weisser Bildschirm (siehe HANDOFF.md,
+    Failed Approaches). _assemble_snapshot() ist bewusst von der
+    Datenbeschaffung (Login/Firestore/Kickbase-API) getrennt, damit dieser
+    Test ohne jegliches Mocking laeuft."""
+
+    EXPECTED_KEYS = {
+        "fetched_at", "own_available_budget", "own_budget_exact", "calibration",
+        "ml_metrics", "ml_accuracy_trend", "signal_thresholds", "players",
+        "bid_premium_history", "bid_premium_outcome_counts", "transfermarkt_listings",
+        "own_squad_ids", "owned_by", "wunschkader_targets", "wunschkader_formation",
+        "ligaanalyse", "position_need",
+    }
+
+    def test_returns_exactly_the_expected_top_level_keys(self):
+        result = _assemble_snapshot(
+            fetched_at="2026-07-30T00:00:00Z",
+            own_available_budget=1,
+            own_budget_exact=1,
+            calibration=None,
+            ml_metrics=None,
+            ml_accuracy_trend=None,
+            players_map={},
+            bid_premium_history=[],
+            bid_premium_outcome_counts={},
+            transfermarkt_listings=[],
+            own_squad_ids=[],
+            owned_by={},
+            wunschkader_targets=[],
+            wunschkader_formation=None,
+            ligaanalyse_rows=[],
+            position_need={},
+        )
+
+        self.assertEqual(set(result.keys()), self.EXPECTED_KEYS)
