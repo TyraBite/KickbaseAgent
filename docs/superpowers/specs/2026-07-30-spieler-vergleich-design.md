@@ -29,7 +29,7 @@ Farbliche Hervorhebung (grün, wie die bestehenden Signal-/Trend-Badges) auf der
 | Schnitt | höher |
 | Startelf-Rang | niedriger (Rang 1 = wahrscheinlichster Stammplatz) |
 | Fitness | "Fit" (kein `status_label`) schlägt jede Verletzt/Angeschlagen-Markierung |
-| Marktwert | keine Bewertung, reiner Kontext (kein Hervorheben) |
+| Marktwert | niedriger (günstiger bei vergleichbarer Qualität ist besser) |
 
 ## Edge Cases
 
