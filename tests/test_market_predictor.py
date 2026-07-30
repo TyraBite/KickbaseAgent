@@ -2,6 +2,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
+
 from src.market_predictor import (
     _summarize_from_daily,
     _build_daily_accuracy_updates,
@@ -10,6 +12,7 @@ from src.market_predictor import (
     _load_local_prediction_log,
     _load_recent_prediction_log,
     _select_live_model,
+    _infer_today,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
 
@@ -111,6 +114,28 @@ class RealizedByModelFromDailyTests(unittest.TestCase):
         ]
         result = _realized_by_model_from_daily(daily, "2026-07-29")
         self.assertGreater(result["RandomForest"]["realized_7d"]["sign_accuracy"], result["HistGradientBoosting"]["realized_7d"]["sign_accuracy"])
+
+
+class InferTodayTests(unittest.TestCase):
+    def test_ignores_future_fixture_rows_without_known_market_value(self):
+        # _fetch_player_training_frame() haengt fuer days_to_next zukuenftige
+        # Fixture-Zeilen an (mv noch unbekannt, siehe future_p-Concat dort) -
+        # corpus["date"].max() wuerde faelschlich diese Zukunfts-Zeile
+        # liefern statt des letzten Tages mit echtem Marktwert (Live-Fund
+        # 2026-07-30: dadurch blieb realized_by_model trotz 60 Tagen
+        # vorhandener Trailing-Daten dauerhaft None).
+        corpus = pd.DataFrame({
+            "date": pd.to_datetime(["2026-07-25", "2026-07-26", "2026-07-27", "2026-08-15"]),
+            "mv": [10_000_000, 10_100_000, 10_200_000, None],
+        })
+        self.assertEqual(_infer_today(corpus), "2026-07-27")
+
+    def test_uses_max_known_market_value_date_when_no_future_rows(self):
+        corpus = pd.DataFrame({
+            "date": pd.to_datetime(["2026-07-25", "2026-07-26"]),
+            "mv": [10_000_000, 10_100_000],
+        })
+        self.assertEqual(_infer_today(corpus), "2026-07-26")
 
 
 class TrendFromDailyTests(unittest.TestCase):

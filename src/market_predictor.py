@@ -308,6 +308,20 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return history_df, today_df
 
 
+def _infer_today(corpus: pd.DataFrame) -> str:
+    """Neuestes Datum mit TATSAECHLICH bekanntem Marktwert - NICHT einfach
+    corpus["date"].max(), das durch zukuenftige Fixture-Zeilen verzerrt
+    werden kann: _fetch_player_training_frame() haengt fuer days_to_next
+    kommende Spieltag-Zeilen an (future_p-Concat dort), deren mv noch
+    unbekannt ist. Ohne diesen Filter landet man bei einem "heutigen" Datum
+    Wochen in der Zukunft, sobald irgendein Spieler ein bekanntes kommendes
+    Spiel hat - live gefunden 2026-07-30: realized_by_model blieb dadurch
+    trotz 60 Tagen vorhandener Trailing-Daten dauerhaft None, weil der
+    30/7-Tage-Cutoff dann jenseits aller echten Tage lag."""
+    known = corpus[corpus["mv"].notna()]
+    return pd.Timestamp(known["date"].max()).date().isoformat()
+
+
 def _build_candidates() -> dict[str, object]:
     """Baut die zwei Modell-Kandidaten mit denselben Hyperparametern, die
     auch fuer die echte Live-Prognose (_train_and_evaluate) verwendet
@@ -781,7 +795,7 @@ def predict_market_value_changes() -> dict | None:
             print("Warnung: keine heutigen Zeilen mit vollstaendigen Features - ML-Prognose uebersprungen.", file=sys.stderr)
             return None
 
-        today_iso = pd.Timestamp(corpus["date"].max()).date().isoformat()
+        today_iso = _infer_today(corpus)
         mv_lookup = _build_mv_lookup(corpus)
 
         recent_entries = _load_recent_prediction_log(today_iso)
