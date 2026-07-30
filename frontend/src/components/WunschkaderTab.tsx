@@ -74,6 +74,18 @@ function searchReplacementPool(
     .slice(0, 20);
 }
 
+// Positionsuebergreifende Namenssuche fuer den generischen Add-Dialog
+// (kein presetPosition) - die Position kommt beim Hinzufuegen vom gewaehlten
+// Spieler selbst, nicht von einer vorher getroffenen Auswahl. Behaelt den
+// Frei/Eigener-Kader-Owner-Filter aus scoreReplacementPool() bei.
+function searchAnyPosition(alleSpieler: AlleSpielerRow[], excludePlayerId: string | undefined, query: string) {
+  const q = query.toLowerCase();
+  return alleSpieler
+    .filter((p) => p.player_id !== excludePlayerId && (p.owner === "Frei" || p.owner === "Eigener Kader"))
+    .filter((p) => p.name.toLowerCase().includes(q))
+    .slice(0, 20);
+}
+
 export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
   const [formation, setFormation] = useState<FormationKey>(
     isFormationKey(data.wunschkader_formation) ? data.wunschkader_formation : DEFAULT_FORMATION
@@ -550,14 +562,26 @@ function DetailModal({
               <div className="flex flex-wrap gap-2">
                 {searchResults.length ? (
                   searchResults.map((s) => (
-                    <button
+                    <div
                       key={s.player_id}
-                      type="button"
-                      onClick={() => setCompareWith(s)}
-                      className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                      className="flex items-center overflow-hidden rounded-full border border-slate-300 dark:border-slate-700"
                     >
-                      {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => onReplace(s.player_id)}
+                        className="px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCompareWith(s)}
+                        title="Vergleichen"
+                        className="border-l border-slate-300 px-2 py-1 text-xs text-brand-600 hover:bg-slate-100 dark:border-slate-700 dark:text-brand-400 dark:hover:bg-slate-800"
+                      >
+                        Vergleichen
+                      </button>
+                    </div>
                   ))
                 ) : (
                   <span className="text-xs text-slate-400 dark:text-slate-500">Keine Treffer.</span>
@@ -628,7 +652,6 @@ function AddTargetModal({
   onAdd: (target: { player_id: string; position: Position; role: string }) => void;
   onClose: () => void;
 }) {
-  const [position, setPosition] = useState<Position>(presetPosition ?? "Sturm");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
 
@@ -641,16 +664,18 @@ function AddTargetModal({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  const effectivePosition = presetPosition ?? position;
-  const searchTarget = { position: effectivePosition, market_value: 0, average_points: 0 };
-  const results = search.trim() ? searchReplacementPool(alleSpieler, searchTarget, search.trim()) : [];
+  const results = search.trim()
+    ? presetPosition
+      ? searchReplacementPool(alleSpieler, { position: presetPosition, market_value: 0, average_points: 0 }, search.trim())
+      : searchAnyPosition(alleSpieler, undefined, search.trim())
+    : [];
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!selected) return;
     onAdd({
       player_id: selected.player_id,
-      position: presetPosition ?? position,
+      position: presetPosition ?? (selected.position as Position),
       role: presetPosition ? "Starter" : "Bank/Backup-Option",
     });
     onClose();
@@ -666,22 +691,6 @@ function AddTargetModal({
         <h3 className="text-base font-semibold text-slate-900 dark:text-slate-50">
           Ziel hinzufügen{presetPosition ? ` (${presetPosition})` : ""}
         </h3>
-        {!presetPosition && (
-          <select
-            value={position}
-            onChange={(e) => {
-              setPosition(e.target.value as Position);
-              setSelected(null);
-            }}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          >
-            {POSITIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        )}
         <input
           type="text"
           value={selected ? selected.name : search}
@@ -710,7 +719,7 @@ function AddTargetModal({
               ))
             ) : (
               <p className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
-                Keine Treffer (freie Spieler/eigener Kader, Position {effectivePosition}).
+                Keine Treffer (freie Spieler/eigener Kader{presetPosition ? `, Position ${presetPosition}` : ""}).
               </p>
             )}
           </div>
