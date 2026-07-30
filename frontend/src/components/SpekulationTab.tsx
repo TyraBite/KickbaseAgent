@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SpekulationRow } from "../lib/derive";
+import { suggestBid, type SpekulationRow } from "../lib/derive";
+import type { BidPremiumEntry, PositionNeed } from "../types";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -60,7 +61,17 @@ function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
 // clientseitig in derive.ts berechnet, nicht serverseitig.
 type ViewMode = "cards" | "table";
 
-export default function SpekulationTab({ rows, now }: { rows: SpekulationRow[]; now: number }) {
+export default function SpekulationTab({
+  rows,
+  now,
+  bidHistory,
+  positionNeed,
+}: {
+  rows: SpekulationRow[];
+  now: number;
+  bidHistory: BidPremiumEntry[];
+  positionNeed: PositionNeed;
+}) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
   const [selected, setSelected] = useState<SpekulationRow | null>(null);
@@ -131,7 +142,9 @@ export default function SpekulationTab({ rows, now }: { rows: SpekulationRow[]; 
         <SpekulationTable rows={visible} now={now} onSelect={setSelected} />
       )}
       <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
-      {selected && <SpekulationDetailModal row={selected} now={now} onClose={() => setSelected(null)} />}
+      {selected && (
+        <SpekulationDetailModal row={selected} now={now} bidHistory={bidHistory} positionNeed={positionNeed} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }
@@ -243,10 +256,14 @@ function SpekulationTable({
 function SpekulationDetailModal({
   row,
   now,
+  bidHistory,
+  positionNeed,
   onClose,
 }: {
   row: SpekulationRow;
   now: number;
+  bidHistory: BidPremiumEntry[];
+  positionNeed: PositionNeed;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -256,6 +273,10 @@ function SpekulationDetailModal({
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  const suggestion = suggestBid(row, bidHistory);
+  const hasValidSuggestion = !!suggestion && suggestion.p75 > 0;
+  const need = positionNeed[row.position];
 
   return (
     <div
@@ -296,7 +317,21 @@ function SpekulationDetailModal({
           </Row>
           <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
           <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
+          {hasValidSuggestion && suggestion ? (
+            <>
+              <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
+              <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>
+              <Row label="Gebot für ~90%">{fmtNum(suggestion.p90)}</Row>
+              <Row label="Basis">{suggestion.n} ähnliche historische Käufe</Row>
+            </>
+          ) : (
+            <Row label="Gebotsempfehlung">Keine historischen Vergleichskäufe dieser Position</Row>
+          )}
+          {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
         </dl>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Historischer Vergleichswert — keine Garantie, echte Konkurrenzgebote sind beim blinden Verfahren nie sichtbar.
+        </p>
       </div>
     </div>
   );
