@@ -143,6 +143,50 @@ def build_new_entries(
 MAX_HISTORY_ENTRIES_IN_SNAPSHOT = 400
 
 
+def detect_unsold_listings(
+    market_listings: list[dict],
+    activities: list[dict],
+    last_seen_ids: list[str],
+    players_map: dict[str, dict],
+    detected_at: str,
+) -> tuple[list[dict], list[str]]:
+    """Vergleicht die Systemangebote-Spieler-IDs von 'letztem Lauf' (last_seen_ids)
+    gegen 'jetzt' (market_listings) - jede verschwundene ID, fuer die sich KEIN
+    Trade (egal ob Systemkauf oder Mitspieler-Handel) im Activity-Feed findet,
+    gilt als unverkauft abgelaufen (0% Aufschlag haette gereicht). Findet sich
+    IRGENDEIN Trade fuer diese ID, ist das Verschwinden erklaert (Systemkauf
+    landet ohnehin schon in bid_premium_log ueber build_new_entries();
+    Mitspieler-Handel ist regulaerer Weiterverkauf, kein Signal fuer
+    Gebotsvorschlaege). Keine Kickbase-API-Calls - nutzt nur bereits
+    abgerufene Daten."""
+    current_ids = [l["player_id"] for l in market_listings if l.get("is_system_offer")]
+    current_ids_set = set(current_ids)
+    disappeared = set(last_seen_ids) - current_ids_set
+
+    traded_player_ids = {
+        a["data"].get("pi")
+        for a in activities
+        if a.get("t") == TRADE_ACTIVITY_TYPE
+    }
+
+    entries = []
+    for player_id in disappeared:
+        if player_id in traded_player_ids:
+            continue
+        player = players_map.get(player_id)
+        if not player:
+            continue
+        entries.append({
+            "player_id": player_id,
+            "position": player["position"],
+            "market_value_then": player.get("market_value"),
+            "average_points_then": player.get("average_points"),
+            "detected_at": detected_at,
+        })
+
+    return entries, current_ids
+
+
 def update_and_load(
     client,
     token: str,

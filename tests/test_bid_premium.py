@@ -8,6 +8,7 @@ from src.bid_premium import (
     _is_system_purchase,
     _market_value_at,
     build_new_entries,
+    detect_unsold_listings,
 )
 
 
@@ -306,6 +307,95 @@ class UpdateAndLoadTests(unittest.TestCase):
         purchased_ats = [e["purchased_at"] for e in result]
         self.assertEqual(purchased_ats, sorted(purchased_ats, reverse=True))
         self.assertTrue(all("activity_id" not in e for e in result))
+
+
+class DetectUnsoldListingsTests(unittest.TestCase):
+    def _players_map(self):
+        return {"p1": {"player_id": "p1", "position": "Sturm", "market_value": 5_000_000, "average_points": 90}}
+
+    def test_disappeared_id_without_matching_trade_is_unsold(self):
+        entries, current_ids = detect_unsold_listings(
+            market_listings=[],  # p1 ist jetzt NICHT mehr gelistet
+            activities=[],  # kein Trade fuer p1
+            last_seen_ids=["p1"],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["player_id"], "p1")
+        self.assertEqual(entries[0]["position"], "Sturm")
+        self.assertEqual(entries[0]["market_value_then"], 5_000_000)
+        self.assertEqual(entries[0]["detected_at"], "2026-07-30")
+        self.assertEqual(current_ids, [])
+
+    def test_disappeared_id_with_matching_system_purchase_is_not_unsold(self):
+        activities = [_trade_activity("2026-07-29T10:00:00Z", pi="p1")]
+        entries, _current_ids = detect_unsold_listings(
+            market_listings=[],
+            activities=activities,
+            last_seen_ids=["p1"],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(entries, [])
+
+    def test_disappeared_id_with_matching_manager_to_manager_trade_is_not_unsold(self):
+        # Verkauft an einen Mitspieler (slr vorhanden) ist kein Systemkauf,
+        # zaehlt fuer detect_unsold_listings() trotzdem als "erklaertes
+        # Verschwinden" - der Spieler war ja jemandes Wunschkader-Ziel und
+        # wurde regulaer weitergehandelt, kein Hinweis auf einen zu niedrigen
+        # Gebotsvorschlag.
+        activities = [_trade_activity("2026-07-29T10:00:00Z", pi="p1", slr="Rivale")]
+        entries, _current_ids = detect_unsold_listings(
+            market_listings=[],
+            activities=activities,
+            last_seen_ids=["p1"],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(entries, [])
+
+    def test_still_listed_id_is_not_unsold_and_stays_in_current_ids(self):
+        entries, current_ids = detect_unsold_listings(
+            market_listings=[{"player_id": "p1", "is_system_offer": True}],
+            activities=[],
+            last_seen_ids=["p1"],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(entries, [])
+        self.assertEqual(current_ids, ["p1"])
+
+    def test_newly_listed_id_not_in_last_seen_is_added_to_current_ids(self):
+        _entries, current_ids = detect_unsold_listings(
+            market_listings=[{"player_id": "p_new", "is_system_offer": True}],
+            activities=[],
+            last_seen_ids=[],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(current_ids, ["p_new"])
+
+    def test_non_system_listing_is_ignored_for_current_ids(self):
+        _entries, current_ids = detect_unsold_listings(
+            market_listings=[{"player_id": "p1", "is_system_offer": False}],
+            activities=[],
+            last_seen_ids=[],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(current_ids, [])
+
+    def test_disappeared_id_unknown_in_players_map_is_skipped_not_crashed(self):
+        entries, current_ids = detect_unsold_listings(
+            market_listings=[],
+            activities=[],
+            last_seen_ids=["p_unknown"],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(entries, [])
+        self.assertEqual(current_ids, [])
 
 
 if __name__ == "__main__":
