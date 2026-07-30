@@ -73,19 +73,27 @@ def build_new_entries(
     Global Constraints in der Plan-Datei) - Naeherung, kein exakter
     historischer Wert.
 
-    Der Zeiger darf NIE ueber die erste fehlgeschlagene Aktivitaet (egal ob
-    unbekannter Spieler oder Markwert-Aufloesung) hinaus vorruecken, auch
-    wenn danach WEITERE Aktivitaeten erfolgreich sind - sonst wird die
-    fehlgeschlagene Aktivitaet permanent unerreichbar, sobald der Zeiger
-    (Filter ist `dt >= since_dt`) an ihr vorbeigezogen ist. Live-Fund
-    2026-07-30: genau das ist passiert - 22 von 107 historischen
-    Systemkaeufen so verloren, weil die alte Logik schon bei bestandener
-    players_map-Pruefung (VOR der eigentlichen Marktwert-Aufloesung)
-    weiterrueckte. Aktivitaeten NACH der ersten Luecke werden trotzdem ganz
-    normal verarbeitet/geschrieben (Firestore-Write ist idempotent, kostet
-    nur eine im Vergleich zur Saison-Gesamtmenge (~100-200 Kaeufe)
-    verschwindend kleine Zusatzmenge an wiederholten Versuchen), nur der
-    Zeiger bleibt vor der Luecke stehen, bis sie sich aufloest.
+    Zwei verschiedene Fehlerklassen, zwei verschiedene Zeiger-Reaktionen:
+    - Spieler nicht (mehr) in players_map: i.d.R. PERMANENT (aus dem aktuell
+      getrackten Kickbase-Kader-Pool raus, z.B. abgestiegen/Vertragsende) -
+      Warten bringt nichts, der Zeiger rueckt trotzdem vor (kein Grund, das
+      bei jedem Lauf erneut zu versuchen). Live-Fund 2026-07-30: 17 von 22
+      historisch fehlenden Kaeufen waren genau das.
+    - Marktwert-Historie nicht abrufbar ODER kein Marktwert am exakten
+      Kauftag: kann TRANSIENT sein (z.B. der Marktwert von HEUTE ist erst
+      nach dem naechtlichen Heavy-Lauf verfuegbar - ein Kauf von heute
+      Morgen hat notwendigerweise noch keinen Marktwert-Eintrag fuer heute).
+      Hier darf der Zeiger NICHT ueber die betroffene Aktivitaet vorruecken,
+      auch wenn danach WEITERE Aktivitaeten erfolgreich sind - sonst wird
+      sie permanent unerreichbar, sobald der Zeiger (Filter ist
+      `dt >= since_dt`) an ihr vorbeigezogen ist. Live-Fund 2026-07-30: die
+      alten 4 verbleibenden Faelle der 22 fehlenden Kaeufe waren alle vom
+      selben Tag wie der Lauf selbst - reine Verfuegbarkeits-Verzoegerung,
+      loest sich von selbst am naechsten Tag.
+
+    In BEIDEN Faellen werden Aktivitaeten NACH dem jeweiligen Punkt trotzdem
+    ganz normal weiterverarbeitet/geschrieben (Firestore-Write ist
+    idempotent) - nur der Zeiger-Fortschritt unterscheidet sich.
 
     Aktivitaeten werden dafuer CHRONOLOGISCH (nicht in Feed-Reihenfolge)
     verarbeitet - get_activities_feed()s Reihenfolge ist laut eigenem
@@ -109,7 +117,12 @@ def build_new_entries(
                 "Kauf uebersprungen",
                 file=sys.stderr,
             )
-            gap_found = True
+            # Anders als die beiden Faelle unten ist das i.d.R. PERMANENT (der
+            # Spieler ist aus dem aktuell getrackten Kickbase-Kader-Pool raus,
+            # z.B. abgestiegen/Vertragsende) - Warten/Retry bringt hier nichts,
+            # der Zeiger darf trotzdem vorruecken (kein gap_found).
+            if not gap_found:
+                pointer = activity["dt"]
             continue
 
         try:

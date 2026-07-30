@@ -131,7 +131,29 @@ class BuildNewEntriesTests(unittest.TestCase):
         )
 
         self.assertEqual(entries, [])
-        self.assertIsNone(pointer)
+        # Anders als ein Marktwert-Fehlschlag ist "Spieler nicht in
+        # players_map" i.d.R. PERMANENT (Live-Fund 2026-07-30, siehe
+        # build_new_entries()-Docstring) - der Zeiger rueckt trotzdem vor,
+        # sonst wuerde bei jedem Lauf derselbe unaufloesbare Kauf erneut
+        # versucht.
+        self.assertEqual(pointer, "2026-07-01T10:00:00Z")
+
+    def test_unknown_player_gap_does_not_block_pointer_for_earlier_success(self):
+        activities = [
+            _trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1"),
+            _trade_activity("2026-07-02T10:00:00Z", pi="unknown"),
+        ]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+
+        entries, pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            get_history=lambda *a, **k: {"it": [{"dt": target_days, "mv": 10_000_000}]},
+        )
+
+        self.assertEqual(len(entries), 1)
+        # Der unbekannte Spieler am 07-02 blockiert nicht - Zeiger rueckt bis
+        # dahin vor (permanenter Skip, kein Retry-Grund).
+        self.assertEqual(pointer, "2026-07-02T10:00:00Z")
 
     def test_single_failing_history_call_does_not_advance_pointer_past_it(self):
         # Live-Fund 2026-07-30: der Zeiger ruckte frueher schon weiter, sobald
