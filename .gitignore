@@ -1,4 +1,6 @@
 .venv/
+.venv-tuning/
+tuning-results/
 __pycache__/
 *.pyc
 .env
