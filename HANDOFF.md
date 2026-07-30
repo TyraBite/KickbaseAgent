@@ -4,7 +4,7 @@
 **Branch**: main
 **Status**: Players-Map-Redesign FERTIG, GEMERGED, GEPUSHT und LIVE VERIFIZIERT (siehe unten, unverändert gültig). Danach in dieser Session zusätzlich: App-weiter Security-Audit (gefixt), ML-Tab-Klarheits-Fixes inkl. `_infer_today()`-Root-Cause-Bug, App-weite Feld-Reihenfolge/Naming-Überarbeitung (Fitness/Verfügbarkeit, Kapital/Budget), zwei Live-Bugs gefixt (fetcher.py-Expiry-Schätzung, bid_premium.py-Pointer-Datenverlust). **Vier Folge-Features umgesetzt, gemerged UND gepusht**: Gebotsvorschläge+Positions-Bedarf, Gebotstracking (bought_by_self/unsold-Erkennung, inkl. Backfill-Bugfix), Ligaanalyse-Detailansicht, Spieler-Vergleichsansicht (`PlayerCompareModal`). Contract-Test für `export()`s Snapshot-Key-Set ergänzt. Drei ML-Verbesserungs-Experimente durchgeführt (HGB-Tuning, Verletzungs-Proxy, relativer Zielwert) — keins hat die Baseline geschlagen, siehe Failed Approaches. **Push-Policy geändert**: Claude darf jetzt selbst auf `main` pushen, wenn vorher alle Tests grün sind (User-Anweisung 2026-07-30, überschreibt die alte "nur lokal committen"-Regel).
 
-**Offener Fund beim Session-Ende-Check**: ein weiterer Worktree `worktree-wunschkader-fixes` existiert (Commit `e6eaef2`, "Add-Dialog ohne Position-Zwang, Freitext-Ersatzsuche tauscht direkt"), dessen Inhalt bereits vollständig in `main` enthalten ist (0 Commits Unterschied) — wurde offenbar direkt gepusht, ohne dass diese Session davon wusste. Code sieht kohärent aus (nutzt die `onReplace`/`setCompareWith`-APIs des Compare-Features korrekt), tsc + Tests bleiben grün. **Nicht von dieser Session verifiziert, nur nachträglich per `git log` entdeckt** — falls der Worktree noch eine aktive Session ist, klären ob/was da noch offen ist, bevor er entfernt wird.
+**Worktree `worktree-wunschkader-fixes`**: separate, andere, ANDAUERND AKTIVE Session (User-bestätigt 2026-07-30) — Commit `e6eaef2` ("Add-Dialog ohne Position-Zwang, Freitext-Ersatzsuche tauscht direkt") ist schon in `main`, Code kohärent (nutzt die `onReplace`/`setCompareWith`-APIs des Compare-Features korrekt), tsc+Tests bleiben grün. **Nicht entfernen** — die Session läuft weiter, könnte noch mehr committen.
 
 ## Goal
 
@@ -63,7 +63,7 @@ KickbaseAgent-Dashboard von 5 parallelen, namensverknüpften Firestore-Arrays au
 ## Not Yet Done
 
 - [ ] **Ligaanalyse-Detailansicht: Browser-Test der Kaderliste** — Feature ist live/gemerged/gepusht, aber der spezifische Klick-Test (Manager-Karte → Detail-Modal → Kaderliste nach Position) wurde vom User in dieser Session nicht explizit bestätigt (anders als bei Gebotstracking, wo der Modell-Tracking-Tab live gezeigt wurde).
-- [ ] **`worktree-wunschkader-fixes` klären** (siehe Kopf dieses Dokuments) — Inhalt ist schon in `main`, aber unklar ob die zugehörige Session noch aktiv ist/mehr vorhat. Vor dem Entfernen (`git worktree remove` + `git branch -d`) beim User nachfragen.
+- [ ] **`worktree-wunschkader-fixes` NICHT entfernen** — läuft als eigene, aktive Session weiter (User-bestätigt), kann noch mehr committen.
 - [ ] **Live-Differential-Prüfung für `auction_status`** (aus der finalen Branch-Review empfohlen, kein Blocker): DST-Mathematik ist bewiesen korrekt, End-to-End-Verdrahtung mit echten `listed_at`/`expires_at`-Werten aber nie gegen Produktion verifiziert.
 - [ ] **Echte Verletzungshistorie aufbauen** (siehe [[project_kickbaseagent_injury_history_todo]] falls Memory verfügbar): Kickbase liefert nur den Jetzt-Status, keine Zeitreihe — bräuchte eine neue, dauerhafte Firestore-Collection mit täglichen Snapshots, Wochen/Monate Datenaufbau bevor als ML-Feature nutzbar.
 - [ ] Bekannte kleine Rest-Punkte aus dem Backlog (unverändert, nicht angefragt, nicht bearbeiten ohne Nachfrage): weitere ML-Prognose-Horizonte (3-Tage+); externe Signale wie Transfermarkt.de-Wechselgerüchte (explizit als "noch komplexer, später" zurückgestellt). Autopilot-Idee (schreibende Kickbase-API-Calls) ist eine reine Neugier-Frage, kein Auftrag, explizit nicht für die aktuelle Liga gedacht.
@@ -99,7 +99,7 @@ KickbaseAgent-Dashboard von 5 parallelen, namensverknüpften Firestore-Arrays au
 
 **Uncommitted Changes**: `git status` zeigt weiterhin unstaged Änderungen an `MDs/codes.md`/`datencheck.md`/`liga-kontext.md`/`methodik.md`/`spieler-bewertung.md` + `frontend/package-lock.json` — **nicht von dieser Session, vermutlich User-eigener WIP-Stand**, bewusst nicht angefasst/gestasht, seit mehreren HANDOFF-Updates unverändert.
 
-**Worktrees** (`git worktree list`): nur noch `worktree-wunschkader-fixes` (gelockt, Inhalt schon in `main`, Herkunft/Aktiv-Status ungeklärt — siehe Kopf dieses Dokuments und Not Yet Done). `worktree-gebotstracking`/`worktree-ligaanalyse-detail`/`worktree-spieler-vergleich` wurden alle nach ihrem jeweiligen Merge entfernt.
+**Worktrees** (`git worktree list`): nur noch `worktree-wunschkader-fixes` — andere, aktive Session, NICHT entfernen. `worktree-gebotstracking`/`worktree-ligaanalyse-detail`/`worktree-spieler-vergleich` wurden alle nach ihrem jeweiligen Merge entfernt.
 
 ## Files to Know
 
@@ -122,9 +122,9 @@ Das players-Map-Redesign UND alle vier geplanten Folge-Features (Gebotsvorschlä
 
 Session ist an einem sauberen Abschlusspunkt. Falls eine neue Session hier weitermacht:
 
-1. **`worktree-wunschkader-fixes` klären** (siehe Kopf dieses Dokuments) — als erstes pruefen, ob das noch eine aktive Session ist, bevor irgendwas an Worktrees angefasst wird.
-2. **Ligaanalyse-Detailansicht Browser-Test nachholen** (Kaderliste-Klick), falls noch nicht selbst gemacht.
-3. Sonst nur noch Backlog-Punkte offen (echte Verletzungsdaten, externe Signale, ML-Prognose-Horizonte) — keiner davon ist angefragt, nicht ungefragt anfangen.
+1. **Ligaanalyse-Detailansicht Browser-Test nachholen** (Kaderliste-Klick), falls noch nicht selbst gemacht.
+2. Sonst nur noch Backlog-Punkte offen (echte Verletzungsdaten, externe Signale, ML-Prognose-Horizonte) — keiner davon ist angefragt, nicht ungefragt anfangen.
+3. `worktree-wunschkader-fixes` ist eine andere, laufende Session — nicht anfassen/entfernen.
 
 ## Setup Required
 
