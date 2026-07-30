@@ -92,7 +92,7 @@ function useSwipeTabs(activeTab: string, setActiveTab: (key: string) => void) {
 
     const activeKeys = TABS.filter((t) => ACTIVE_TABS.has(t.key)).map((t) => t.key);
     const i = activeKeys.indexOf(activeTab);
-    const next = dx < 0 ? activeKeys[i + 1] : activeKeys[i - 1];
+    const next = dx < 0 ? activeKeys[i - 1] : activeKeys[i + 1];
     if (next) setActiveTab(next);
   }
 
