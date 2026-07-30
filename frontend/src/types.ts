@@ -103,6 +103,22 @@ export interface MlAccuracyTrendEntry {
   HistGradientBoosting: number | null;
 }
 
+export interface BidPremiumEntry {
+  player_id: string;
+  position: string;
+  market_value_then: number;
+  average_points_then: number | null;
+  premium_pct: number;
+  purchased_at: string;
+}
+
+export interface PositionNeedEntry {
+  avg_coverage: number;
+  n_rivals: number;
+}
+
+export type PositionNeed = Record<string, PositionNeedEntry>;
+
 export interface DashboardSnapshot {
   players: Record<string, PlayerRecord>;
   calibration: Calibration | null;
@@ -117,5 +133,12 @@ export interface DashboardSnapshot {
   signal_thresholds: SignalThresholds;
   own_budget_exact: number | null;
   own_available_budget: number | null;
+  // Optional: Frontend-Deploys koennen live sein, bevor das Backend diese
+  // Felder je geschrieben hat (echter Vorfall, siehe HANDOFF.md) - jeder
+  // Verbraucher MUSS mit ?? []/?? {} lesen. Als "required" typisiert wuerde
+  // der Compiler diese Guards als totes Codeschema behandeln und ein
+  // kuenftiger Edit koennte einen davon entfernen, ohne dass tsc das merkt.
+  bid_premium_history?: BidPremiumEntry[];
+  position_need?: PositionNeed;
   [key: string]: unknown;
 }

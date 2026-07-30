@@ -149,3 +149,61 @@ class UpsertPredictionLogEntriesModelTypeDocIdTests(unittest.TestCase):
 
         doc_ids = _doc_ids(client)
         self.assertIn("2026-07-27_p1_RandomForest", doc_ids)
+
+
+class UpsertBidPremiumEntriesTests(unittest.TestCase):
+    def test_writes_docs_keyed_by_activity_id(self):
+        client = MagicMock()
+        entries = [
+            {"activity_id": "act_1", "player_id": "p1", "premium_pct": 0.1},
+            {"activity_id": "act_2", "player_id": "p2", "premium_pct": 0.05},
+        ]
+
+        firestore_db.upsert_bid_premium_entries(client, entries)
+
+        batch = client.batch.return_value
+        self.assertEqual(batch.set.call_count, 2)
+        batch.commit.assert_called_once()
+
+    def test_empty_entries_writes_nothing(self):
+        client = MagicMock()
+        firestore_db.upsert_bid_premium_entries(client, [])
+        client.batch.assert_not_called()
+
+
+class BidPremiumPointerTests(unittest.TestCase):
+    def test_get_pointer_returns_none_when_no_doc(self):
+        client = MagicMock()
+        client.collection.return_value.document.return_value.get.return_value.exists = False
+
+        self.assertIsNone(firestore_db.get_bid_premium_pointer(client))
+
+    def test_get_pointer_returns_stored_value(self):
+        client = MagicMock()
+        doc_snapshot = client.collection.return_value.document.return_value.get.return_value
+        doc_snapshot.exists = True
+        doc_snapshot.to_dict.return_value = {"last_processed_dt": "2026-07-01T00:00:00Z"}
+
+        self.assertEqual(firestore_db.get_bid_premium_pointer(client), "2026-07-01T00:00:00Z")
+
+    def test_upsert_pointer_writes_expected_doc(self):
+        client = MagicMock()
+        firestore_db.upsert_bid_premium_pointer(client, "2026-07-01T00:00:00Z")
+        client.collection.assert_called_with("bid_premium_state")
+        client.collection.return_value.document.assert_called_with("current")
+        client.collection.return_value.document.return_value.set.assert_called_once_with(
+            {"last_processed_dt": "2026-07-01T00:00:00Z"}
+        )
+
+
+class GetBidPremiumHistoryTests(unittest.TestCase):
+    def test_returns_all_docs_as_dicts(self):
+        client = MagicMock()
+        doc1, doc2 = MagicMock(), MagicMock()
+        doc1.to_dict.return_value = {"activity_id": "act_1"}
+        doc2.to_dict.return_value = {"activity_id": "act_2"}
+        client.collection.return_value.stream.return_value = [doc1, doc2]
+
+        result = firestore_db.get_bid_premium_history(client)
+
+        self.assertEqual(result, [{"activity_id": "act_1"}, {"activity_id": "act_2"}])

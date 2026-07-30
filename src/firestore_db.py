@@ -135,3 +135,30 @@ def get_wunschkader(client: firestore.Client) -> dict | None:
     (vor der einmaligen Migration)."""
     doc = client.collection("wunschkader").document("current").get()
     return doc.to_dict() if doc.exists else None
+
+
+def upsert_bid_premium_entries(client: firestore.Client, entries: list[dict]) -> None:
+    """Ein Dokument pro abgeschlossenem Systemkauf, Doc-Id = Activity-Id
+    (macht Re-Laeufe idempotent, analog upsert_prediction_log_entries)."""
+    docs = {e["activity_id"]: e for e in entries}
+    _write_in_batches(client, "bid_premium_log", docs)
+
+
+def get_bid_premium_history(client: firestore.Client) -> list[dict]:
+    """Liest die komplette bid_premium_log-Collection - bei ~100-200 kleinen
+    Dokumenten (4-5 Felder je Eintrag) unkritisch fuer die Read-Quota,
+    analog get_accuracy_daily. Wird EINMAL pro Lauf gelesen, nicht pro
+    Spieler/Anfrage."""
+    return [doc.to_dict() for doc in client.collection("bid_premium_log").stream()]
+
+
+def get_bid_premium_pointer(client: firestore.Client) -> str | None:
+    """Letzte verarbeitete Activity-Id/Datum (siehe src/bid_premium.py) -
+    ein einziges kleines Dokument statt eines Full-Scans der wachsenden
+    bid_premium_log-Collection bei jedem 2h-Lauf."""
+    doc = client.collection("bid_premium_state").document("current").get()
+    return doc.to_dict().get("last_processed_dt") if doc.exists else None
+
+
+def upsert_bid_premium_pointer(client: firestore.Client, dt: str) -> None:
+    client.collection("bid_premium_state").document("current").set({"last_processed_dt": dt})

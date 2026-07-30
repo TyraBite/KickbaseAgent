@@ -48,8 +48,8 @@ import sys
 
 from dotenv import load_dotenv
 
-from src import db, fetcher, firestore_db, market_predictor, player_valuation
-from src.kickbase_client import KickbaseError, get_manager_squad, get_me, login
+from src import bid_premium, db, fetcher, firestore_db, market_predictor, player_valuation
+from src.kickbase_client import KickbaseError, get_activities_feed, get_manager_squad, get_me, login
 
 # Toleranzband aus MDs/methodik.md, Abschnitt "Fairwert und Signal".
 SIGNAL_GOOD = 1.25
@@ -67,15 +67,26 @@ def _count_regulars(starting_ranks) -> int:
     return sum(1 for rank in starting_ranks if rank in REGULAR_STARTING_RANKS)
 
 
+POSITIONS_FOR_NEED = ("Torwart", "Abwehr", "Mittelfeld", "Sturm")
+
+
 def _build_ligaanalyse(
-    token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, starting_rank_by_player_id
-) -> list[dict]:
+    token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, players_map
+) -> dict:
     budgets_by_user = {b["user_id"]: b for b in manager_budget_rows}
     sell_counts: dict[str, int] = {}
     for listing in market_listings:
         uid = listing["offering_user_id"]
         if uid:
             sell_counts[uid] = sell_counts.get(uid, 0) + 1
+
+    # Deckungsgrad(Gegner, Position) = Stammspieler dieser Position im Kader
+    # (starting_rank in REGULAR_STARTING_RANKS) / tatsaechlich in der echten
+    # Startelf aufgestellte Spieler dieser Position - keine Formation-
+    # Annahme noetig, current_lineup_player_ids verraet das direkt. NUR
+    # Gegner (nicht is_self) fliessen ein, siehe Global Constraints.
+    coverage_sums: dict[str, float] = {}
+    coverage_counts: dict[str, int] = {}
 
     rows = []
     for r in ranking_rows:
@@ -93,9 +104,29 @@ def _build_ligaanalyse(
                 items = squad.get("it", [])
                 squad_size = squad.get("nps") or len(items)
                 squad_value = sum((item.get("mv") or 0) for item in items)
+                squad_players = [players_map.get(item.get("pi")) for item in items]
                 regular_count = _count_regulars(
-                    starting_rank_by_player_id.get(item.get("pi")) for item in items
+                    p["starting_rank"] for p in squad_players if p
                 )
+
+                lineup_ids = [pid for pid in r["current_lineup_player_ids"].split(",") if pid]
+                lineup_positions_count: dict[str, int] = {}
+                for pid in lineup_ids:
+                    player = players_map.get(pid)
+                    if player:
+                        lineup_positions_count[player["position"]] = lineup_positions_count.get(player["position"], 0) + 1
+                regulars_by_position: dict[str, int] = {}
+                for p in squad_players:
+                    if p and p["starting_rank"] in REGULAR_STARTING_RANKS:
+                        regulars_by_position[p["position"]] = regulars_by_position.get(p["position"], 0) + 1
+
+                for position in POSITIONS_FOR_NEED:
+                    lineup_count = lineup_positions_count.get(position, 0)
+                    if lineup_count == 0:
+                        continue
+                    coverage = min(regulars_by_position.get(position, 0) / lineup_count, 1.0)
+                    coverage_sums[position] = coverage_sums.get(position, 0.0) + coverage
+                    coverage_counts[position] = coverage_counts.get(position, 0) + 1
             except KickbaseError as exc:
                 print(f"Warnung: Kader von Manager {r['name']} nicht ladbar: {exc}", file=sys.stderr)
                 squad_size, squad_value, regular_count = None, None, None
@@ -119,7 +150,17 @@ def _build_ligaanalyse(
             }
         )
     rows.sort(key=lambda row: (row["season_placement"] is None, row["season_placement"] or 0))
-    return rows
+
+    position_need = {
+        position: {
+            "avg_coverage": round(coverage_sums[position] / coverage_counts[position], 2),
+            "n_rivals": coverage_counts[position],
+        }
+        for position in POSITIONS_FOR_NEED
+        if coverage_counts.get(position)
+    }
+
+    return {"rows": rows, "position_need": position_need}
 
 
 def _load_wunschkader() -> dict | None:
@@ -383,6 +424,21 @@ def export() -> dict:
         _build_wunschkader_targets(wunschkader_config, players_map) if wunschkader_config else []
     )
 
+    fs_client = firestore_db.connect() if os.environ.get("FIRESTORE_ENABLED") else None
+    if fs_client:
+        try:
+            activities = get_activities_feed(token, league_id)
+        except KickbaseError as exc:
+            print(f"Warnung: Activity-Feed nicht ladbar, bid_premium-Update uebersprungen: {exc}", file=sys.stderr)
+            activities = []
+    else:
+        activities = []
+    bid_premium_history = bid_premium.update_and_load(fs_client, token, league_id, activities, players_map)
+
+    ligaanalyse_result = _build_ligaanalyse(
+        token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, players_map,
+    )
+
     data = {
         "fetched_at": fetched_at,
         "own_available_budget": own_available_budget,
@@ -392,15 +448,14 @@ def export() -> dict:
         "ml_accuracy_trend": heavy["ml_accuracy_trend"],
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "players": players_map,
+        "bid_premium_history": bid_premium_history,
         "transfermarkt_listings": _build_transfermarkt_listings(market_listings),
         "own_squad_ids": [r["player_id"] for r in own_squad],
         "owned_by": heavy["owned_by"],
         "wunschkader_targets": wunschkader_targets,
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
-        "ligaanalyse": _build_ligaanalyse(
-            token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad,
-            {pid: p["starting_rank"] for pid, p in players_map.items()},
-        ),
+        "ligaanalyse": ligaanalyse_result["rows"],
+        "position_need": ligaanalyse_result["position_need"],
     }
 
     _finalize_firestore_write(data)

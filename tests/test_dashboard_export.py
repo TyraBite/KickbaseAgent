@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from src import firestore_db
 from src.dashboard_export import (
+    _build_ligaanalyse,
     _build_players_map,
     _build_transfermarkt_listings,
     _build_wunschkader_targets,
@@ -13,6 +14,7 @@ from src.dashboard_export import (
     _resolve_is_light,
     export,
 )
+from src.kickbase_client import KickbaseError
 
 
 class BuildTransfermarktListingsTests(unittest.TestCase):
@@ -211,8 +213,9 @@ class ExportLightModeFreshnessTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
         ), patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot"), patch(
-            "src.dashboard_export._load_wunschkader", return_value=None
-        ), patch("src.dashboard_export._build_ligaanalyse", return_value=[]):
+            "src.dashboard_export.get_activities_feed", return_value=[]
+        ), patch("src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}):
             return export()
 
     def _cached_snapshot_with_stale_player_only(self):
@@ -239,6 +242,38 @@ class ExportLightModeFreshnessTests(unittest.TestCase):
         data = self._run_export_in_light_mode(cached_snapshot, [FRESH_MARKET_LISTING])
 
         self.assertEqual(data["players"]["p_stale"], cached_snapshot["players"]["p_stale"])
+
+
+class ExportActivityFeedGuardTests(unittest.TestCase):
+    """Finding 2 (finaler Review): ein transienter Kickbase-API-Fehler beim
+    Activity-Feed darf export() nicht abbrechen - bid_premium ist eine
+    best-effort-Datenquelle, kein kritischer Pfad. Vor dem Fix propagierte
+    eine KickbaseError hier ungefangen aus export() heraus, BEVOR
+    _finalize_firestore_write() lief - der komplette Dashboard-Snapshot
+    (nicht nur bid_premium) waere dann fuer den ganzen Lauf nicht
+    aktualisiert worden."""
+
+    def test_activity_feed_error_does_not_abort_export(self):
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+            "src.dashboard_export.get_me", return_value={"cpi": "1"}
+        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-29"), patch(
+            "src.dashboard_export._load_snapshot", return_value=([], [], [], [])
+        ), patch("src.dashboard_export.firestore_db.connect"), patch(
+            "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
+        ), patch(
+            "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
+        ), patch("src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
+        ), patch("src.dashboard_export.player_valuation.fetch_all_players", return_value=[]
+        ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
+        ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
+            data = export()
+
+        self.assertEqual(data["bid_premium_history"], [])
 
 
 class BuildPlayersMapTests(unittest.TestCase):
@@ -360,3 +395,141 @@ class BuildPlayersMapTests(unittest.TestCase):
         self.assertEqual(result["p1"]["market_value_change_7d"], 42_000)
         # But other fields from the source row ARE fresh
         self.assertEqual(result["p1"]["market_value"], 10_500_000)
+
+
+class BuildLigaanalyseTests(unittest.TestCase):
+    def _players_map(self):
+        return {
+            "p1": {"player_id": "p1", "position": "Torwart", "starting_rank": 1},
+            "p2": {"player_id": "p2", "position": "Abwehr", "starting_rank": 1},
+            "p3": {"player_id": "p3", "position": "Abwehr", "starting_rank": 3},
+            "p4": {"player_id": "p4", "position": "Mittelfeld", "starting_rank": 2},
+        }
+
+    def _ranking_row(self, user_id, name, lineup_ids, is_self=False):
+        return {
+            "user_id": user_id, "name": name, "season_points": 0, "matchday_points": 0,
+            "team_value": 0, "season_placement": 1, "matchday_placement": 1,
+            "current_lineup_player_ids": ",".join(lineup_ids),
+            "recent_matchday_points": "",
+        }
+
+    def test_rival_full_coverage_at_position(self):
+        # Rivale hat 1 Torwart in der Startelf, players_map zeigt ihn als
+        # Stammspieler (starting_rank 1) -> Deckungsgrad 100% fuer Torwart.
+        ranking_rows = [self._ranking_row("u1", "Rivale", ["p1"])]
+        budget_rows = [{"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None}]
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.return_value = {"it": [{"pi": "p1", "mv": 10_000_000}], "nps": 1}
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[], own_squad=[],
+                players_map=self._players_map(),
+            )
+
+        self.assertEqual(result["position_need"]["Torwart"]["avg_coverage"], 1.0)
+        self.assertEqual(result["position_need"]["Torwart"]["n_rivals"], 1)
+
+    def test_rival_partial_coverage_at_position(self):
+        # 2 Abwehrspieler in der Startelf (p2, p3), aber nur p2 ist
+        # Stammspieler (starting_rank 1) -> Deckungsgrad 50%.
+        ranking_rows = [self._ranking_row("u1", "Rivale", ["p2", "p3"])]
+        budget_rows = [{"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None}]
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.return_value = {"it": [{"pi": "p2"}, {"pi": "p3"}], "nps": 2}
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[], own_squad=[],
+                players_map=self._players_map(),
+            )
+
+        self.assertEqual(result["position_need"]["Abwehr"]["avg_coverage"], 0.5)
+
+    def test_coverage_is_capped_at_one(self):
+        # 1 Stammspieler-Torwart im ganzen Kader, aber die Startelf enthaelt
+        # ihn nur einmal -> Deckungsgrad darf trotz theoretisch "mehr
+        # Stammspieler als Startelf-Plaetze" nicht ueber 1.0 gehen.
+        ranking_rows = [self._ranking_row("u1", "Rivale", ["p1"])]
+        budget_rows = [{"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None}]
+        players_map = {**self._players_map(), "p1b": {"player_id": "p1b", "position": "Torwart", "starting_rank": 2}}
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.return_value = {"it": [{"pi": "p1"}, {"pi": "p1b"}], "nps": 2}
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[], own_squad=[],
+                players_map=players_map,
+            )
+
+        self.assertLessEqual(result["position_need"]["Torwart"]["avg_coverage"], 1.0)
+
+    def test_own_row_excluded_from_position_need(self):
+        # is_self=True -> zaehlt NICHT in position_need (nur "Gegner"
+        # relevant fuer die Markt-Konkurrenz-Einschaetzung).
+        ranking_rows = [self._ranking_row("u_self", "Ich", ["p1"])]
+        budget_rows = [{"user_id": "u_self", "is_own_exact": True, "estimated_budget": None, "available_budget": None, "trade_count": None}]
+
+        result = _build_ligaanalyse(
+            "tok", "l1", ranking_rows, budget_rows, market_listings=[],
+            own_squad=[{"player_id": "p1", "market_value": 1, "starting_rank": 1}],
+            players_map=self._players_map(),
+        )
+
+        self.assertNotIn("Torwart", result["position_need"])
+
+    def test_rival_with_zero_lineup_players_at_position_excluded_from_average(self):
+        # Rivale hat gar keinen Spieler dieser Position in der Startelf -
+        # darf den Durchschnitt nicht per Division-durch-Null verzerren.
+        ranking_rows = [self._ranking_row("u1", "Rivale", [])]
+        budget_rows = [{"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None}]
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.return_value = {"it": [], "nps": 0}
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[], own_squad=[],
+                players_map=self._players_map(),
+            )
+
+        self.assertNotIn("Torwart", result["position_need"])
+
+    def test_rows_key_preserves_existing_ligaanalyse_row_shape(self):
+        ranking_rows = [self._ranking_row("u_self", "Ich", ["p1"])]
+        budget_rows = [{"user_id": "u_self", "is_own_exact": True, "estimated_budget": 1, "available_budget": 1, "trade_count": 0}]
+
+        result = _build_ligaanalyse(
+            "tok", "l1", ranking_rows, budget_rows, market_listings=[],
+            own_squad=[{"player_id": "p1", "market_value": 1, "starting_rank": 1}],
+            players_map=self._players_map(),
+        )
+
+        self.assertEqual(len(result["rows"]), 1)
+        self.assertEqual(result["rows"][0]["name"], "Ich")
+        self.assertTrue(result["rows"][0]["is_self"])
+
+    def test_self_row_does_not_contribute_to_position_need(self):
+        # Sowohl Ich (self) als auch ein Rivale stellen p1 (Torwart) in der
+        # Startelf auf. n_rivals muss trotzdem 1 bleiben (nicht 2) - der
+        # eigene Kader darf die Deckungsgrad-Aggregation nicht mitzaehlen.
+        # Anders als test_own_row_excluded_from_position_need (dort bleibt
+        # position_need bei nur einer self-Zeile ohnehin komplett leer,
+        # unabhaengig davon ob der Selbst-Ausschluss korrekt greift) gibt es
+        # hier einen echten Rivalen, der "Torwart" real in position_need
+        # einbringt - ein Regressions-Bug (Self faelschlich mitgezaehlt)
+        # wuerde hier n_rivals=2 statt 1 liefern und faellt damit auf.
+        ranking_rows = [
+            self._ranking_row("u_self", "Ich", ["p1"]),
+            self._ranking_row("u1", "Rivale", ["p1"]),
+        ]
+        budget_rows = [
+            {"user_id": "u_self", "is_own_exact": True, "estimated_budget": 1, "available_budget": 1, "trade_count": 0},
+            {"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None},
+        ]
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.return_value = {"it": [{"pi": "p1"}], "nps": 1}
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[],
+                own_squad=[{"player_id": "p1", "market_value": 1, "starting_rank": 1}],
+                players_map=self._players_map(),
+            )
+
+        self.assertEqual(result["position_need"]["Torwart"]["n_rivals"], 1)

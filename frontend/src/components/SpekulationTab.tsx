@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { MlMetrics } from "../types";
-import { liveModelMae, type SpekulationRow } from "../lib/derive";
+import type { BidPremiumEntry, MlMetrics, PositionNeed } from "../types";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -66,10 +66,14 @@ export default function SpekulationTab({
   rows,
   now,
   mlMetrics,
+  bidHistory,
+  positionNeed,
 }: {
   rows: SpekulationRow[];
   now: number;
   mlMetrics: MlMetrics | null;
+  bidHistory: BidPremiumEntry[];
+  positionNeed: PositionNeed;
 }) {
   const mae = liveModelMae(mlMetrics);
   const [search, setSearch] = useState("");
@@ -142,7 +146,16 @@ export default function SpekulationTab({
         <SpekulationTable rows={visible} now={now} onSelect={setSelected} />
       )}
       <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
-      {selected && <SpekulationDetailModal row={selected} now={now} mae={mae} onClose={() => setSelected(null)} />}
+      {selected && (
+        <SpekulationDetailModal
+          row={selected}
+          now={now}
+          mae={mae}
+          bidHistory={bidHistory}
+          positionNeed={positionNeed}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }
@@ -253,11 +266,15 @@ function SpekulationDetailModal({
   row,
   now,
   mae,
+  bidHistory,
+  positionNeed,
   onClose,
 }: {
   row: SpekulationRow;
   now: number;
   mae: number | null;
+  bidHistory: BidPremiumEntry[];
+  positionNeed: PositionNeed;
   onClose: () => void;
 }) {
   useModalOpenTracking();
@@ -268,6 +285,10 @@ function SpekulationDetailModal({
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  const suggestion = suggestBid(row, bidHistory);
+  const hasValidSuggestion = !!suggestion && suggestion.p75 > 0;
+  const need = positionNeed[row.position];
 
   return (
     <div
@@ -309,7 +330,25 @@ function SpekulationDetailModal({
           </Row>
           <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
           <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
+          {hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
+            <Row label="Orientierungsgebot">
+              {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
+            </Row>
+          ) : hasValidSuggestion && suggestion ? (
+            <>
+              <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
+              <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>
+              <Row label="Gebot für ~90%">{fmtNum(suggestion.p90)}</Row>
+              <Row label="Basis">{suggestion.n} ähnliche historische Käufe</Row>
+            </>
+          ) : (
+            <Row label="Gebotsempfehlung">Keine historischen Vergleichskäufe dieser Position</Row>
+          )}
+          {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
         </dl>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Historischer Vergleichswert — keine Garantie, echte Konkurrenzgebote sind beim blinden Verfahren nie sichtbar.
+        </p>
       </div>
     </div>
   );
