@@ -47,7 +47,8 @@ export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) 
           Aktuell live: <b>{MODEL_LABELS[metrics.model_type] ?? metrics.model_type}</b>
         </p>
         <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-          Auswahlgrund: {reasonLabel} · Trailing-30-Tage-Realwerte je Modell unten.
+          Auswahlgrund: {reasonLabel} · Kartenwerte unten = 30-Tage-Fenster für die Modellauswahl, unabhängig vom
+          Betrachtungszeitraum im Chart weiter unten (komplette Historie).
         </p>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
           {MODEL_ORDER.map((name) => {
@@ -86,7 +87,19 @@ export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) 
 
 const CHART_WIDTH = 760;
 const CHART_HEIGHT = 240;
-const PAD = { top: 16, right: 88, bottom: 24, left: 36 };
+const PAD = { top: 16, right: 88, bottom: 28, left: 36 };
+const X_TICK_COUNT = 6;
+// Vertikaler Mindestabstand zwischen zwei Modell-Endlabels (px) - verhindert
+// Ueberlappung, wenn beide Modelle am aktuellen Rand nah beieinander liegen
+// (User-Fund 2026-07-30: bei Kopf-an-Kopf-Werten waren die Labels sonst
+// nicht mehr lesbar).
+const MIN_LABEL_GAP = 13;
+
+// "YYYY-MM-DD" -> "DD.MM." (kompakt genug fuer Achsen-Ticks).
+function shortDate(iso: string): string {
+  const [, month, day] = iso.split("-");
+  return `${day}.${month}.`;
+}
 
 function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
   const [showTable, setShowTable] = useState(false);
@@ -108,6 +121,31 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
       }),
     [trend]
   );
+
+  // Grob skizzierter Zeitraum auf der X-Achse (User-Fund 2026-07-30: bisher
+  // komplett unbeschriftet) - ein paar gleichmaessig verteilte Datums-Ticks
+  // reichen, keine taggenaue Beschriftung noetig.
+  const tickIndices = useMemo(() => {
+    if (trend.length <= X_TICK_COUNT) return trend.map((_, i) => i);
+    const step = (trend.length - 1) / (X_TICK_COUNT - 1);
+    return Array.from(new Set(Array.from({ length: X_TICK_COUNT }, (_, i) => Math.round(i * step))));
+  }, [trend.length]);
+
+  // Endlabel-Positionen kollisionsfrei machen: liegen zwei Modelle am
+  // rechten Rand vertikal zu nah beieinander, werden ihre TEXT-Labels
+  // (nicht die Datenpunkte selbst) auseinandergeschoben.
+  const endLabels = useMemo(() => {
+    const withEnd = paths
+      .filter((p) => p.points.length > 0)
+      .map((p) => ({ name: p.name, x: p.points[p.points.length - 1].x, y: p.points[p.points.length - 1].y }));
+    const sorted = [...withEnd].sort((a, b) => a.y - b.y);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].y - sorted[i - 1].y < MIN_LABEL_GAP) {
+        sorted[i].y = sorted[i - 1].y + MIN_LABEL_GAP;
+      }
+    }
+    return sorted;
+  }, [paths]);
 
   if (!trend.length) {
     return <p className="text-xs text-slate-400 dark:text-slate-500">Noch keine Trend-Daten vorhanden…</p>;
@@ -185,17 +223,29 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
                 {points.map((p, i) => (
                   <circle key={i} cx={p.x} cy={p.y} r={3} fill={MODEL_COLORS[name].dark} className="hidden dark:inline" />
                 ))}
-                {points.length > 0 && (
-                  <text
-                    x={points[points.length - 1].x + 6}
-                    y={points[points.length - 1].y}
-                    dominantBaseline="middle"
-                    className="text-[10px] font-medium fill-slate-700 dark:fill-slate-200"
-                  >
-                    {MODEL_LABELS[name]}
-                  </text>
-                )}
               </g>
+            ))}
+            {endLabels.map(({ name, x, y }) => (
+              <text
+                key={name}
+                x={x + 6}
+                y={y}
+                dominantBaseline="middle"
+                className="text-[10px] font-medium fill-slate-700 dark:fill-slate-200"
+              >
+                {MODEL_LABELS[name]}
+              </text>
+            ))}
+            {tickIndices.map((i) => (
+              <text
+                key={i}
+                x={xFor(i)}
+                y={CHART_HEIGHT - PAD.bottom + 16}
+                textAnchor="middle"
+                className="fill-slate-400 text-[10px] dark:fill-slate-500"
+              >
+                {shortDate(trend[i].date)}
+              </text>
             ))}
             {hoverIndex !== null && (
               <line
