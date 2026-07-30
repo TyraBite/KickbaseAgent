@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SpekulationRow } from "../lib/derive";
+import type { MlMetrics } from "../types";
+import { liveModelMae, type SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -61,7 +62,16 @@ function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
 // clientseitig in derive.ts berechnet, nicht serverseitig.
 type ViewMode = "cards" | "table";
 
-export default function SpekulationTab({ rows, now }: { rows: SpekulationRow[]; now: number }) {
+export default function SpekulationTab({
+  rows,
+  now,
+  mlMetrics,
+}: {
+  rows: SpekulationRow[];
+  now: number;
+  mlMetrics: MlMetrics | null;
+}) {
+  const mae = liveModelMae(mlMetrics);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
   const [selected, setSelected] = useState<SpekulationRow | null>(null);
@@ -132,7 +142,7 @@ export default function SpekulationTab({ rows, now }: { rows: SpekulationRow[]; 
         <SpekulationTable rows={visible} now={now} onSelect={setSelected} />
       )}
       <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
-      {selected && <SpekulationDetailModal row={selected} now={now} onClose={() => setSelected(null)} />}
+      {selected && <SpekulationDetailModal row={selected} now={now} mae={mae} onClose={() => setSelected(null)} />}
     </div>
   );
 }
@@ -242,10 +252,12 @@ function SpekulationTable({
 function SpekulationDetailModal({
   row,
   now,
+  mae,
   onClose,
 }: {
   row: SpekulationRow;
   now: number;
+  mae: number | null;
   onClose: () => void;
 }) {
   useModalOpenTracking();
@@ -282,6 +294,7 @@ function SpekulationDetailModal({
             <span className={trendClass(row.ml_prediction)}>
               {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
             </span>
+            {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
           <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
           <Row label="Preis">{fmtNum(row.price)}</Row>

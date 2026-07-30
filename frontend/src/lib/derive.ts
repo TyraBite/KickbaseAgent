@@ -1,5 +1,13 @@
 import { formatDurationMs } from "../format";
-import type { Calibration, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
+import type { Calibration, MlMetrics, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
+
+// MAE des aktuell LIVE geschalteten Modells (nicht pauschal irgendein
+// Modell) - dasselbe Modell erzeugt gerade die ml_prediction-Werte, die
+// ueberall im Dashboard angezeigt werden (siehe market_predictor.py:833,
+// predictions = predictions_by_model[live_model_name]).
+export function liveModelMae(metrics: MlMetrics | null): number | null {
+  return metrics?.realized_by_model?.[metrics.model_type]?.realized_30d?.mae ?? null;
+}
 
 // 1:1 Port von player_valuation.py::k_for_position()
 export function kForPosition(calibration: Calibration | null, position: string): number | null {

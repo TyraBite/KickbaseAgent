@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DashboardSnapshot } from "../types";
-import { buildEigenesTeamSplit, type EigenesTeamRow } from "../lib/derive";
+import { buildEigenesTeamSplit, liveModelMae, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -46,6 +46,7 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
     [data.wunschkader_targets, ownSquadIdSet, data.players, listingsByPlayerId, data.owned_by, data.calibration]
   );
   const thresholds = data.signal_thresholds;
+  const liveMae = liveModelMae(data.ml_metrics);
   const [selected, setSelected] = useState<Selected>(null);
 
   return (
@@ -87,10 +88,10 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
       </Section>
 
       {selected?.kind === "player" && (
-        <PlayerDetailModal row={selected.row} thresholds={thresholds} onClose={() => setSelected(null)} />
+        <PlayerDetailModal row={selected.row} thresholds={thresholds} mae={liveMae} onClose={() => setSelected(null)} />
       )}
       {selected?.kind === "watchlist" && (
-        <WatchlistDetailModal row={selected.row} thresholds={thresholds} onClose={() => setSelected(null)} />
+        <WatchlistDetailModal row={selected.row} thresholds={thresholds} mae={liveMae} onClose={() => setSelected(null)} />
       )}
     </div>
   );
@@ -141,12 +142,13 @@ function CardShell({
   );
 }
 
-function MlPredictionRow({ value }: { value: number | null }) {
+function MlPredictionRow({ value, mae }: { value: number | null; mae?: number | null }) {
   return (
     <Row label="ML-Prognose">
       <span className={trendClass(value)}>
         {trendArrow(value, ML_PREDICTION_THRESHOLDS)} {fmtSigned(value)}
       </span>
+      {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
     </Row>
   );
 }
@@ -251,10 +253,12 @@ function DetailModalShell({ header, onClose, children }: { header: ReactNode; on
 function PlayerDetailModal({
   row,
   thresholds,
+  mae,
   onClose,
 }: {
   row: EigenesTeamRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
+  mae: number | null;
   onClose: () => void;
 }) {
   return (
@@ -285,7 +289,7 @@ function PlayerDetailModal({
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>
-      <MlPredictionRow value={row.ml_prediction} />
+      <MlPredictionRow value={row.ml_prediction} mae={mae} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
       <Row label="Status">{row.status_label ?? "—"}</Row>
     </DetailModalShell>
@@ -295,10 +299,12 @@ function PlayerDetailModal({
 function WatchlistDetailModal({
   row,
   thresholds,
+  mae,
   onClose,
 }: {
   row: WatchlistRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
+  mae: number | null;
   onClose: () => void;
 }) {
   return (
@@ -317,7 +323,7 @@ function WatchlistDetailModal({
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>
-      <MlPredictionRow value={row.ml_prediction} />
+      <MlPredictionRow value={row.ml_prediction} mae={mae} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
       <Row label="Status">{row.status ?? "—"}</Row>
     </DetailModalShell>

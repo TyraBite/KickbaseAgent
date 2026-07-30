@@ -77,6 +77,10 @@ export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) 
             );
           })}
         </div>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          MAE = mittlere Abweichung der Prognose vom tatsächlichen Marktwert, unabhängig von der Richtung (zu hoch
+          und zu niedrig zählen beide gleich) – ein grobes Maß fürs "Rauschen" der Prognose.
+        </p>
       </div>
 
       <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">Trend: Richtungs-Genauigkeit über die Zeit</h3>
