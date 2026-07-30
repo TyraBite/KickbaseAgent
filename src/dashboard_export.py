@@ -98,6 +98,7 @@ def _build_ligaanalyse(
             squad_size = len(own_squad)
             squad_value = sum((p["market_value"] or 0) for p in own_squad)
             regular_count = _count_regulars(p["starting_rank"] for p in own_squad)
+            squad_player_ids = [p["player_id"] for p in own_squad]
         else:
             try:
                 squad = get_manager_squad(token, league_id, user_id)
@@ -105,6 +106,7 @@ def _build_ligaanalyse(
                 squad_size = squad.get("nps") or len(items)
                 squad_value = sum((item.get("mv") or 0) for item in items)
                 squad_players = [players_map.get(item.get("pi")) for item in items]
+                squad_player_ids = [item.get("pi") for item in items]
                 regular_count = _count_regulars(
                     p["starting_rank"] for p in squad_players if p
                 )
@@ -130,6 +132,7 @@ def _build_ligaanalyse(
             except KickbaseError as exc:
                 print(f"Warnung: Kader von Manager {r['name']} nicht ladbar: {exc}", file=sys.stderr)
                 squad_size, squad_value, regular_count = None, None, None
+                squad_player_ids = []
 
         rows.append(
             {
@@ -147,6 +150,7 @@ def _build_ligaanalyse(
                 "squad_value": squad_value,
                 "sell_count": sell_counts.get(user_id, 0),
                 "regular_count": regular_count,
+                "squad_player_ids": squad_player_ids,
             }
         )
     rows.sort(key=lambda row: (row["season_placement"] is None, row["season_placement"] or 0))
