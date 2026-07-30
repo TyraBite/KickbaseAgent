@@ -37,8 +37,16 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
   const [position, setPosition] = useState("all");
   const [verfuegbarkeit, setVerfuegbarkeit] = useState<Verfuegbarkeit>("all");
   const [ranks, setRanks] = useState<Set<number>>(new Set());
-  const [marketValueMin, setMarketValueMin] = useState(500_000);
-  const [marketValueMax, setMarketValueMax] = useState(maxMarketValue);
+  // Als String gehalten (statt Number) - erlaubt ein zwischenzeitlich
+  // leeres Feld waehrend des Tippens. Ein Number-State mit Fallback
+  // (Number(e.target.value) || default) sprang bei jedem Loeschen des
+  // Felds sofort auf den Default zurueck, weil Number("") = 0 und
+  // 0 || default zum Default auswertet - unmoeglich, eine neue Zahl
+  // einzutippen (User-Fund 2026-07-30).
+  const [marketValueMinInput, setMarketValueMinInput] = useState(String(500_000));
+  const [marketValueMaxInput, setMarketValueMaxInput] = useState(String(maxMarketValue));
+  const marketValueMin = marketValueMinInput.trim() === "" ? 500_000 : Number(marketValueMinInput) || 500_000;
+  const marketValueMax = marketValueMaxInput.trim() === "" ? maxMarketValue : Number(marketValueMaxInput) || maxMarketValue;
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
 
@@ -113,8 +121,8 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
             type="number"
             min={500_000}
             step={100_000}
-            value={marketValueMin}
-            onChange={(e) => setMarketValueMin(Number(e.target.value) || 500_000)}
+            value={marketValueMinInput}
+            onChange={(e) => setMarketValueMinInput(e.target.value)}
             className="w-32 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           />
         </label>
@@ -124,8 +132,8 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
             type="number"
             min={500_000}
             step={100_000}
-            value={marketValueMax}
-            onChange={(e) => setMarketValueMax(Number(e.target.value) || maxMarketValue)}
+            value={marketValueMaxInput}
+            onChange={(e) => setMarketValueMaxInput(e.target.value)}
             className="w-32 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           />
         </label>
