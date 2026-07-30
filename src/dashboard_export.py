@@ -425,15 +425,20 @@ def export() -> dict:
     )
 
     fs_client = firestore_db.connect() if os.environ.get("FIRESTORE_ENABLED") else None
+    activity_feed_ok = True
     if fs_client:
         try:
             activities = get_activities_feed(token, league_id)
         except KickbaseError as exc:
-            print(f"Warnung: Activity-Feed nicht ladbar, bid_premium-Update uebersprungen: {exc}", file=sys.stderr)
+            print(f"Warnung: Activity-Feed nicht ladbar, bid_premium-Unsold-Erkennung uebersprungen: {exc}", file=sys.stderr)
             activities = []
+            activity_feed_ok = False
     else:
         activities = []
-    bid_premium_history = bid_premium.update_and_load(fs_client, token, league_id, activities, players_map)
+    bid_premium_history, bid_premium_outcome_counts = bid_premium.update_and_load(
+        fs_client, token, league_id, activities, players_map, market_listings, own_name, fetched_at,
+        activity_feed_ok=activity_feed_ok,
+    )
 
     ligaanalyse_result = _build_ligaanalyse(
         token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, players_map,
@@ -449,6 +454,7 @@ def export() -> dict:
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "players": players_map,
         "bid_premium_history": bid_premium_history,
+        "bid_premium_outcome_counts": bid_premium_outcome_counts,
         "transfermarkt_listings": _build_transfermarkt_listings(market_listings),
         "own_squad_ids": [r["player_id"] for r in own_squad],
         "owned_by": heavy["owned_by"],
