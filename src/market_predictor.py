@@ -151,7 +151,17 @@ def _performance_frame(token: str, competition_id: str, player_id: str) -> pd.Da
     df = pd.DataFrame(rows)
     df["md"] = pd.to_datetime(df["md"], utc=True).dt.tz_localize(None)
     df["date"] = df["md"]
-    return df.sort_values("date").reset_index(drop=True)
+    df = df.sort_values("date").reset_index(drop=True)
+    # Rollierender Schnitt der letzten 3 SPIELE (nicht Kalendertage) -
+    # Verletzungs-/Fitness-Proxy: wenig/keine Minuten in den letzten Spielen
+    # korreliert mit "nicht im Fokus", ohne dass echte historische
+    # Verletzungsdaten vorliegen muessten (siehe Konversation 2026-07-30 -
+    # Kickbase liefert status_code nur fuer JETZT, nicht als Zeitreihe).
+    # min_periods=1 statt 3, damit die ersten 1-2 Spiele eines Spielers
+    # nicht NaN werden, sondern ueber die bis dahin verfuegbaren Spiele
+    # mitteln.
+    df["mp_avg_3"] = df["mp"].rolling(3, min_periods=1).mean()
+    return df
 
 
 def _fetch_player_training_frame(
@@ -175,7 +185,7 @@ def _fetch_player_training_frame(
 
     if p_df.empty:
         merged = mv_df.copy()
-        for col in ("md", "p", "mp", "t1", "t2", "t1g", "t2g"):
+        for col in ("md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"):
             merged[col] = None
     else:
         p_df["date"] = p_df["date"].astype("datetime64[us]")
@@ -259,7 +269,7 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     ]
     if never_matches:
         stale_mask = df["player_id"].isin(never_matches)
-        for col in ("md", "p", "mp", "t1", "t2", "t1g", "t2g"):
+        for col in ("md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"):
             df.loc[stale_mask, col] = None
         team_match = team_match | stale_mask
 
@@ -296,7 +306,7 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     iqr = q3 - q1
     df["mv_target_clipped"] = df["mv_target"].clip(q1 - 2.5 * iqr, q3 + 2.5 * iqr)
 
-    df = df.fillna({"market_divergence": 1, "mv_change_3d": 0, "mv_vol_3d": 0, "p": 0})
+    df = df.fillna({"market_divergence": 1, "mv_change_3d": 0, "mv_vol_3d": 0, "p": 0, "mp_avg_3": 0})
 
     mv_known = df[df["mv"].notna()]
     today_df = mv_known.sort_values("date").groupby("player_id").tail(1)

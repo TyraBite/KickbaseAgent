@@ -13,6 +13,7 @@ from src.market_predictor import (
     _load_recent_prediction_log,
     _select_live_model,
     _infer_today,
+    _performance_frame,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
 
@@ -162,3 +163,43 @@ class BuildCandidatesTests(unittest.TestCase):
         candidates = _build_candidates()
         self.assertEqual(candidates["RandomForest"].n_estimators, 500)
         self.assertIn("HistGradientBoosting", candidates)
+
+
+def _performance_payload(minutes_by_matchday):
+    return {
+        "it": [
+            {
+                "ph": [
+                    {"md": f"2026-0{i+1}-01T00:00:00Z", "p": 5, "mp": f"{mp}'", "t1": "1", "t2": "2", "t1g": 1, "t2g": 0}
+                    for i, mp in enumerate(minutes_by_matchday)
+                ]
+            }
+        ]
+    }
+
+
+class PerformanceFrameMinutesAvgTests(unittest.TestCase):
+    @patch("src.market_predictor.get_player_performance")
+    def test_early_rows_average_over_available_matches_only(self, mock_perf):
+        mock_perf.return_value = _performance_payload([90, 0, 45])
+        df = _performance_frame("tok", "comp1", "p1")
+
+        # min_periods=1: erste Zeile hat nur sich selbst, zweite nur die
+        # ersten zwei - kein NaN trotz <3 verfuegbarer Vorgaenger-Spiele.
+        self.assertEqual(df["mp_avg_3"].iloc[0], 90.0)
+        self.assertEqual(df["mp_avg_3"].iloc[1], 45.0)
+
+    @patch("src.market_predictor.get_player_performance")
+    def test_fourth_row_averages_last_three_not_all_four(self, mock_perf):
+        mock_perf.return_value = _performance_payload([90, 0, 45, 90])
+        df = _performance_frame("tok", "comp1", "p1")
+
+        # Fenster 3, nicht alle bisherigen Spiele - Zeile 4 mittelt ueber
+        # Zeilen 2-4 (0, 45, 90), nicht ueber alle vier.
+        self.assertAlmostEqual(df["mp_avg_3"].iloc[3], (0 + 45 + 90) / 3)
+
+    @patch("src.market_predictor.get_player_performance")
+    def test_empty_performance_history_has_no_rows(self, mock_perf):
+        mock_perf.return_value = {"it": [{"ph": []}]}
+        df = _performance_frame("tok", "comp1", "p1")
+        self.assertTrue(df.empty)
