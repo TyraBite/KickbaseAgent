@@ -13,6 +13,7 @@ jedem 2h-Lauf)."""
 import datetime
 import sys
 
+from src import firestore_db
 from src.kickbase_client import get_market_value_history
 
 TRADE_ACTIVITY_TYPE = 15
@@ -125,3 +126,29 @@ def build_new_entries(
         })
 
     return entries, last_processed_dt
+
+
+def update_and_load(
+    client,
+    token: str,
+    league_id: str,
+    activities: list[dict],
+    players_map: dict[str, dict],
+    get_history=get_market_value_history,
+) -> list[dict]:
+    """Zentraler Einstiegspunkt, von dashboard_export.export() aufgerufen.
+    client=None (FIRESTORE_ENABLED fehlt, lokaler Testlauf) ist ein reines
+    No-Op - kein bid_premium_history im Snapshot in diesem Fall."""
+    if client is None:
+        return []
+
+    pointer = firestore_db.get_bid_premium_pointer(client)
+    new_entries, new_pointer = build_new_entries(
+        token, league_id, activities, pointer, players_map, get_history=get_history
+    )
+    if new_entries:
+        firestore_db.upsert_bid_premium_entries(client, new_entries)
+    if new_pointer:
+        firestore_db.upsert_bid_premium_pointer(client, new_pointer)
+
+    return firestore_db.get_bid_premium_history(client)

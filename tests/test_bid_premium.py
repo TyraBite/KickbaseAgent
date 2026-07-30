@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import MagicMock, patch
 
 from src.bid_premium import (
     _compute_premium,
@@ -165,6 +166,50 @@ class BuildNewEntriesTests(unittest.TestCase):
         )
         self.assertEqual(entries, [])
         self.assertIsNone(pointer)
+
+
+class UpdateAndLoadTests(unittest.TestCase):
+    @patch("src.bid_premium.firestore_db")
+    def test_writes_new_entries_and_advances_pointer_when_found(self, mock_fs):
+        from src.bid_premium import update_and_load
+        mock_fs.get_bid_premium_pointer.return_value = None
+        mock_fs.get_bid_premium_history.return_value = [{"activity_id": "act_1", "player_id": "p1"}]
+        activities = [_trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1")]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+        client = MagicMock()
+
+        result = update_and_load(
+            client=client, token="tok", league_id="l1", activities=activities,
+            players_map={"p1": {"player_id": "p1", "position": "Sturm", "average_points": 100}},
+            get_history=lambda *a, **k: {"it": [{"dt": target_days, "mv": 10_000_000}]},
+        )
+
+        mock_fs.upsert_bid_premium_entries.assert_called_once()
+        mock_fs.upsert_bid_premium_pointer.assert_called_once_with(client, "2026-07-01T10:00:00Z")
+        self.assertEqual(result, [{"activity_id": "act_1", "player_id": "p1"}])
+
+    @patch("src.bid_premium.firestore_db")
+    def test_no_new_purchases_skips_writes_but_still_returns_history(self, mock_fs):
+        from src.bid_premium import update_and_load
+        mock_fs.get_bid_premium_pointer.return_value = "2026-07-05T00:00:00Z"
+        mock_fs.get_bid_premium_history.return_value = [{"activity_id": "act_old"}]
+
+        result = update_and_load(
+            client=MagicMock(), token="tok", league_id="l1", activities=[],
+            players_map={}, get_history=lambda *a, **k: {"it": []},
+        )
+
+        mock_fs.upsert_bid_premium_entries.assert_not_called()
+        mock_fs.upsert_bid_premium_pointer.assert_not_called()
+        self.assertEqual(result, [{"activity_id": "act_old"}])
+
+    def test_none_client_is_noop_and_returns_empty(self):
+        from src.bid_premium import update_and_load
+        result = update_and_load(
+            client=None, token="tok", league_id="l1", activities=[{"anything": True}],
+            players_map={},
+        )
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":
