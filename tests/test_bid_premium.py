@@ -133,7 +133,20 @@ class BuildNewEntriesTests(unittest.TestCase):
         self.assertEqual(entries, [])
         self.assertIsNone(pointer)
 
-    def test_single_failing_history_call_does_not_abort_others(self):
+    def test_single_failing_history_call_does_not_advance_pointer_past_it(self):
+        # Live-Fund 2026-07-30: der Zeiger ruckte frueher schon weiter, sobald
+        # die Spieler-Pruefung bestand - VOR der eigentlichen Markwert-
+        # Aufloesung. Ein einzelner (auch nur temporaerer, z.B. Markwert fuer
+        # den Kauftag noch nicht verfuegbar) Fehlschlag liess die Aktivitaet
+        # dadurch fuer immer unerreichbar werden, sobald eine SPAETERE
+        # Aktivitaet erfolgreich verarbeitet wurde (dt-Filter ist >= since_dt).
+        # Live in Produktion: 22 von 107 historischen Systemkaeufen so
+        # verloren. Fix: der Zeiger darf NIE ueber die erste fehlgeschlagene
+        # Aktivitaet hinaus vorrücken, auch wenn danach weitere Aktivitaeten
+        # erfolgreich sind - die werden trotzdem verarbeitet/geschrieben
+        # (Firestore-Write ist idempotent), nur der Zeiger bleibt davor
+        # stehen, damit die fehlgeschlagene Aktivitaet beim naechsten Lauf
+        # erneut versucht wird.
         activities = [
             _trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1"),
             _trade_activity("2026-07-02T10:00:00Z", trp=12_000_000, pi="p1"),
@@ -154,10 +167,35 @@ class BuildNewEntriesTests(unittest.TestCase):
 
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["purchased_at"], "2026-07-02T10:00:00Z")
-        # Zeiger geht trotz des einen Fehlers bis zur letzten VERARBEITETEN
-        # Aktivitaet weiter (kein endloses Retry auf einen dauerhaft
-        # fehlenden Marktwert - siehe Global Constraints).
-        self.assertEqual(pointer, "2026-07-02T10:00:00Z")
+        # KEIN Zeiger-Fortschritt - die fehlgeschlagene 07-01-Aktivitaet muss
+        # beim naechsten Lauf erneut versucht werden koennen.
+        self.assertIsNone(pointer)
+
+    def test_failure_in_the_middle_still_lets_earlier_success_advance_pointer(self):
+        # Umgekehrter Fall: schlaegt eine SPAETERE Aktivitaet fehl, darf der
+        # Zeiger trotzdem bis zur letzten davor liegenden, erfolgreichen
+        # Aktivitaet vorruecken (kein unnoetiges Zuruecksetzen).
+        activities = [
+            _trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1"),
+            _trade_activity("2026-07-02T10:00:00Z", trp=12_000_000, pi="p1"),
+        ]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+        call_count = {"n": 0}
+
+        def flaky_get_history(token, league_id, player_id, timeframe=365):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"it": [{"dt": target_days, "mv": 10_000_000}]}
+            raise RuntimeError("API down")
+
+        entries, pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            get_history=flaky_get_history,
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["purchased_at"], "2026-07-01T10:00:00Z")
+        self.assertEqual(pointer, "2026-07-01T10:00:00Z")
 
     def test_pointer_is_max_dt_not_last_iterated_for_descending_feed(self):
         # Regressionstest fuer den Quota-Bug: get_activities_feed()s Reihenfolge
@@ -198,6 +236,36 @@ class BuildNewEntriesTests(unittest.TestCase):
             get_history=lambda *a, **k: {"it": []},
         )
         self.assertEqual(entries, [])
+        self.assertIsNone(pointer)
+
+    def test_gap_freezing_is_independent_of_feed_iteration_order(self):
+        # Feed absteigend (newest-first) - die AELTESTE Aktivitaet (07-01)
+        # schlaegt fehl, wird aber ZULETZT iteriert. Der Zeiger darf trotzdem
+        # nicht ueber 07-01 hinaus vorruecken - die interne Verarbeitung muss
+        # chronologisch (nicht Feed-Reihenfolge) auf Luecken pruefen.
+        activities = [
+            _trade_activity("2026-07-03T10:00:00Z", trp=13_000_000, pi="p1"),
+            _trade_activity("2026-07-02T10:00:00Z", trp=12_000_000, pi="p1"),
+            _trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1"),
+        ]
+        days_02 = _days_since_epoch("2026-07-02T10:00:00Z")
+        days_03 = _days_since_epoch("2026-07-03T10:00:00Z")
+
+        def get_history_fails_only_for_07_01(token, league_id, player_id, timeframe=365):
+            # Wird pro Aktivitaet mit demselben player_id aufgerufen - kann
+            # nicht am Aufruf selbst unterscheiden welcher Kauftag gemeint
+            # ist, deshalb liefert die Fake-Historie hier bewusst NUR die
+            # Markwerte fuer 07-02/07-03, 07-01 bleibt unaufloesbar
+            # (_market_value_at() findet den Tag nicht -> premium_pct None).
+            return {"it": [{"dt": days_02, "mv": 10_000_000}, {"dt": days_03, "mv": 10_000_000}]}
+
+        entries, pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            get_history=get_history_fails_only_for_07_01,
+        )
+
+        purchased_dates = {e["purchased_at"] for e in entries}
+        self.assertEqual(purchased_dates, {"2026-07-02T10:00:00Z", "2026-07-03T10:00:00Z"})
         self.assertIsNone(pointer)
 
 

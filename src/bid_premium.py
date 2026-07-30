@@ -73,29 +73,33 @@ def build_new_entries(
     Global Constraints in der Plan-Datei) - Naeherung, kein exakter
     historischer Wert.
 
-    Der Zeiger wandert bis zur letzten tatsaechlich VERARBEITETEN Aktivitaet
-    (auch wenn eine einzelne History-Abfrage fehlschlug) - ein dauerhaft
-    fehlender Marktwert (z.B. Kauf aelter als HISTORY_TIMEFRAME_DAYS) soll
-    nicht bei jedem 2h-Lauf erneut versucht werden. Kaeufe mit unbekanntem
-    Spieler (nicht in players_map) zaehlen NICHT als verarbeitet - der Zeiger
-    bleibt davor stehen, falls players_map beim naechsten Lauf aktueller ist.
+    Der Zeiger darf NIE ueber die erste fehlgeschlagene Aktivitaet (egal ob
+    unbekannter Spieler oder Markwert-Aufloesung) hinaus vorruecken, auch
+    wenn danach WEITERE Aktivitaeten erfolgreich sind - sonst wird die
+    fehlgeschlagene Aktivitaet permanent unerreichbar, sobald der Zeiger
+    (Filter ist `dt >= since_dt`) an ihr vorbeigezogen ist. Live-Fund
+    2026-07-30: genau das ist passiert - 22 von 107 historischen
+    Systemkaeufen so verloren, weil die alte Logik schon bei bestandener
+    players_map-Pruefung (VOR der eigentlichen Marktwert-Aufloesung)
+    weiterrueckte. Aktivitaeten NACH der ersten Luecke werden trotzdem ganz
+    normal verarbeitet/geschrieben (Firestore-Write ist idempotent, kostet
+    nur eine im Vergleich zur Saison-Gesamtmenge (~100-200 Kaeufe)
+    verschwindend kleine Zusatzmenge an wiederholten Versuchen), nur der
+    Zeiger bleibt vor der Luecke stehen, bis sie sich aufloest.
 
-    Der Zeiger wird als MAXIMUM ueber alle verarbeiteten dt-Werte berechnet,
-    nicht als "letzter Schleifendurchlauf" - get_activities_feed()s
-    Reihenfolge ist laut eigenem Docstring UNBESTAETIGT (moeglicherweise
-    newest-first statt oldest-first). Bei "letzter Schleifendurchlauf" wuerde
-    ein newest-first-Feed den Zeiger auf den AELTESTEN verarbeiteten Kauf
-    zurueckfallen lassen - da der Filter >= since_dt ist (inklusiv), wuerde
-    das bei jedem 2h-Lauf den kompletten Backlog erneut verarbeiten (echtes
-    Quota-Risiko, siehe HANDOFF.md Quota-Vorfall). max() macht die
-    Zeiger-Berechnung ordnungsunabhaengig."""
+    Aktivitaeten werden dafuer CHRONOLOGISCH (nicht in Feed-Reihenfolge)
+    verarbeitet - get_activities_feed()s Reihenfolge ist laut eigenem
+    Docstring UNBESTAETIGT (moeglicherweise newest-first statt
+    oldest-first), die Luecken-Erkennung braucht aber eine wohldefinierte
+    "vor/nach"-Beziehung zwischen Aktivitaeten."""
     new_purchases = _filter_new_system_purchases(activities, since_dt)
     if not new_purchases:
         return [], None
 
     entries = []
-    processed_dts = []
-    for activity in new_purchases:
+    pointer = None
+    gap_found = False
+    for activity in sorted(new_purchases, key=lambda a: a["dt"]):
         data = activity["data"]
         player_id = data.get("pi")
         player = players_map.get(player_id)
@@ -105,13 +109,14 @@ def build_new_entries(
                 "Kauf uebersprungen",
                 file=sys.stderr,
             )
+            gap_found = True
             continue
-        processed_dts.append(activity["dt"])
 
         try:
             history = get_history(token, league_id, player_id, timeframe=HISTORY_TIMEFRAME_DAYS)
         except Exception as exc:
             print(f"Warnung: bid_premium - Marktwert-Historie fuer {player_id!r} fehlgeschlagen: {exc}", file=sys.stderr)
+            gap_found = True
             continue
 
         target_days = _days_since_epoch(activity["dt"])
@@ -123,6 +128,7 @@ def build_new_entries(
                 f"(Tag {target_days}), Kauf uebersprungen",
                 file=sys.stderr,
             )
+            gap_found = True
             continue
 
         entries.append({
@@ -134,8 +140,10 @@ def build_new_entries(
             "premium_pct": premium_pct,
             "purchased_at": activity["dt"],
         })
+        if not gap_found:
+            pointer = activity["dt"]
 
-    return entries, (max(processed_dts) if processed_dts else None)
+    return entries, pointer
 
 
 MAX_HISTORY_ENTRIES_IN_SNAPSHOT = 400
