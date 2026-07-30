@@ -90,9 +90,12 @@ function useSwipeTabs(activeTab: string, setActiveTab: (key: string) => void) {
     const dy = e.changedTouches[0].clientY - start.y;
     if (Math.abs(dy) > SWIPE_MAX_VERTICAL_PX || Math.abs(dx) < SWIPE_THRESHOLD_PX) return;
 
+    // "Inhalt folgt dem Finger": rechts wischen schiebt den aktuellen Tab nach
+    // rechts raus, der VORHERIGE (linke) Tab rutscht rein - wie bei
+    // Foto-Galerien/iOS-Seitenwischen, nicht wie ein Cursor-Sprung.
     const activeKeys = TABS.filter((t) => ACTIVE_TABS.has(t.key)).map((t) => t.key);
     const i = activeKeys.indexOf(activeTab);
-    const next = dx < 0 ? activeKeys[i - 1] : activeKeys[i + 1];
+    const next = dx < 0 ? activeKeys[i + 1] : activeKeys[i - 1];
     if (next) setActiveTab(next);
   }
 
