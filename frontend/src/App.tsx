@@ -35,7 +35,7 @@ const TABS = [
   { key: "transfermarkt", label: "Transfermarkt" },
   { key: "liga", label: "Ligaanalyse" },
   { key: "alle-spieler", label: "Alle Spieler" },
-  { key: "ml-genauigkeit", label: "ML-Genauigkeit" },
+  { key: "ml-genauigkeit", label: "Modell-Tracking" },
 ];
 
 // Sub-Projekt 3: Tabs werden nach und nach aktiviert, sobald migriert.
