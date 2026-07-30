@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
-import { MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type TransfermarktRow } from "../lib/derive";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type TransfermarktRow } from "../lib/derive";
 import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
@@ -63,6 +63,7 @@ export default function TransfermarktTab({
   now: number;
 }) {
   const thresholds = data.signal_thresholds;
+  const mae = liveModelMae(data.ml_metrics);
 
   const [position, setPosition] = useState("all");
   const [anbieter, setAnbieter] = useState<Anbieter>("kickbase");
@@ -219,6 +220,7 @@ export default function TransfermarktTab({
       {selected && (
         <TransfermarktDetailModal
           row={selected}
+          mae={mae}
           bidHistory={data.bid_premium_history ?? []}
           positionNeed={data.position_need ?? {}}
           onClose={() => setSelected(null)}
@@ -233,11 +235,13 @@ const selectClass =
 
 function TransfermarktDetailModal({
   row,
+  mae,
   bidHistory,
   positionNeed,
   onClose,
 }: {
   row: TransfermarktRow;
+  mae: number | null;
   bidHistory: BidPremiumEntry[];
   positionNeed: PositionNeed;
   onClose: () => void;
@@ -276,7 +280,31 @@ function TransfermarktDetailModal({
           </button>
         </div>
         <dl className="space-y-2 text-sm">
+          <Row label="ML-Prognose">
+            <span className={trendClass(row.ml_prediction)}>
+              {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
+            </span>
+            {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
+          </Row>
+          <Row label="Trend 7T">
+            <span className={trendClass(row.market_value_change_7d)}>
+              {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
+            </span>
+          </Row>
           <Row label="Preis">{fmtNum(row.price)}</Row>
+          <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
+          <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
+          <Row label="Delta%">{fmtPct(row.price_delta_pct)}</Row>
+          <Row label="Auktion">
+            {row.auction_critical ? (
+              <Badge tone="crit">⏰ {row.auction_status}</Badge>
+            ) : row.auction_urgent ? (
+              <Badge tone="crit">{row.auction_status}</Badge>
+            ) : (
+              row.auction_status ?? <span className="text-slate-400 dark:text-slate-500">unbekannt</span>
+            )}
+          </Row>
+          <Row label="Anbieter">{row.is_system_offer ? "Kickbase" : row.offering_username ?? "—"}</Row>
           {row.is_system_offer ? (
             hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
               <Row label="Orientierungsgebot">
