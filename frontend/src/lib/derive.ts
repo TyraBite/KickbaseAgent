@@ -1,5 +1,5 @@
 import { formatDurationMs } from "../format";
-import type { Calibration, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
+import type { BidPremiumEntry, Calibration, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
 
 // 1:1 Port von dashboard_export.py::_k_per_point()
 export function costPerPoint(marketValue: number | null, averagePoints: number | null): number | null {
@@ -259,6 +259,7 @@ export function buildTransfermarktRows(
 
 export interface SpekulationRow {
   player_id: string; name: string; position: string; team_name: string | null; price: number;
+  market_value: number | null;
   roi_pct: number; average_points: number | null; market_value_change_7d: number | null;
   market_value_low_92d: number | null; market_value_high_92d: number | null;
   ml_prediction: number | null; auction_status: string | null; auction_urgent: boolean;
@@ -275,6 +276,7 @@ export function buildSpekulationRows(transfermarktRows: TransfermarktRow[]): Spe
     .filter((r) => r.is_system_offer && roiPct(r.ml_prediction, r.price) !== null)
     .map((r) => ({
       player_id: r.player_id, name: r.name, position: r.position, team_name: r.team_name, price: r.price,
+      market_value: r.market_value,
       roi_pct: roiPct(r.ml_prediction, r.price)!,
       average_points: r.average_points, market_value_change_7d: r.market_value_change_7d,
       ml_prediction: r.ml_prediction,
@@ -380,4 +382,41 @@ export function buildBudgetPlan(params: {
     return sum + (plannedPriceFor(marketValue, isOwn, liveBid) || 0);
   }, 0);
   return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
+}
+
+export interface BidSuggestion { p50: number; p75: number; p90: number; n: number }
+
+// Aehnlichkeits-Distanz-Formel identisch zu scoreReplacementPool() (WunschkaderTab.tsx)
+// - bewusst hier separat implementiert statt importiert, da
+// scoreReplacementPool() gegen AlleSpielerRow/Ersatzspieler-Suche
+// spezialisiert ist und komponentenlokal bleiben soll; die Formel selbst
+// ist aber identisch (Marktwert- + Punkteschnitt-Distanz, normalisiert).
+export function suggestBid(
+  listing: { position: string; market_value: number | null; average_points: number | null },
+  history: BidPremiumEntry[],
+  k = 20
+): BidSuggestion | null {
+  const samePosition = history.filter((h) => h.position === listing.position);
+  if (samePosition.length === 0) return null;
+
+  const mv = listing.market_value || 0;
+  const pts = listing.average_points || 0;
+  const ranked = samePosition
+    .map((h) => {
+      const mvDist = mv ? Math.abs(h.market_value_then - mv) / mv : 0;
+      const ptsDist = pts ? Math.abs((h.average_points_then ?? 0) - pts) / pts : 0;
+      return { ...h, distance: mvDist + ptsDist };
+    })
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, k);
+
+  const premiums = ranked.map((r) => r.premium_pct).sort((a, b) => a - b);
+  const pct = (p: number) => premiums[Math.floor(p * (premiums.length - 1))];
+
+  return {
+    p50: Math.round(mv * (1 + pct(0.5))),
+    p75: Math.round(mv * (1 + pct(0.75))),
+    p90: Math.round(mv * (1 + pct(0.9))),
+    n: ranked.length,
+  };
 }
