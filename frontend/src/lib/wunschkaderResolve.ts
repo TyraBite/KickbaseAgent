@@ -1,5 +1,5 @@
 import type { Calibration, PlayerRecord, TransfermarktListing } from "../types";
-import { signalFor } from "./derive";
+import { signalFor, statusLabel } from "./derive";
 import { fmtNum } from "../format";
 
 export interface ResolvedTarget {
@@ -12,6 +12,10 @@ export interface ResolvedTarget {
   signal: number | null;
   team_name: string | null;
   status: string;
+  // Verletzt/Angeschlagen/Im Aufbau (statusLabel()) - NICHT dasselbe wie
+  // `status` oben (das ist Markt-/Besitz-Verfuegbarkeit, ein komplett
+  // anderes Konzept, siehe MDs/codes.md).
+  status_label: string | null;
 }
 
 // Ersetzt WunschkaderTab.tsx's alte computedFor() - jetzt EINE Quelle
@@ -52,5 +56,6 @@ export function resolveTarget(
     signal: player ? signalFor(player.market_value, player.average_points, player.position, calibration) : null,
     team_name: player?.team_name ?? null,
     status,
+    status_label: player ? statusLabel(player.status_code) : null,
   };
 }

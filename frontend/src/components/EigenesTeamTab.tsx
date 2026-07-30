@@ -153,6 +153,17 @@ function MlPredictionRow({ value, mae }: { value: number | null; mae?: number | 
   );
 }
 
+// Echter Verletzt/Angeschlagen/Im-Aufbau-Text statt Rohwert, "Fit" als
+// expliziter Normalzustand statt einer leeren Zeile (User-Wunsch
+// 2026-07-30: direkt sichtbar auf der Karte, nicht nur als Badge im Header).
+function StatusLabelRow({ value }: { value: string | null }) {
+  return (
+    <Row label="Status">
+      <Badge tone={value ? "crit" : "good"}>{value ?? "Fit"}</Badge>
+    </Row>
+  );
+}
+
 function PlayerCard({
   row,
   onSelect,
@@ -173,14 +184,14 @@ function PlayerCard({
               {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
             </Badge>
           )}
-          {row.status_label && <Badge tone="crit">{row.status_label}</Badge>}
         </div>
       }
     >
-      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
       <MlPredictionRow value={row.ml_prediction} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+      <StatusLabelRow value={row.status_label} />
+      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
     </CardShell>
   );
 }
@@ -206,10 +217,11 @@ function WunschkaderWatchlistCard({
         </div>
       }
     >
-      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
       <MlPredictionRow value={row.ml_prediction} />
+      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+      <StatusLabelRow value={row.status_label} />
+      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
     </CardShell>
   );
 }
@@ -279,19 +291,19 @@ function PlayerDetailModal({
           </Badge>
         </Row>
       )}
-      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+      <MlPredictionRow value={row.ml_prediction} mae={mae} />
       <Row label="Trend 7T">
         <span className={trendClass(row.market_value_change_7d)}>
           {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
         </span>
       </Row>
-      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>
-      <MlPredictionRow value={row.ml_prediction} mae={mae} />
+      <StatusLabelRow value={row.status_label} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-      <Row label="Status">{row.status_label ?? "—"}</Row>
+      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
     </DetailModalShell>
   );
 }
@@ -318,14 +330,14 @@ function WatchlistDetailModal({
         </div>
       }
     >
-      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+      <Row label="Status">{row.status ?? "—"}</Row>
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>
       <MlPredictionRow value={row.ml_prediction} mae={mae} />
+      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-      <Row label="Status">{row.status ?? "—"}</Row>
+      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
     </DetailModalShell>
   );
 }
