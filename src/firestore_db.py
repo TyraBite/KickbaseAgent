@@ -161,4 +161,35 @@ def get_bid_premium_pointer(client: firestore.Client) -> str | None:
 
 
 def upsert_bid_premium_pointer(client: firestore.Client, dt: str) -> None:
-    client.collection("bid_premium_state").document("current").set({"last_processed_dt": dt})
+    client.collection("bid_premium_state").document("current").set(
+        {"last_processed_dt": dt}, merge=True
+    )
+
+
+def get_bid_premium_last_seen_listing_ids(client: firestore.Client) -> list[str]:
+    """Systemangebote-Spieler-IDs, die beim letzten Lauf noch gelistet waren
+    - Vergleichsbasis fuer detect_unsold_listings() (src/bid_premium.py).
+    Liegt im selben Dokument wie last_processed_dt, aber unabhaengig davon
+    aktualisiert - deshalb merge=True bei beiden Writes."""
+    doc = client.collection("bid_premium_state").document("current").get()
+    return doc.to_dict().get("last_seen_system_listing_ids", []) if doc.exists else []
+
+
+def upsert_bid_premium_last_seen_listing_ids(client: firestore.Client, ids: list[str]) -> None:
+    client.collection("bid_premium_state").document("current").set(
+        {"last_seen_system_listing_ids": ids}, merge=True
+    )
+
+
+def upsert_unsold_log_entries(client: firestore.Client, entries: list[dict]) -> None:
+    """Ein Dokument pro erkanntem 'unverkauft abgelaufen'-Fall, Doc-Id =
+    player_id + detected_at (macht Re-Laeufe am selben Tag idempotent)."""
+    docs = {f"{e['player_id']}_{e['detected_at']}": e for e in entries}
+    _write_in_batches(client, "bid_premium_unsold_log", docs)
+
+
+def get_unsold_log(client: firestore.Client) -> list[dict]:
+    """Liest die komplette bid_premium_unsold_log-Collection - klein und
+    langsam wachsend (nur bei tatsaechlich unverkauften Angeboten), analog
+    get_bid_premium_history."""
+    return [doc.to_dict() for doc in client.collection("bid_premium_unsold_log").stream()]

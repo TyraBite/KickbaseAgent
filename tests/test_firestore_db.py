@@ -192,8 +192,60 @@ class BidPremiumPointerTests(unittest.TestCase):
         client.collection.assert_called_with("bid_premium_state")
         client.collection.return_value.document.assert_called_with("current")
         client.collection.return_value.document.return_value.set.assert_called_once_with(
-            {"last_processed_dt": "2026-07-01T00:00:00Z"}
+            {"last_processed_dt": "2026-07-01T00:00:00Z"}, merge=True
         )
+
+    def test_upsert_pointer_uses_merge_to_not_clobber_other_fields(self):
+        client = MagicMock()
+        firestore_db.upsert_bid_premium_pointer(client, "2026-07-01T00:00:00Z")
+        client.collection.return_value.document.return_value.set.assert_called_once_with(
+            {"last_processed_dt": "2026-07-01T00:00:00Z"}, merge=True
+        )
+
+
+class BidPremiumLastSeenListingIdsTests(unittest.TestCase):
+    def test_get_returns_empty_list_when_no_doc(self):
+        client = MagicMock()
+        client.collection.return_value.document.return_value.get.return_value.exists = False
+        self.assertEqual(firestore_db.get_bid_premium_last_seen_listing_ids(client), [])
+
+    def test_get_returns_stored_ids(self):
+        client = MagicMock()
+        doc_snapshot = client.collection.return_value.document.return_value.get.return_value
+        doc_snapshot.exists = True
+        doc_snapshot.to_dict.return_value = {"last_seen_system_listing_ids": ["p1", "p2"]}
+        self.assertEqual(firestore_db.get_bid_premium_last_seen_listing_ids(client), ["p1", "p2"])
+
+    def test_upsert_writes_with_merge(self):
+        client = MagicMock()
+        firestore_db.upsert_bid_premium_last_seen_listing_ids(client, ["p1", "p2"])
+        client.collection.assert_called_with("bid_premium_state")
+        client.collection.return_value.document.assert_called_with("current")
+        client.collection.return_value.document.return_value.set.assert_called_once_with(
+            {"last_seen_system_listing_ids": ["p1", "p2"]}, merge=True
+        )
+
+
+class UnsoldLogTests(unittest.TestCase):
+    def test_upsert_writes_docs_keyed_by_player_id_and_detected_at(self):
+        client = MagicMock()
+        entries = [{"player_id": "p1", "detected_at": "2026-07-30", "position": "Sturm"}]
+        firestore_db.upsert_unsold_log_entries(client, entries)
+        batch = client.batch.return_value
+        self.assertEqual(batch.set.call_count, 1)
+        batch.commit.assert_called_once()
+
+    def test_upsert_empty_entries_writes_nothing(self):
+        client = MagicMock()
+        firestore_db.upsert_unsold_log_entries(client, [])
+        client.batch.assert_not_called()
+
+    def test_get_returns_all_docs(self):
+        client = MagicMock()
+        doc = MagicMock()
+        doc.to_dict.return_value = {"player_id": "p1"}
+        client.collection.return_value.stream.return_value = [doc]
+        self.assertEqual(firestore_db.get_unsold_log(client), [{"player_id": "p1"}])
 
 
 class GetBidPremiumHistoryTests(unittest.TestCase):
