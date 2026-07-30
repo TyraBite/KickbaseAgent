@@ -48,12 +48,24 @@ const ACTIVE_TABS = new Set([
   "ml-genauigkeit",
 ]);
 
+// Reload ist der einzige Weg an frische Daten zu kommen (Client pollt nicht,
+// reiner Pull) - der zuletzt offene Tab soll dabei erhalten bleiben, statt
+// immer auf einen festen Tab zurueckzufallen. "team" (Eigenes Team) ist der
+// Fallback, wenn noch nichts gespeichert ist oder der gespeicherte Tab nicht
+// (mehr) existiert.
+const ACTIVE_TAB_STORAGE_KEY = "kickbaseagent_active_tab";
+
+function readStoredActiveTab(): string {
+  const stored = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+  return stored && ACTIVE_TABS.has(stored) ? stored : "team";
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [data, setData] = useState<DashboardSnapshot | null>(null);
-  const [activeTab, setActiveTab] = useState("spekulation");
+  const [activeTab, setActiveTab] = useState(readStoredActiveTab);
   const now = useNow(60_000);
   // data.players kann fehlen, wenn der Firestore-Snapshot noch im alten Schema
   // vorliegt (Deploy-Zeitfenster zwischen Frontend-Push und naechstem Backend-
@@ -67,6 +79,10 @@ export default function App() {
     [data, now]
   );
   const spekulationRows = useMemo(() => buildSpekulationRows(transfermarktRows), [transfermarktRows]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
 
