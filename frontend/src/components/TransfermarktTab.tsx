@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
-import type { DashboardSnapshot } from "../types";
-import type { TransfermarktRow } from "../lib/derive";
-import { Badge, POSITION_ABBR, SignalBadge, TeamCrest } from "./ui";
+import { useEffect, useMemo, useState } from "react";
+import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
+import { suggestBid, type TransfermarktRow } from "../lib/derive";
+import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
 
@@ -67,6 +67,7 @@ export default function TransfermarktTab({
   const [anbieter, setAnbieter] = useState<Anbieter>("kickbase");
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
+  const [selected, setSelected] = useState<TransfermarktRow | null>(null);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -129,6 +130,18 @@ export default function TransfermarktTab({
       render: (r) => <Badge tone={r.affordable ? "good" : "crit"}>{r.affordable ? "ja" : "nein"}</Badge>,
     },
     {
+      key: "bid_suggestion",
+      label: "Gebotsempfehlung",
+      align: "right",
+      sortValue: (r) => (r.is_system_offer ? suggestBid(r, data.bid_premium_history ?? [])?.p75 ?? null : null),
+      render: (r) => {
+        if (!r.is_system_offer) return <span className="text-slate-400 dark:text-slate-500">n/v</span>;
+        const suggestion = suggestBid(r, data.bid_premium_history ?? []);
+        if (!suggestion || suggestion.p75 <= 0) return <span className="text-slate-400 dark:text-slate-500">n/v</span>;
+        return `${fmtNum(suggestion.p75)} (n=${suggestion.n})`;
+      },
+    },
+    {
       key: "auction",
       label: "Auktion",
       sortValue: (r) => r.auction_remaining_seconds,
@@ -184,11 +197,89 @@ export default function TransfermarktTab({
           {visible.length} von {rows.length} Angeboten
         </span>
       </div>
-      <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} />
+      <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} onRowClick={setSelected} />
       <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
+      {selected && (
+        <TransfermarktDetailModal
+          row={selected}
+          bidHistory={data.bid_premium_history ?? []}
+          positionNeed={data.position_need ?? {}}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }
 
 const selectClass =
   "rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
+
+function TransfermarktDetailModal({
+  row,
+  bidHistory,
+  positionNeed,
+  onClose,
+}: {
+  row: TransfermarktRow;
+  bidHistory: BidPremiumEntry[];
+  positionNeed: PositionNeed;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const suggestion = row.is_system_offer ? suggestBid(row, bidHistory) : null;
+  const hasValidSuggestion = !!suggestion && suggestion.p75 > 0;
+  const need = positionNeed[row.position];
+
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+      >
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <TeamCrest teamName={row.team_name} />
+            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Schließen"
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            ✕
+          </button>
+        </div>
+        <dl className="space-y-2 text-sm">
+          <Row label="Preis">{fmtNum(row.price)}</Row>
+          {row.is_system_offer ? (
+            hasValidSuggestion && suggestion ? (
+              <>
+                <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
+                <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>
+                <Row label="Gebot für ~90%">{fmtNum(suggestion.p90)}</Row>
+                <Row label="Basis">{suggestion.n} ähnliche historische Käufe</Row>
+              </>
+            ) : (
+              <Row label="Gebotsempfehlung">Keine historischen Vergleichskäufe dieser Position</Row>
+            )
+          ) : (
+            <Row label="Gebotsempfehlung">Nur für Kickbase-Systemangebote verfügbar</Row>
+          )}
+          {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
+        </dl>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Historischer Vergleichswert aus abgeschlossenen Käufen dieser Liga — keine Garantie, echte Konkurrenzgebote sind beim blinden Verfahren nie sichtbar.
+        </p>
+      </div>
+    </div>
+  );
+}
