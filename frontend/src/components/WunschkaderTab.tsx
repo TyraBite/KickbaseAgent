@@ -576,7 +576,7 @@ function DetailModal({
         calibration={calibration}
         thresholds={thresholds}
         onSelectSide={(playerId) => {
-          onReplace(playerId);
+          if (playerId !== target.player_id) onReplace(playerId);
           setCompareWith(null);
         }}
         onClose={() => setCompareWith(null)}
