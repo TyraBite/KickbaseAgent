@@ -59,7 +59,7 @@ export function SortableTable<T>({
               <th
                 key={col.key}
                 onClick={() => handleHeaderClick(col)}
-                className={`px-3 py-2 ${col.align === "right" ? "text-right" : ""} ${
+                className={`px-3 py-3 ${col.align === "right" ? "text-right" : ""} ${
                   col.sortValue ? "cursor-pointer select-none hover:text-slate-700 dark:hover:text-slate-200" : ""
                 }`}
               >
@@ -91,7 +91,7 @@ export function SortableTable<T>({
               }`}
             >
               {columns.map((col) => (
-                <td key={col.key} className={`px-3 py-2 ${col.align === "right" ? "text-right tabular-nums" : ""}`}>
+                <td key={col.key} className={`px-3 py-3 ${col.align === "right" ? "text-right tabular-nums" : ""}`}>
                   {col.render(row)}
                 </td>
               ))}
