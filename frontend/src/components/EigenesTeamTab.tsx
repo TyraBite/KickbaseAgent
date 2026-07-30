@@ -5,6 +5,8 @@ import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
+import PlayerNamePicker from "./PlayerNamePicker";
+import PlayerCompareModal from "./PlayerCompareModal";
 
 // Felder gekuerzt ggue. der alten index.html: cost_per_point weggelassen
 // (redundant zu Signal, beide leiten sich aus Marktwert/Punkte-Schnitt ab),
@@ -88,10 +90,24 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
       </Section>
 
       {selected?.kind === "player" && (
-        <PlayerDetailModal row={selected.row} thresholds={thresholds} mae={liveMae} onClose={() => setSelected(null)} />
+        <PlayerDetailModal
+          row={selected.row}
+          thresholds={thresholds}
+          mae={liveMae}
+          players={data.players}
+          calibration={data.calibration}
+          onClose={() => setSelected(null)}
+        />
       )}
       {selected?.kind === "watchlist" && (
-        <WatchlistDetailModal row={selected.row} thresholds={thresholds} mae={liveMae} onClose={() => setSelected(null)} />
+        <WatchlistDetailModal
+          row={selected.row}
+          thresholds={thresholds}
+          mae={liveMae}
+          players={data.players}
+          calibration={data.calibration}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );
@@ -236,7 +252,17 @@ function useEscapeClose(onClose: () => void) {
   }, [onClose]);
 }
 
-function DetailModalShell({ header, onClose, children }: { header: ReactNode; onClose: () => void; children: ReactNode }) {
+function DetailModalShell({
+  header,
+  footer,
+  onClose,
+  children,
+}: {
+  header: ReactNode;
+  footer?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   useEscapeClose(onClose);
   useModalOpenTracking();
   return (
@@ -257,6 +283,7 @@ function DetailModalShell({ header, onClose, children }: { header: ReactNode; on
           </button>
         </div>
         <dl className="space-y-2 text-sm">{children}</dl>
+        {footer}
       </div>
     </div>
   );
@@ -266,45 +293,80 @@ function PlayerDetailModal({
   row,
   thresholds,
   mae,
+  players,
+  calibration,
   onClose,
 }: {
   row: EigenesTeamRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
   mae: number | null;
+  players: DashboardSnapshot["players"];
+  calibration: DashboardSnapshot["calibration"];
   onClose: () => void;
 }) {
+  const [comparing, setComparing] = useState(false);
+  const [compareWith, setCompareWith] = useState<string | null>(null);
+
   return (
-    <DetailModalShell
-      onClose={onClose}
-      header={
-        <div className="flex flex-wrap items-center gap-2">
-          <TeamCrest teamName={row.team_name} />
-          <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
-        </div>
-      }
-    >
-      {row.sell_signal && (
-        <Row label="Empfehlung">
-          <Badge tone={row.sell_signal === "halten" ? "good" : "warn"}>
-            {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
-          </Badge>
+    <>
+      <DetailModalShell
+        onClose={onClose}
+        header={
+          <div className="flex flex-wrap items-center gap-2">
+            <TeamCrest teamName={row.team_name} />
+            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+          </div>
+        }
+        footer={
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setComparing((v) => !v)}
+              className="text-xs text-brand-600 hover:underline dark:text-brand-400"
+            >
+              Vergleichen mit…
+            </button>
+            {comparing && (
+              <div className="mt-2">
+                <PlayerNamePicker players={players} excludePlayerId={row.player_id} onSelect={setCompareWith} />
+              </div>
+            )}
+          </div>
+        }
+      >
+        {row.sell_signal && (
+          <Row label="Empfehlung">
+            <Badge tone={row.sell_signal === "halten" ? "good" : "warn"}>
+              {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
+            </Badge>
+          </Row>
+        )}
+        <MlPredictionRow value={row.ml_prediction} mae={mae} />
+        <Row label="Trend 7T">
+          <span className={trendClass(row.market_value_change_7d)}>
+            {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
+          </span>
         </Row>
+        <Row label="Signal">
+          <SignalBadge signal={row.signal} thresholds={thresholds} />
+        </Row>
+        <StatusLabelRow value={row.status_label} />
+        <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+        <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+        <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+      </DetailModalShell>
+      {compareWith && (
+        <PlayerCompareModal
+          playerIdA={row.player_id}
+          playerIdB={compareWith}
+          players={players}
+          calibration={calibration}
+          thresholds={thresholds}
+          onClose={() => setCompareWith(null)}
+        />
       )}
-      <MlPredictionRow value={row.ml_prediction} mae={mae} />
-      <Row label="Trend 7T">
-        <span className={trendClass(row.market_value_change_7d)}>
-          {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
-        </span>
-      </Row>
-      <Row label="Signal">
-        <SignalBadge signal={row.signal} thresholds={thresholds} />
-      </Row>
-      <StatusLabelRow value={row.status_label} />
-      <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
-      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-    </DetailModalShell>
+    </>
   );
 }
 
@@ -312,32 +374,67 @@ function WatchlistDetailModal({
   row,
   thresholds,
   mae,
+  players,
+  calibration,
   onClose,
 }: {
   row: WatchlistRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
   mae: number | null;
+  players: DashboardSnapshot["players"];
+  calibration: DashboardSnapshot["calibration"];
   onClose: () => void;
 }) {
+  const [comparing, setComparing] = useState(false);
+  const [compareWith, setCompareWith] = useState<string | null>(null);
+
   return (
-    <DetailModalShell
-      onClose={onClose}
-      header={
-        <div className="flex flex-wrap items-center gap-2">
-          <TeamCrest teamName={row.team_name} />
-          <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
-        </div>
-      }
-    >
-      <Row label="Verfügbarkeit">{row.status ?? "—"}</Row>
-      <Row label="Signal">
-        <SignalBadge signal={row.signal} thresholds={thresholds} />
-      </Row>
-      <MlPredictionRow value={row.ml_prediction} mae={mae} />
-      <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-      <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-      <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
-    </DetailModalShell>
+    <>
+      <DetailModalShell
+        onClose={onClose}
+        header={
+          <div className="flex flex-wrap items-center gap-2">
+            <TeamCrest teamName={row.team_name} />
+            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+          </div>
+        }
+        footer={
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setComparing((v) => !v)}
+              className="text-xs text-brand-600 hover:underline dark:text-brand-400"
+            >
+              Vergleichen mit…
+            </button>
+            {comparing && (
+              <div className="mt-2">
+                <PlayerNamePicker players={players} excludePlayerId={row.player_id} onSelect={setCompareWith} />
+              </div>
+            )}
+          </div>
+        }
+      >
+        <Row label="Verfügbarkeit">{row.status ?? "—"}</Row>
+        <Row label="Signal">
+          <SignalBadge signal={row.signal} thresholds={thresholds} />
+        </Row>
+        <MlPredictionRow value={row.ml_prediction} mae={mae} />
+        <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+        <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+        <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+      </DetailModalShell>
+      {compareWith && (
+        <PlayerCompareModal
+          playerIdA={row.player_id}
+          playerIdB={compareWith}
+          players={players}
+          calibration={calibration}
+          thresholds={thresholds}
+          onClose={() => setCompareWith(null)}
+        />
+      )}
+    </>
   );
 }

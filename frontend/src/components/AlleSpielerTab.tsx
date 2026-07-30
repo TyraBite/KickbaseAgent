@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot } from "../types";
 import { buildAlleSpielerRows, type AlleSpielerRow } from "../lib/derive";
-import { Badge, POSITION_ABBR, SignalBadge, TeamCrest } from "./ui";
+import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
-import { fmtNum } from "../format";
+import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
+import PlayerNamePicker from "./PlayerNamePicker";
+import PlayerCompareModal from "./PlayerCompareModal";
+import { useModalOpenTracking } from "../lib/modalOpenTracker";
 
 const POSITIONS = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
 type Verfuegbarkeit = "all" | "frei" | "eigen" | "andere";
@@ -37,6 +40,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
   const [marketValueMin, setMarketValueMin] = useState(500_000);
   const [marketValueMax, setMarketValueMax] = useState(maxMarketValue);
   const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -136,7 +140,16 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
           {visible.length} von {allRows.length} Spielern sichtbar
         </span>
       </div>
-      <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} />
+      <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} onRowClick={setSelected} />
+      {selected && (
+        <AlleSpielerDetailModal
+          row={selected}
+          thresholds={thresholds}
+          players={data.players}
+          calibration={data.calibration}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }
@@ -191,5 +204,102 @@ function RankFilter({
         </div>
       )}
     </div>
+  );
+}
+
+const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+
+function AlleSpielerDetailModal({
+  row,
+  thresholds,
+  players,
+  calibration,
+  onClose,
+}: {
+  row: AlleSpielerRow;
+  thresholds: DashboardSnapshot["signal_thresholds"];
+  players: DashboardSnapshot["players"];
+  calibration: DashboardSnapshot["calibration"];
+  onClose: () => void;
+}) {
+  const [comparing, setComparing] = useState(false);
+  const [compareWith, setCompareWith] = useState<string | null>(null);
+
+  useModalOpenTracking();
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className="mb-4 flex items-start justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <TeamCrest teamName={row.team_name} />
+              <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Schließen"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            >
+              ✕
+            </button>
+          </div>
+          <dl className="space-y-2 text-sm">
+            <Row label="Verfügbarkeit">
+              <Badge tone={ownerTone(row.owner)}>{row.owner}</Badge>
+            </Row>
+            <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+            <Row label="Fitness">
+              <Badge tone={row.status_label ? "crit" : "good"}>{row.status_label ?? "Fit"}</Badge>
+            </Row>
+            <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+            <Row label="Signal">
+              <SignalBadge signal={row.signal} thresholds={thresholds} />
+            </Row>
+            <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+            <Row label="ML-Prognose">
+              <span className={trendClass(row.ml_prediction)}>
+                {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
+              </span>
+            </Row>
+          </dl>
+          <button
+            type="button"
+            onClick={() => setComparing((v) => !v)}
+            className="mt-3 text-xs text-brand-600 hover:underline dark:text-brand-400"
+          >
+            Vergleichen mit…
+          </button>
+          {comparing && (
+            <div className="mt-2">
+              <PlayerNamePicker players={players} excludePlayerId={row.player_id} onSelect={setCompareWith} />
+            </div>
+          )}
+        </div>
+      </div>
+      {compareWith && (
+        <PlayerCompareModal
+          playerIdA={row.player_id}
+          playerIdB={compareWith}
+          players={players}
+          calibration={calibration}
+          thresholds={thresholds}
+          onClose={() => setCompareWith(null)}
+        />
+      )}
+    </>
   );
 }
