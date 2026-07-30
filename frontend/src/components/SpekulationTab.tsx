@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SpekulationRow } from "../lib/derive";
-import { fmtNum, fmtSigned, formatDurationMs, trendArrow, trendClass } from "../format";
+import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 
@@ -52,18 +52,12 @@ function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
   return sorted;
 }
 
-// Restzeit wird aus auction_expires_at bei jedem Render + alle 60s neu
-// berechnet (kein sekundengenauer Ticker noetig) statt auf den naechsten
-// 2h-Fetch zu warten. auction_urgent bleibt server-berechnet (haengt an der
-// Europe/Berlin-22-Uhr-Cutoff-Logik, nicht in JS duplizieren). `now` kommt
-// jetzt vom gemeinsamen Ticker in App.tsx (siehe HANDOFF.md Task 17).
-function auctionLabel(row: SpekulationRow, now: number): string {
-  if (!row.auction_expires_at) return row.auction_status ?? "unbekannt";
-  const remainingMs = new Date(row.auction_expires_at).getTime() - now;
-  if (remainingMs <= 0) return "Frist abgelaufen";
-  return `läuft ab in ${formatDurationMs(remainingMs)}`;
-}
-
+// row.auction_status kommt bereits fertig berechnet aus buildSpekulationRows()
+// (derive.ts::auctionStatus(), DST-sicher via parseIsoZ) - hier NICHT nochmal
+// aus auction_expires_at neu ableiten, das war vorher dupliziert und bei
+// kaputtem auction_expires_at schlechter als der Fallback der geteilten
+// Funktion (siehe Review-Fund 2026-07-29). auction_urgent ist ebenfalls
+// clientseitig in derive.ts berechnet, nicht serverseitig.
 type ViewMode = "cards" | "table";
 
 export default function SpekulationTab({ rows, now }: { rows: SpekulationRow[]; now: number }) {
@@ -130,7 +124,7 @@ export default function SpekulationTab({ rows, now }: { rows: SpekulationRow[]; 
       {viewMode === "cards" ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
           {visible.map((r) => (
-            <SpekulationCard key={r.name} row={r} now={now} onSelect={() => setSelected(r)} />
+            <SpekulationCard key={r.player_id} row={r} now={now} onSelect={() => setSelected(r)} />
           ))}
         </div>
       ) : (
@@ -243,7 +237,7 @@ function SpekulationTable({
     },
   ];
 
-  return <SortableTable columns={columns} rows={rows} rowKey={(r) => r.name} onRowClick={onSelect} />;
+  return <SortableTable columns={columns} rows={rows} rowKey={(r) => r.player_id} onRowClick={onSelect} />;
 }
 
 function SpekulationDetailModal({
@@ -320,10 +314,10 @@ function CardHeader({ row }: { row: SpekulationRow }) {
   );
 }
 
-function AuctionValue({ row, now }: { row: SpekulationRow; now: number }) {
-  if (row.auction_urgent) return <Badge tone="crit">{auctionLabel(row, now)}</Badge>;
+function AuctionValue({ row }: { row: SpekulationRow; now: number }) {
+  if (row.auction_urgent) return <Badge tone="crit">{row.auction_status ?? "unbekannt"}</Badge>;
   if (!row.auction_status && !row.auction_expires_at) {
     return <span className="text-slate-400 dark:text-slate-500">unbekannt</span>;
   }
-  return <>{auctionLabel(row, now)}</>;
+  return <>{row.auction_status ?? "unbekannt"}</>;
 }

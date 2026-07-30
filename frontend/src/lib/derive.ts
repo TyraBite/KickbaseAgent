@@ -10,7 +10,7 @@ export function costPerPoint(marketValue: number | null, averagePoints: number |
 // 1:1 Port von player_valuation.py::k_for_position()
 export function kForPosition(calibration: Calibration | null, position: string): number | null {
   if (!calibration) return null;
-  return calibration.position_k[position]?.k ?? calibration.global_k ?? null;
+  return calibration.position_k?.[position]?.k ?? calibration.global_k ?? null;
 }
 
 // 1:1 Port von dashboard_export.py::_valuation()
@@ -258,7 +258,7 @@ export function buildTransfermarktRows(
 }
 
 export interface SpekulationRow {
-  name: string; position: string; team_name: string | null; price: number;
+  player_id: string; name: string; position: string; team_name: string | null; price: number;
   roi_pct: number; average_points: number | null; market_value_change_7d: number | null;
   market_value_low_92d: number | null; market_value_high_92d: number | null;
   ml_prediction: number | null; auction_status: string | null; auction_urgent: boolean;
@@ -274,7 +274,7 @@ export function buildSpekulationRows(transfermarktRows: TransfermarktRow[]): Spe
   return transfermarktRows
     .filter((r) => r.is_system_offer && roiPct(r.ml_prediction, r.price) !== null)
     .map((r) => ({
-      name: r.name, position: r.position, team_name: r.team_name, price: r.price,
+      player_id: r.player_id, name: r.name, position: r.position, team_name: r.team_name, price: r.price,
       roi_pct: roiPct(r.ml_prediction, r.price)!,
       average_points: r.average_points, market_value_change_7d: r.market_value_change_7d,
       ml_prediction: r.ml_prediction,

@@ -59,32 +59,6 @@ export interface SignalThresholds {
   critical: number;
 }
 
-// Gemeinsame Basis-Felder aus src/dashboard_export.py::_player_row() - Basis
-// fuer Transfermarkt- und Eigenes-Team-Zeilen (beide erweitern das mit ihren
-// eigenen Feldern, wie serverseitig auch).
-export interface PlayerRow {
-  player_id: string;
-  name: string;
-  position: string;
-  team_name: string | null;
-  status_label: string | null;
-  starting_rank: number | null;
-  market_value: number | null;
-  market_value_change_7d: number | null;
-  market_value_low_92d: number | null;
-  market_value_high_92d: number | null;
-  average_points: number | null;
-  total_points: number | null;
-  fairwert: number | null;
-  signal: number | null;
-  ml_prediction: number | null;
-}
-
-
-export interface EigenesTeamRow extends PlayerRow {
-  sell_signal?: "halten" | "verkaufen";
-}
-
 export interface LigaanalyseRow {
   name: string;
   is_self: boolean;
