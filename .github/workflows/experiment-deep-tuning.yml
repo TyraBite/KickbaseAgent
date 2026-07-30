@@ -1,0 +1,35 @@
+name: Experiment Deep Tuning (einmalig)
+
+on:
+  workflow_dispatch:
+    inputs:
+      budget_hours:
+        description: 'Zeitbudget in Stunden (GitHub Actions Hard-Limit: 6h)'
+        required: true
+        default: '2'
+
+permissions:
+  contents: read
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install xgboost lightgbm
+
+      - name: Run deep tuning experiment
+        env:
+          KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
+          KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
+          TUNING_BUDGET_HOURS: ${{ github.event.inputs.budget_hours }}
+        run: python -m src.experiment_deep_tuning
