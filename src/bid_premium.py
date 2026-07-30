@@ -78,13 +78,23 @@ def build_new_entries(
     fehlender Marktwert (z.B. Kauf aelter als HISTORY_TIMEFRAME_DAYS) soll
     nicht bei jedem 2h-Lauf erneut versucht werden. Kaeufe mit unbekanntem
     Spieler (nicht in players_map) zaehlen NICHT als verarbeitet - der Zeiger
-    bleibt davor stehen, falls players_map beim naechsten Lauf aktueller ist."""
+    bleibt davor stehen, falls players_map beim naechsten Lauf aktueller ist.
+
+    Der Zeiger wird als MAXIMUM ueber alle verarbeiteten dt-Werte berechnet,
+    nicht als "letzter Schleifendurchlauf" - get_activities_feed()s
+    Reihenfolge ist laut eigenem Docstring UNBESTAETIGT (moeglicherweise
+    newest-first statt oldest-first). Bei "letzter Schleifendurchlauf" wuerde
+    ein newest-first-Feed den Zeiger auf den AELTESTEN verarbeiteten Kauf
+    zurueckfallen lassen - da der Filter >= since_dt ist (inklusiv), wuerde
+    das bei jedem 2h-Lauf den kompletten Backlog erneut verarbeiten (echtes
+    Quota-Risiko, siehe HANDOFF.md Quota-Vorfall). max() macht die
+    Zeiger-Berechnung ordnungsunabhaengig."""
     new_purchases = _filter_new_system_purchases(activities, since_dt)
     if not new_purchases:
         return [], None
 
     entries = []
-    last_processed_dt = None
+    processed_dts = []
     for activity in new_purchases:
         data = activity["data"]
         player_id = data.get("pi")
@@ -96,7 +106,7 @@ def build_new_entries(
                 file=sys.stderr,
             )
             continue
-        last_processed_dt = activity["dt"]
+        processed_dts.append(activity["dt"])
 
         try:
             history = get_history(token, league_id, player_id, timeframe=HISTORY_TIMEFRAME_DAYS)
@@ -125,7 +135,10 @@ def build_new_entries(
             "purchased_at": activity["dt"],
         })
 
-    return entries, last_processed_dt
+    return entries, (max(processed_dts) if processed_dts else None)
+
+
+MAX_HISTORY_ENTRIES_IN_SNAPSHOT = 400
 
 
 def update_and_load(
@@ -138,7 +151,19 @@ def update_and_load(
 ) -> list[dict]:
     """Zentraler Einstiegspunkt, von dashboard_export.export() aufgerufen.
     client=None (FIRESTORE_ENABLED fehlt, lokaler Testlauf) ist ein reines
-    No-Op - kein bid_premium_history im Snapshot in diesem Fall."""
+    No-Op - kein bid_premium_history im Snapshot in diesem Fall.
+
+    Die bid_premium_log-Collection waechst dauerhaft (ein Eintrag pro
+    Systemkauf, fuer den Rest der Saison und darueber hinaus) und wird
+    komplett in dashboard_snapshot/latest eingebettet (Firestores 1-MiB-
+    Dokumentgrenze, schon jetzt ~450 Spieler schwer). suggestBid() im
+    Frontend nutzt ohnehin nur die k=20 aehnlichsten Eintraege je Position -
+    hier deshalb auf die MAX_HISTORY_ENTRIES_IN_SNAPSHOT neuesten Kaeufe
+    gedeckelt (neueste zuerst, absteigend nach purchased_at). activity_id
+    ist nur die Firestore-Schreib-Doc-Id und wird von keinem Frontend-
+    Verbraucher gelesen (siehe frontend/src/types.ts::BidPremiumEntry) -
+    wird deshalb vor dem Zurueckgeben entfernt statt unnoetig mitgeschickt
+    zu werden."""
     if client is None:
         return []
 
@@ -151,4 +176,6 @@ def update_and_load(
     if new_pointer:
         firestore_db.upsert_bid_premium_pointer(client, new_pointer)
 
-    return firestore_db.get_bid_premium_history(client)
+    history = firestore_db.get_bid_premium_history(client)
+    capped = sorted(history, key=lambda e: e["purchased_at"], reverse=True)[:MAX_HISTORY_ENTRIES_IN_SNAPSHOT]
+    return [{k: v for k, v in e.items() if k != "activity_id"} for e in capped]

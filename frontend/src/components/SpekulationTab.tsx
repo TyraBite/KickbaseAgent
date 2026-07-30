@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { suggestBid, type SpekulationRow } from "../lib/derive";
+import { MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type SpekulationRow } from "../lib/derive";
 import type { BidPremiumEntry, PositionNeed } from "../types";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
@@ -317,7 +317,11 @@ function SpekulationDetailModal({
           </Row>
           <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
           <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
-          {hasValidSuggestion && suggestion ? (
+          {hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
+            <Row label="Orientierungsgebot">
+              {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
+            </Row>
+          ) : hasValidSuggestion && suggestion ? (
             <>
               <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
               <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>

@@ -386,6 +386,20 @@ export function buildBudgetPlan(params: {
 
 export interface BidSuggestion { p50: number; p75: number; p90: number; n: number }
 
+// Ab wie vielen aehnlichen historischen Kaeufen p50/p75/p90 als DREI
+// unterschiedliche Werte dargestellt werden. Bei kleinerem n (realistisch
+// z.B. fuer Torwart frueh in der Saison) kollabieren die drei Perzentile
+// oft auf denselben Array-Index (Math.floor(p * (n - 1)) bei n=2 oder 3) -
+// drei gleich aussehende Euro-Betraege unter drei verschieden klingenden
+// Labels waeren irrefuehrend (widerspricht der expliziten Vorgabe, dies nie
+// als echte Wahrscheinlichkeit/Garantie darzustellen). Unterhalb dieser
+// Schwelle zeigt die UI stattdessen EINEN "Orientierungsgebot"-Wert mit
+// explizitem Hinweis auf die geringe Datenbasis (siehe TransfermarktTab.tsx/
+// SpekulationTab.tsx). n=6 ist der kleinste Wert, ab dem p50/p75/p90 nicht
+// mehr strukturell auf denselben Index kollabieren koennen (floor(0.5*5)=2,
+// floor(0.75*5)=3, floor(0.9*5)=4 - alle drei verschieden).
+export const MIN_N_FOR_PERCENTILE_SPREAD = 6;
+
 // Aehnlichkeits-Distanz-Formel identisch zu scoreReplacementPool() (WunschkaderTab.tsx)
 // - bewusst hier separat implementiert statt importiert, da
 // scoreReplacementPool() gegen AlleSpielerRow/Ersatzspieler-Suche

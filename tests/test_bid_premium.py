@@ -159,6 +159,39 @@ class BuildNewEntriesTests(unittest.TestCase):
         # fehlenden Marktwert - siehe Global Constraints).
         self.assertEqual(pointer, "2026-07-02T10:00:00Z")
 
+    def test_pointer_is_max_dt_not_last_iterated_for_descending_feed(self):
+        # Regressionstest fuer den Quota-Bug: get_activities_feed()s Reihenfolge
+        # ist UNBESTAETIGT (siehe Docstring dort) - koennte newest-first sein.
+        # Aktivitaeten hier bewusst ABSTEIGEND sortiert (newest-first), die
+        # letzte Schleifeniteration ist damit die AELTESTE Aktivitaet. Der
+        # Zeiger muss trotzdem auf dem NEUESTEN dt landen (max ueber alle
+        # verarbeiteten Aktivitaeten), sonst wuerde bei einem newest-first-Feed
+        # der komplette Backlog bei jedem 2h-Lauf erneut verarbeitet.
+        activities = [
+            _trade_activity("2026-07-03T10:00:00Z", trp=13_000_000, pi="p1"),
+            _trade_activity("2026-07-02T10:00:00Z", trp=12_000_000, pi="p1"),
+            _trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1"),
+        ]
+
+        # get_history liefert fuer jede Aktivitaet einen passenden Marktwert
+        # am jeweiligen Kauftag, damit alle drei Aktivitaeten als "verarbeitet"
+        # zaehlen (kein History-Fehlschlag, der den Test verfaelschen wuerde).
+        def fake_get_history(token, league_id, player_id, timeframe=365):
+            return {
+                "it": [
+                    {"dt": _days_since_epoch(a["dt"]), "mv": 10_000_000}
+                    for a in activities
+                ]
+            }
+
+        entries, pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            get_history=fake_get_history,
+        )
+
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(pointer, "2026-07-03T10:00:00Z")
+
     def test_no_new_activities_returns_empty_and_none_pointer(self):
         entries, pointer = build_new_entries(
             "tok", "l1", [], since_dt="2026-07-01T00:00:00Z", players_map=self._players_map(),
@@ -173,7 +206,9 @@ class UpdateAndLoadTests(unittest.TestCase):
     def test_writes_new_entries_and_advances_pointer_when_found(self, mock_fs):
         from src.bid_premium import update_and_load
         mock_fs.get_bid_premium_pointer.return_value = None
-        mock_fs.get_bid_premium_history.return_value = [{"activity_id": "act_1", "player_id": "p1"}]
+        mock_fs.get_bid_premium_history.return_value = [
+            {"activity_id": "act_1", "player_id": "p1", "purchased_at": "2026-07-01T10:00:00Z"}
+        ]
         activities = [_trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1")]
         target_days = _days_since_epoch("2026-07-01T10:00:00Z")
         client = MagicMock()
@@ -186,13 +221,17 @@ class UpdateAndLoadTests(unittest.TestCase):
 
         mock_fs.upsert_bid_premium_entries.assert_called_once()
         mock_fs.upsert_bid_premium_pointer.assert_called_once_with(client, "2026-07-01T10:00:00Z")
-        self.assertEqual(result, [{"activity_id": "act_1", "player_id": "p1"}])
+        # activity_id (nur Firestore-Schreib-Doc-Id) wird vor der Rueckgabe
+        # entfernt - kein Frontend-Verbraucher braucht ihn (siehe Finding 4).
+        self.assertEqual(result, [{"player_id": "p1", "purchased_at": "2026-07-01T10:00:00Z"}])
 
     @patch("src.bid_premium.firestore_db")
     def test_no_new_purchases_skips_writes_but_still_returns_history(self, mock_fs):
         from src.bid_premium import update_and_load
         mock_fs.get_bid_premium_pointer.return_value = "2026-07-05T00:00:00Z"
-        mock_fs.get_bid_premium_history.return_value = [{"activity_id": "act_old"}]
+        mock_fs.get_bid_premium_history.return_value = [
+            {"activity_id": "act_old", "purchased_at": "2026-06-01T00:00:00Z"}
+        ]
 
         result = update_and_load(
             client=MagicMock(), token="tok", league_id="l1", activities=[],
@@ -201,7 +240,7 @@ class UpdateAndLoadTests(unittest.TestCase):
 
         mock_fs.upsert_bid_premium_entries.assert_not_called()
         mock_fs.upsert_bid_premium_pointer.assert_not_called()
-        self.assertEqual(result, [{"activity_id": "act_old"}])
+        self.assertEqual(result, [{"purchased_at": "2026-06-01T00:00:00Z"}])
 
     def test_none_client_is_noop_and_returns_empty(self):
         from src.bid_premium import update_and_load
@@ -210,6 +249,30 @@ class UpdateAndLoadTests(unittest.TestCase):
             players_map={},
         )
         self.assertEqual(result, [])
+
+    @patch("src.bid_premium.firestore_db")
+    def test_history_is_capped_sorted_descending_and_activity_id_stripped(self, mock_fs):
+        from src.bid_premium import MAX_HISTORY_ENTRIES_IN_SNAPSHOT, update_and_load
+        mock_fs.get_bid_premium_pointer.return_value = "2026-07-05T00:00:00Z"
+        # Absichtlich mehr als das Cap UND in aufsteigender Reihenfolge
+        # gemockt, um sowohl Deckelung als auch Sortierung zu pruefen.
+        unsorted_oversized_history = [
+            {"activity_id": f"act_{i}", "player_id": "p1", "purchased_at": f"2026-01-{(i % 28) + 1:02d}T00:00:00Z"}
+            for i in range(MAX_HISTORY_ENTRIES_IN_SNAPSHOT + 50)
+        ]
+        newest_entry = {"activity_id": "act_newest", "player_id": "p1", "purchased_at": "2099-01-01T00:00:00Z"}
+        mock_fs.get_bid_premium_history.return_value = unsorted_oversized_history + [newest_entry]
+
+        result = update_and_load(
+            client=MagicMock(), token="tok", league_id="l1", activities=[],
+            players_map={}, get_history=lambda *a, **k: {"it": []},
+        )
+
+        self.assertEqual(len(result), MAX_HISTORY_ENTRIES_IN_SNAPSHOT)
+        self.assertEqual(result[0]["purchased_at"], "2099-01-01T00:00:00Z")
+        purchased_ats = [e["purchased_at"] for e in result]
+        self.assertEqual(purchased_ats, sorted(purchased_ats, reverse=True))
+        self.assertTrue(all("activity_id" not in e for e in result))
 
 
 if __name__ == "__main__":

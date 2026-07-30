@@ -139,7 +139,12 @@ export interface DashboardSnapshot {
   own_budget_exact: number | null;
   own_available_budget: number | null;
   fetched_at: string;
-  bid_premium_history: BidPremiumEntry[];
-  position_need: PositionNeed;
+  // Optional: Frontend-Deploys koennen live sein, bevor das Backend diese
+  // Felder je geschrieben hat (echter Vorfall, siehe HANDOFF.md) - jeder
+  // Verbraucher MUSS mit ?? []/?? {} lesen. Als "required" typisiert wuerde
+  // der Compiler diese Guards als totes Codeschema behandeln und ein
+  // kuenftiger Edit koennte einen davon entfernen, ohne dass tsc das merkt.
+  bid_premium_history?: BidPremiumEntry[];
+  position_need?: PositionNeed;
   [key: string]: unknown;
 }

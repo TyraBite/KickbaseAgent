@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
-import { suggestBid, type TransfermarktRow } from "../lib/derive";
+import { MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type TransfermarktRow } from "../lib/derive";
 import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
@@ -261,7 +261,11 @@ function TransfermarktDetailModal({
         <dl className="space-y-2 text-sm">
           <Row label="Preis">{fmtNum(row.price)}</Row>
           {row.is_system_offer ? (
-            hasValidSuggestion && suggestion ? (
+            hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
+              <Row label="Orientierungsgebot">
+                {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
+              </Row>
+            ) : hasValidSuggestion && suggestion ? (
               <>
                 <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
                 <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>

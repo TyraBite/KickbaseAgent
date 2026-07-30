@@ -14,6 +14,7 @@ from src.dashboard_export import (
     _resolve_is_light,
     export,
 )
+from src.kickbase_client import KickbaseError
 
 
 class BuildTransfermarktListingsTests(unittest.TestCase):
@@ -241,6 +242,38 @@ class ExportLightModeFreshnessTests(unittest.TestCase):
         data = self._run_export_in_light_mode(cached_snapshot, [FRESH_MARKET_LISTING])
 
         self.assertEqual(data["players"]["p_stale"], cached_snapshot["players"]["p_stale"])
+
+
+class ExportActivityFeedGuardTests(unittest.TestCase):
+    """Finding 2 (finaler Review): ein transienter Kickbase-API-Fehler beim
+    Activity-Feed darf export() nicht abbrechen - bid_premium ist eine
+    best-effort-Datenquelle, kein kritischer Pfad. Vor dem Fix propagierte
+    eine KickbaseError hier ungefangen aus export() heraus, BEVOR
+    _finalize_firestore_write() lief - der komplette Dashboard-Snapshot
+    (nicht nur bid_premium) waere dann fuer den ganzen Lauf nicht
+    aktualisiert worden."""
+
+    def test_activity_feed_error_does_not_abort_export(self):
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+            "src.dashboard_export.get_me", return_value={"cpi": "1"}
+        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-29"), patch(
+            "src.dashboard_export._load_snapshot", return_value=([], [], [], [])
+        ), patch("src.dashboard_export.firestore_db.connect"), patch(
+            "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
+        ), patch(
+            "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
+        ), patch("src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
+        ), patch("src.dashboard_export.player_valuation.fetch_all_players", return_value=[]
+        ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
+        ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
+            data = export()
+
+        self.assertEqual(data["bid_premium_history"], [])
 
 
 class BuildPlayersMapTests(unittest.TestCase):

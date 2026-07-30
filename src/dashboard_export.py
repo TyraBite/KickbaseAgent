@@ -428,7 +428,14 @@ def export() -> dict:
     )
 
     fs_client = firestore_db.connect() if os.environ.get("FIRESTORE_ENABLED") else None
-    activities = get_activities_feed(token, league_id) if fs_client else []
+    if fs_client:
+        try:
+            activities = get_activities_feed(token, league_id)
+        except KickbaseError as exc:
+            print(f"Warnung: Activity-Feed nicht ladbar, bid_premium-Update uebersprungen: {exc}", file=sys.stderr)
+            activities = []
+    else:
+        activities = []
     bid_premium_history = bid_premium.update_and_load(fs_client, token, league_id, activities, players_map)
 
     ligaanalyse_result = _build_ligaanalyse(
