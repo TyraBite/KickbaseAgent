@@ -1,16 +1,17 @@
-"""Baut den Datensatz fuer die drei Dashboard-Ansichten (Transfermarkt/
-Eigenes Team/Ligaanalyse) - komplett berechnetes dict (Joins/ML/Fairwert
-schon gemischt). Seit Phase 2 (siehe
-docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md)
-KEIN HTML-Rendering mehr hier: index.html ist ein hand-gepflegter,
-statischer Shell (Login + Firebase-Auth + einmaliges getDoc), der dieses
-dict live aus Firestore (dashboard_snapshot/latest) liest, statt es inline
-gebacken zu bekommen. export() schreibt das dict nur noch (FIRESTORE_ENABLED-
-gated, wie fetcher.py) nach Firestore und gibt es zurueck.
+"""Baut den Datensatz fuer die sieben Dashboard-Ansichten (Eigenes Team/
+Spekulation/Wunschkader/Transfermarkt/Ligaanalyse/Alle Spieler/ML-Genauigkeit)
+- komplett berechnetes dict (Joins/ML/Fairwert schon gemischt). Seit Phase 2
+(siehe docs/superpowers/specs/2026-07-27-kickbase-firestore-dashboard-design.md)
+KEIN HTML-Rendering mehr hier: das React/Vite/Tailwind-Frontend (`frontend/`,
+seit dem Cutover 2026-07-29 die einzige UI, die alte handgepflegte
+index.html ist entfernt) liest dieses dict live aus Firestore
+(dashboard_snapshot/latest), statt es inline gebacken zu bekommen. export()
+schreibt das dict nur noch (FIRESTORE_ENABLED-gated, wie fetcher.py) nach
+Firestore und gibt es zurueck.
 
 Eigener Lauf, unabhaengig von main.py (kein Discord-Versand): ruft
 fetcher.run() selbst auf (frischer Snapshot, ueberschreibt den heutigen bei
-einem zweiten Lauf am selben Tag - genau das will der 22:30-Uhr-Job) und
+einem zweiten Lauf am selben Tag - genau das will der taegliche Heavy-Lauf) und
 market_predictor.predict_market_value_changes() (ML-Prognosen). Die
 K-Kalibrierung (player_valuation) wird NICHT taeglich neu gerechnet, nur der
 zuletzt gespeicherte Stand gelesen (siehe player_valuation.load_calibration) -
@@ -20,8 +21,8 @@ Seit der Cadence-Aufspaltung (Heavy/Light, 2026-07-29) steuert die
 Umgebungsvariable DASHBOARD_MODE den Umfang dieses Laufs: fehlt sie (oder ist
 != 'light', z.B. workflow_dispatch/dashboard-marktwerte.yml), laeuft export()
 den vollen Marktwert-Pfad (fetch_all_players + predict_market_value_changes,
-~12x teurer an Kickbase-API-Calls/ML-Training). 'light' (dashboard.yml, alle
-2h) uebernimmt die marktwert-abgeleiteten Teile stattdessen aus dem letzten
+~12x teurer an Kickbase-API-Calls/ML-Training). 'light' (dashboard.yml,
+stuendlich) uebernimmt die marktwert-abgeleiteten Teile stattdessen aus dem letzten
 Firestore-Snapshot (dashboard_snapshot/latest) - Kader/Markt/Liga bleiben
 trotzdem taggenau frisch. Ohne vorherigen Snapshot (Cold Start) faellt
 'light' automatisch auf den vollen Pfad zurueck, siehe _resolve_is_light/
@@ -290,8 +291,7 @@ def _build_players_map(
         }
 
     HISTORY_FIELDS = (
-        "market_value_change_7d", "market_value_low_92d",
-        "market_value_high_92d", "market_value_in_drop_phase",
+        "market_value_change_7d", "market_value_low_92d", "market_value_high_92d",
     )
     for row in list(own_squad) + list(market_listings):
         pid = row["player_id"]
@@ -331,7 +331,6 @@ def _build_transfermarkt_listings(market_listings) -> list[dict]:
             "price_delta_pct": r["price_delta_pct"],
             "offering_username": r["offering_username"],
             "is_system_offer": bool(r["is_system_offer"]),
-            "leading_bid_username": r["leading_bid_username"],
             "leading_bid_price": r["leading_bid_price"],
             "is_own_leading_bid": bool(r["is_own_leading_bid"]),
             "listed_at": r["listed_at"],
@@ -388,7 +387,6 @@ def export() -> dict:
         "fetched_at": fetched_at,
         "own_available_budget": own_available_budget,
         "own_budget_exact": own_budget_row["estimated_budget"] if own_budget_row else None,
-        "team_total_value": sum((p["market_value"] or 0) for p in own_squad),
         "calibration": heavy["calibration"],
         "ml_metrics": heavy["ml_metrics"],
         "ml_accuracy_trend": heavy["ml_accuracy_trend"],
@@ -399,7 +397,6 @@ def export() -> dict:
         "owned_by": heavy["owned_by"],
         "wunschkader_targets": wunschkader_targets,
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
-        "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
         "ligaanalyse": _build_ligaanalyse(
             token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad,
             {pid: p["starting_rank"] for pid, p in players_map.items()},
@@ -412,7 +409,7 @@ def export() -> dict:
 
 def _finalize_firestore_write(data: dict) -> None:
     """Schreibt den fertigen Snapshot nach Firestore (dashboard_snapshot/latest,
-    von index.html UND frontend/ live gelesen) und macht jeden Firestore-Ausfall
+    vom Frontend live gelesen) und macht jeden Firestore-Ausfall
     sichtbar: genau wie bei _load_wunschkader() oben (siehe Docstring dort)
     darf ein Firestore-Ausfall bei diesem seiten-relevanten Write dashboard.yml
     nicht gruen durchlaufen lassen - sonst bleibt die Live-Seite unbemerkt auf

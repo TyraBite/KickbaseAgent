@@ -28,7 +28,7 @@ MAX_BATCH_OPS = 500
 
 class FirestoreWriteError(Exception):
     """Signalisiert einen fehlgeschlagenen Firestore-Schreibzugriff auf Daten,
-    die das Dashboard (index.html UND frontend/) direkt anzeigt - z.B. bei
+    die das Frontend direkt anzeigt - z.B. bei
     Spark-Free-Tier-Quota-Erschoepfung. Anders als die ML-internen Bookkeeping-
     Schreibversuche in market_predictor.py (die weiterhin nur warnen und
     weiterlaufen) darf so ein Fehler die Pipeline nicht stillschweigend gruen
@@ -135,11 +135,3 @@ def get_wunschkader(client: firestore.Client) -> dict | None:
     (vor der einmaligen Migration)."""
     doc = client.collection("wunschkader").document("current").get()
     return doc.to_dict() if doc.exists else None
-
-
-def upsert_wunschkader(client: firestore.Client, data: dict) -> None:
-    """Ueberschreibt den kompletten Wunschkader-Datensatz. Aktuell nur aus
-    Tests/einmaligen Ad-hoc-Migrationen aufgerufen - der laufende
-    Schreibpfad ist der Browser (Client-SDK, setDoc mit merge:true auf nur
-    targets), nicht diese Admin-SDK-Funktion."""
-    client.collection("wunschkader").document("current").set(data)

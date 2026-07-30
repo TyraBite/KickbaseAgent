@@ -1,12 +1,6 @@
 import { formatDurationMs } from "../format";
 import type { Calibration, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
 
-// 1:1 Port von dashboard_export.py::_k_per_point()
-export function costPerPoint(marketValue: number | null, averagePoints: number | null): number | null {
-  if (!marketValue || !averagePoints) return null;
-  return marketValue / averagePoints;
-}
-
 // 1:1 Port von player_valuation.py::k_for_position()
 export function kForPosition(calibration: Calibration | null, position: string): number | null {
   if (!calibration) return null;
@@ -146,7 +140,7 @@ export function auctionLabelAndRemaining(
 
 export interface AuctionStatus { label: string; remainingSeconds: number; urgent: boolean }
 
-export function auctionStatus(
+function auctionStatus(
   listedAt: string | null,
   expiresAt: string | null,
   expiryIsEstimate: boolean,
@@ -160,11 +154,6 @@ export function auctionStatus(
 
 export function isAffordable(price: number | null, ownAvailableBudget: number | null): boolean {
   return ownAvailableBudget !== null && price !== null && price <= ownAvailableBudget;
-}
-
-export function trendDirection(change7d: number | null | undefined): "flat" | "up" | "down" {
-  if (change7d === null || change7d === undefined || change7d === 0) return "flat";
-  return change7d > 0 ? "up" : "down";
 }
 
 export function roiPct(mlPrediction: number | null, price: number | null): number | null {

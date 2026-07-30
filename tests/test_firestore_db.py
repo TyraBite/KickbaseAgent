@@ -48,7 +48,7 @@ class UpsertPredictionLogEntriesTests(unittest.TestCase):
 class UpsertDashboardSnapshotTests(unittest.TestCase):
     def test_writes_whole_dict_as_single_doc_named_latest(self):
         client = MagicMock()
-        data = {"fetched_at": "2026-07-27T20:00:00Z", "transfermarkt": [{"player_id": "p1"}]}
+        data = {"fetched_at": "2026-07-27T20:00:00Z", "transfermarkt_listings": [{"player_id": "p1"}]}
 
         firestore_db.upsert_dashboard_snapshot(client, data)
 
@@ -99,18 +99,6 @@ class GetWunschkaderTests(unittest.TestCase):
         client.collection.assert_any_call("wunschkader")
         client.collection.return_value.document.assert_called_with("current")
         self.assertEqual(result["formation"], "3-4-3")
-
-
-class UpsertWunschkaderTests(unittest.TestCase):
-    def test_writes_whole_dict_as_single_doc_named_current(self):
-        client = MagicMock()
-        data = {"targets": [{"name": "Krauß", "position": "Mittelfeld", "role": "Starter"}], "formation": "3-4-3"}
-
-        firestore_db.upsert_wunschkader(client, data)
-
-        client.collection.assert_any_call("wunschkader")
-        client.collection.return_value.document.assert_called_once_with("current")
-        client.collection.return_value.document.return_value.set.assert_called_once_with(data)
 
 
 class GetRecentPredictionLogEntriesTests(unittest.TestCase):

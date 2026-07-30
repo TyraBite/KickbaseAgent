@@ -20,7 +20,7 @@ class BuildTransfermarktListingsTests(unittest.TestCase):
         listing = {
             "player_id": "p1", "price": 5_000_000, "price_delta_pct": 2.5,
             "offering_username": None, "is_system_offer": 1, "pending_offers_count": 0,
-            "leading_bid_username": None, "leading_bid_price": None, "is_own_leading_bid": 0,
+            "leading_bid_price": None, "is_own_leading_bid": 0,
             "listed_at": "2026-07-27T10:00:00Z", "expires_at": "2026-07-29T20:00:00Z",
             "expiry_is_estimate": 0,
         }
@@ -174,11 +174,11 @@ FRESH_MARKET_LISTING = {
     "player_id": "p_new", "name": "Hajdari", "position": "Abwehr", "team_name": "Freiburg",
     "status_code": 0, "starting_rank": 1,
     "market_value": 14_000_000, "market_value_change_7d": None, "market_value_low_92d": None,
-    "market_value_high_92d": None, "market_value_in_drop_phase": None,
+    "market_value_high_92d": None,
     "average_points": 90, "total_points": 300,
     "price": 14_000_000, "price_delta_pct": 0.0,
     "offering_username": None, "is_system_offer": 1, "pending_offers_count": 0,
-    "leading_bid_username": None, "leading_bid_price": None, "is_own_leading_bid": 0,
+    "leading_bid_price": None, "is_own_leading_bid": 0,
     "listed_at": "2026-07-29T13:28:37Z", "expires_at": "2026-07-30T13:28:37Z",
     "expiry_is_estimate": 0,
 }
@@ -257,7 +257,7 @@ class BuildPlayersMapTests(unittest.TestCase):
             "team_name": "Bremen", "status_code": 0, "starting_rank": 1,
             "market_value": 10_500_000, "average_points": 122, "total_points": 488,
             "market_value_change_7d": 50_000, "market_value_low_92d": 9_800_000,
-            "market_value_high_92d": 10_600_000, "market_value_in_drop_phase": False,
+            "market_value_high_92d": 10_600_000,
         }
         row.update(overrides)
         return row

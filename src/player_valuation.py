@@ -27,7 +27,6 @@ werden statt sie aus Gesamt-/Schnittpunkten zurueckzurechnen.
 from __future__ import annotations
 
 import concurrent.futures
-import datetime
 import json
 import os
 import statistics
@@ -229,7 +228,6 @@ def save_calibration(calibration: dict, path: Path = CALIBRATION_PATH) -> None:
     siehe MDs/methodik.md). Kleine, von Hand lesbare JSON-Datei statt
     DB-Schema fuer einen einzigen Kalibrierungsstand."""
     payload = {
-        "calibrated_at": datetime.date.today().isoformat(),
         "n": calibration["n"],
         "global_k": calibration["global_k"],
         "position_k": calibration["position_k"],

@@ -4,7 +4,6 @@ export interface PositionCalibrationEntry {
 }
 
 export interface Calibration {
-  calibrated_at?: string;
   n: number;
   global_k: number | null;
   position_k: Record<string, PositionCalibrationEntry>;
@@ -23,7 +22,6 @@ export interface PlayerRecord {
   market_value_change_7d?: number;
   market_value_low_92d?: number;
   market_value_high_92d?: number;
-  market_value_in_drop_phase?: boolean;
   // Nur vorhanden, wenn das ML-Modell einen Wert produziert hat:
   ml_prediction?: number;
 }
@@ -34,7 +32,6 @@ export interface TransfermarktListing {
   price_delta_pct: number | null;
   offering_username: string | null;
   is_system_offer: boolean;
-  leading_bid_username: string | null;
   leading_bid_price: number | null;
   is_own_leading_bid: boolean;
   listed_at: string | null;
@@ -120,6 +117,5 @@ export interface DashboardSnapshot {
   signal_thresholds: SignalThresholds;
   own_budget_exact: number | null;
   own_available_budget: number | null;
-  fetched_at: string;
   [key: string]: unknown;
 }
