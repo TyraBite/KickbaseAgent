@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { DashboardSnapshot, MlAccuracyTrendEntry, MlModelType } from "../types";
+import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlModelType } from "../types";
 import { Badge } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum } from "../format";
@@ -30,6 +30,7 @@ function fmtAccPct(v: number | null | undefined): string {
 export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) {
   const metrics = data.ml_metrics;
   const trend = data.ml_accuracy_trend ?? [];
+  const outcomeCounts: BidPremiumOutcomeCounts = data.bid_premium_outcome_counts ?? {};
 
   if (!metrics) {
     return <p className="text-sm text-slate-500 dark:text-slate-400">Noch keine ML-Metriken verfügbar.</p>;
@@ -82,6 +83,27 @@ export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) 
           und zu niedrig zählen beide gleich) – ein grobes Maß fürs "Rauschen" der Prognose.
         </p>
       </div>
+
+      {Object.keys(outcomeCounts).length > 0 && (
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">Gebotsvorschläge-Tracking</h3>
+          <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+            Was aus abgeschlossenen Systemangeboten wurde, pro Position - Fremd-Käufe (echtes Gewinner-Gebot),
+            eigene Käufe (Gebot war ausreichend, echter Mindestpreis unbekannt), unverkauft abgelaufen (0% Aufschlag
+            hätte gereicht). Fließt nicht in die Gebotsempfehlungen ein, reine Beobachtung.
+          </p>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+            {Object.entries(outcomeCounts).map(([position, counts]) => (
+              <div key={position} className="rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-800">
+                <div className="mb-1 text-sm font-medium text-slate-900 dark:text-slate-50">{position}</div>
+                <div className="text-slate-500 dark:text-slate-400">
+                  {counts.rival_purchases} Fremd-Käufe · {counts.self_purchases} eigene · {counts.unsold} unverkauft
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">Trend: Richtungs-Genauigkeit über die Zeit</h3>
       <TrendChart trend={trend} />
