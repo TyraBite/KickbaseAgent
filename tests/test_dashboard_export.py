@@ -211,7 +211,8 @@ class ExportLightModeFreshnessTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
         ), patch("src.dashboard_export.firestore_db.upsert_dashboard_snapshot"), patch(
-            "src.dashboard_export._load_wunschkader", return_value=None
+            "src.dashboard_export.get_activities_feed", return_value=[]
+        ), patch("src.dashboard_export._load_wunschkader", return_value=None
         ), patch("src.dashboard_export._build_ligaanalyse", return_value=[]):
             return export()
 

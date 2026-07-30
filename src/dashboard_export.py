@@ -47,8 +47,8 @@ import sys
 
 from dotenv import load_dotenv
 
-from src import db, fetcher, firestore_db, market_predictor, player_valuation
-from src.kickbase_client import KickbaseError, get_manager_squad, get_me, login
+from src import bid_premium, db, fetcher, firestore_db, market_predictor, player_valuation
+from src.kickbase_client import KickbaseError, get_activities_feed, get_manager_squad, get_me, login
 
 # Toleranzband aus MDs/methodik.md, Abschnitt "Fairwert und Signal".
 SIGNAL_GOOD = 1.25
@@ -386,6 +386,10 @@ def export() -> dict:
         _build_wunschkader_targets(wunschkader_config, players_map) if wunschkader_config else []
     )
 
+    fs_client = firestore_db.connect() if os.environ.get("FIRESTORE_ENABLED") else None
+    activities = get_activities_feed(token, league_id) if fs_client else []
+    bid_premium_history = bid_premium.update_and_load(fs_client, token, league_id, activities, players_map)
+
     data = {
         "fetched_at": fetched_at,
         "own_available_budget": own_available_budget,
@@ -396,6 +400,7 @@ def export() -> dict:
         "ml_accuracy_trend": heavy["ml_accuracy_trend"],
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "players": players_map,
+        "bid_premium_history": bid_premium_history,
         "transfermarkt_listings": _build_transfermarkt_listings(market_listings),
         "own_squad_ids": [r["player_id"] for r in own_squad],
         "owned_by": heavy["owned_by"],
