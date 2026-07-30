@@ -110,7 +110,18 @@ export interface BidPremiumEntry {
   average_points_then: number | null;
   premium_pct: number;
   purchased_at: string;
+  // Fehlt auf Eintraegen von vor diesem Feature - siehe Global Constraints
+  // im Plan, immer mit `?? false`/truthy-Check lesen, nie als Pflichtfeld.
+  bought_by_self?: boolean;
 }
+
+export interface BidPremiumOutcomeCountsEntry {
+  rival_purchases: number;
+  self_purchases: number;
+  unsold: number;
+}
+
+export type BidPremiumOutcomeCounts = Record<string, BidPremiumOutcomeCountsEntry>;
 
 export interface PositionNeedEntry {
   avg_coverage: number;
@@ -139,6 +150,7 @@ export interface DashboardSnapshot {
   // der Compiler diese Guards als totes Codeschema behandeln und ein
   // kuenftiger Edit koennte einen davon entfernen, ohne dass tsc das merkt.
   bid_premium_history?: BidPremiumEntry[];
+  bid_premium_outcome_counts?: BidPremiumOutcomeCounts;
   position_need?: PositionNeed;
   [key: string]: unknown;
 }
