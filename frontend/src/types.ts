@@ -108,6 +108,22 @@ export interface MlAccuracyTrendEntry {
   HistGradientBoosting: number | null;
 }
 
+export interface BidPremiumEntry {
+  player_id: string;
+  position: string;
+  market_value_then: number;
+  average_points_then: number | null;
+  premium_pct: number;
+  purchased_at: string;
+}
+
+export interface PositionNeedEntry {
+  avg_coverage: number;
+  n_rivals: number;
+}
+
+export type PositionNeed = Record<string, PositionNeedEntry>;
+
 export interface DashboardSnapshot {
   players: Record<string, PlayerRecord>;
   calibration: Calibration | null;
@@ -123,5 +139,7 @@ export interface DashboardSnapshot {
   own_budget_exact: number | null;
   own_available_budget: number | null;
   fetched_at: string;
+  bid_premium_history: BidPremiumEntry[];
+  position_need: PositionNeed;
   [key: string]: unknown;
 }
