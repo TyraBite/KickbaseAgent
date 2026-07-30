@@ -2,7 +2,7 @@ name: Dashboard Export
 
 on:
   schedule:
-    - cron: '15 */2 * * *' # alle 2h zur Minute :15 (Drift zwischen CET/CEST akzeptiert, wie bisher)
+    - cron: '0 * * * *' # stuendlich zur vollen Stunde (neue Transfermarkt-Angebote erscheinen oft kurz davor)
   workflow_dispatch: {}
 
 jobs:

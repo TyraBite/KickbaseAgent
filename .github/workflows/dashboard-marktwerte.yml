@@ -2,11 +2,11 @@ name: Dashboard Marktwerte (Heavy)
 
 on:
   schedule:
-    # einmal/Tag um 22:10 Europe/Berlin (CET-Basis/Winterzeit-Aequivalent:
-    # 21:10 UTC). Waehrend CEST (Sommerzeit) verschiebt sich das lokal auf
-    # ca. 23:10 Uhr - Drift zwischen CET/CEST akzeptiert, wie bisher bei
+    # einmal/Tag um 22:05 Europe/Berlin (CET-Basis/Winterzeit-Aequivalent:
+    # 21:05 UTC). Waehrend CEST (Sommerzeit) verschiebt sich das lokal auf
+    # ca. 23:05 Uhr - Drift zwischen CET/CEST akzeptiert, wie bisher bei
     # dashboard.yml (kein DST-Erkennungs-Code, bewusst einfach gehalten).
-    - cron: '10 21 * * *'
+    - cron: '5 21 * * *'
   workflow_dispatch: {}
 
 jobs:
