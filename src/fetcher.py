@@ -103,13 +103,7 @@ def _parse_kickbase_dt(raw: str | None) -> datetime.datetime | None:
         return None
 
 
-def _compute_expiry(
-    exs_seconds,
-    listed_at: str | None,
-    is_system_offer: bool,
-    market_sell_days: int | None,
-    now: datetime.datetime,
-) -> tuple[str | None, bool]:
+def _compute_expiry(exs_seconds, now: datetime.datetime) -> tuple[str | None, bool]:
     """Gibt (expires_at, is_estimate) zurueck.
 
     Live bestaetigt 27.07.2026 an echten Beispielen (u.a. Stage, exs=175
@@ -122,20 +116,17 @@ def _compute_expiry(
     sekundengenaue Restzeit, keine Schaetzung.
 
     Mitspieler-Angebote liefern 'exs' dagegen NIE (auch nicht mit Gebot
-    drauf, live geprueft an Harder mit ofc=1) - fuer die bleibt die
-    mpst-Tage-Schaetzung ab 'dt' der einzige verfuegbare Anhaltspunkt
-    (Liga-Feld 'mpst', Feldname unbestaetigt, Wert 3 passt aber zum
-    beobachteten Zeitfenster) - als Schaetzung markiert (is_estimate=True)."""
+    drauf, live geprueft an Harder mit ofc=1). Frueher wurde hier ersatzweise
+    "gelistet + Liga-Feld 'mpst' Tage" geschaetzt - live widerlegt 2026-07-30:
+    ein Mitspieler-Angebot war 5 Tage nach dem Listing ueber die echte
+    Kickbase-API noch abrufbar, obwohl die mpst=3-Schaetzung es laengst als
+    abgelaufen auswies (das Feld bedeutet offenbar etwas anderes als
+    Listing-Lebensdauer). Ohne 'exs' gibt es keine verlaessliche Restzeit -
+    lieber ehrlich unbekannt als eine falsche "abgelaufen"-Anzeige."""
     if exs_seconds is not None:
         expires = now + datetime.timedelta(seconds=int(exs_seconds))
         return expires.strftime("%Y-%m-%dT%H:%M:%SZ"), False
-    if is_system_offer or not market_sell_days:
-        return None, False
-    listed = _parse_kickbase_dt(listed_at)
-    if listed is None:
-        return None, False
-    expires = listed + datetime.timedelta(days=market_sell_days)
-    return expires.strftime("%Y-%m-%dT%H:%M:%SZ"), True
+    return None, False
 
 
 def _market_item_to_row(
@@ -143,7 +134,6 @@ def _market_item_to_row(
     names_by_user_id: dict,
     team_names_by_id: dict,
     own_user_id: str | None = None,
-    market_sell_days: int | None = None,
     now: datetime.datetime | None = None,
 ) -> dict:
     now = now or datetime.datetime.now(datetime.timezone.utc)
@@ -186,9 +176,7 @@ def _market_item_to_row(
     team_id = item.get("tid")
     is_system_offer = not offering_user_id
     listed_at = item.get("dt")
-    expires_at, expiry_is_estimate = _compute_expiry(
-        item.get("exs"), listed_at, is_system_offer, market_sell_days, now
-    )
+    expires_at, expiry_is_estimate = _compute_expiry(item.get("exs"), now)
     return {
         "player_id": item.get("i") or item.get("pi"),
         "name": item.get("n") or item.get("pn"),
@@ -357,10 +345,6 @@ def run() -> str:
         raise RuntimeError("Account ist in keiner Liga Mitglied")
     league = _select_league(leagues)
     league_id = league["id"]
-    # "mpst" (Feldname UNBESTAETIGT, aber live beobachteter Wert 3 passt exakt
-    # zum Zeitfenster, in dem eigene Mitspieler-Angebote in dieser Liga
-    # automatisch verfallen) - siehe _compute_expiry().
-    market_sell_days = league.get("mpst")
 
     me = get_me(token, league_id)
     budget = me.get("b")
@@ -407,9 +391,7 @@ def run() -> str:
     market_fetched_at = datetime.datetime.now(datetime.timezone.utc)
     market_items = market_response.get("it", [])
     market_rows = [
-        _market_item_to_row(
-            item, names_by_user_id, team_names_by_id, own_user_id, market_sell_days, market_fetched_at
-        )
+        _market_item_to_row(item, names_by_user_id, team_names_by_id, own_user_id, market_fetched_at)
         for item in market_items
     ]
 
