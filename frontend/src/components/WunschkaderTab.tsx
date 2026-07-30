@@ -468,15 +468,15 @@ function DetailModal({
           </button>
         </div>
         <dl className="mb-4 space-y-2 text-sm">
-          <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
-          <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-          <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
+          <Row label="Verfügbarkeit">{computed.status}</Row>
           <Row label="Signal">
             <SignalBadge signal={computed.signal} thresholds={thresholds} />
           </Row>
-          <Row label="Verfügbarkeit">{computed.status}</Row>
-          <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+          <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
           <Row label="Geplanter Preis">{fmtNum(plannedPrice)}</Row>
+          <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+          <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+          <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
         </dl>
         <label className="mb-4 block text-sm">
           <span className="mb-1 block text-slate-500 dark:text-slate-400">Notiz</span>
@@ -569,7 +569,7 @@ function BudgetPlanCard({ plan }: { plan: BudgetPlan }) {
       <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-50">Budget-Planung</h3>
       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
         <div>
-          <div className="text-xs text-slate-500 dark:text-slate-400">Cash</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">Kapital</div>
           <div className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{fmtNum(plan.cash)}</div>
         </div>
         <div>

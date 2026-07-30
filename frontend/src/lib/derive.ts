@@ -146,7 +146,16 @@ export function auctionLabelAndRemaining(
   return { label: `läuft ab in ${formatDurationMs(remainingMs)}${suffix}`, remainingSeconds };
 }
 
-export interface AuctionStatus { label: string; remainingSeconds: number; urgent: boolean }
+export interface AuctionStatus { label: string; remainingSeconds: number; urgent: boolean; critical: boolean }
+
+// Zwei Dringlichkeits-Stufen (User-Wunsch 2026-07-30, vorher war nur "urgent"
+// ohne erklaerten Grund sichtbar): "urgent" = laeuft vor dem naechsten
+// 22-Uhr-Marktwert-Update ab (danach ist die Chance vorbei, bis dahin zu
+// reagieren). "critical" = zusaetzlich, unabhaengig davon, wenn nur noch
+// <=60 Minuten Restzeit bleiben (kann auch VOR dem naechsten Update-Cutoff
+// liegen und trotzdem laenger als 60min hin sein, oder umgekehrt - beide
+// Bedingungen sind unabhaengig voneinander, nicht Ober-/Teilmenge).
+const AUCTION_CRITICAL_SECONDS = 60 * 60;
 
 function auctionStatus(
   listedAt: string | null,
@@ -157,11 +166,8 @@ function auctionStatus(
   const { label, remainingSeconds } = auctionLabelAndRemaining(listedAt, expiresAt, expiryIsEstimate, now);
   const cutoffSeconds = (nextUpdateCutoff(now).getTime() - now.getTime()) / 1000;
   const urgent = remainingSeconds > 0 && remainingSeconds < cutoffSeconds;
-  return { label, remainingSeconds, urgent };
-}
-
-export function isAffordable(price: number | null, ownAvailableBudget: number | null): boolean {
-  return ownAvailableBudget !== null && price !== null && price <= ownAvailableBudget;
+  const critical = remainingSeconds > 0 && remainingSeconds <= AUCTION_CRITICAL_SECONDS;
+  return { label, remainingSeconds, urgent, critical };
 }
 
 export function roiPct(mlPrediction: number | null, price: number | null): number | null {
@@ -203,8 +209,8 @@ export function buildPlayerRow(player: PlayerRecord, calibration: Calibration | 
 
 export interface TransfermarktRow extends PlayerRow {
   price: number; price_delta_pct: number | null; offering_username: string | null;
-  is_system_offer: boolean; affordable: boolean;
-  auction_status: string; auction_remaining_seconds: number; auction_urgent: boolean;
+  is_system_offer: boolean;
+  auction_status: string; auction_remaining_seconds: number; auction_urgent: boolean; auction_critical: boolean;
   auction_expires_at: string | null;
 }
 
@@ -212,7 +218,6 @@ export function buildTransfermarktRows(
   players: Record<string, PlayerRecord>,
   listings: TransfermarktListing[],
   calibration: Calibration | null,
-  ownAvailableBudget: number | null,
   now: Date
 ): TransfermarktRow[] {
   return listings
@@ -220,13 +225,12 @@ export function buildTransfermarktRows(
     .map((l) => {
       const player = players[l.player_id];
       const base = buildPlayerRow(player, calibration);
-      const { label, remainingSeconds, urgent } = auctionStatus(l.listed_at, l.expires_at, l.expiry_is_estimate, now);
+      const { label, remainingSeconds, urgent, critical } = auctionStatus(l.listed_at, l.expires_at, l.expiry_is_estimate, now);
       return {
         ...base,
         price: l.price, price_delta_pct: l.price_delta_pct, offering_username: l.offering_username,
         is_system_offer: l.is_system_offer,
-        affordable: isAffordable(l.price, ownAvailableBudget),
-        auction_status: label, auction_remaining_seconds: remainingSeconds, auction_urgent: urgent,
+        auction_status: label, auction_remaining_seconds: remainingSeconds, auction_urgent: urgent, auction_critical: critical,
         auction_expires_at: l.expires_at,
       };
     });
@@ -237,7 +241,7 @@ export interface SpekulationRow {
   market_value: number | null;
   roi_pct: number; average_points: number | null; market_value_change_7d: number | null;
   market_value_low_92d: number | null; market_value_high_92d: number | null;
-  ml_prediction: number | null; auction_status: string | null; auction_urgent: boolean;
+  ml_prediction: number | null; auction_status: string | null; auction_urgent: boolean; auction_critical: boolean;
   auction_remaining_seconds: number | null; auction_expires_at: string | null;
 }
 
@@ -255,7 +259,7 @@ export function buildSpekulationRows(transfermarktRows: TransfermarktRow[]): Spe
       average_points: r.average_points, market_value_change_7d: r.market_value_change_7d,
       ml_prediction: r.ml_prediction,
       auction_status: r.auction_status, auction_remaining_seconds: r.auction_remaining_seconds,
-      auction_urgent: r.auction_urgent, auction_expires_at: r.auction_expires_at,
+      auction_urgent: r.auction_urgent, auction_critical: r.auction_critical, auction_expires_at: r.auction_expires_at,
       market_value_low_92d: r.market_value_low_92d, market_value_high_92d: r.market_value_high_92d,
     }))
     .sort((a, b) => b.roi_pct - a.roi_pct);

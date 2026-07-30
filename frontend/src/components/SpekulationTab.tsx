@@ -25,7 +25,7 @@ const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 // Methodik-Hinweis 1:1 aus der bestehenden index.html übernommen (mit Umlauten).
 const HINT =
   "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive ML-Prognose. " +
-  "ML-Prognose ist nur eine 1-Tages-Vorhersage – Spekulation stützt sich auf den laufenden Trend, nicht allein aufs Modell. Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Update ab.";
+  "ML-Prognose ist nur eine 1-Tages-Vorhersage – Spekulation stützt sich auf den laufenden Trend, nicht allein aufs Modell. Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Update ab, ⏰ zusätzlich wenn nur noch bis zu 60 Minuten bleiben.";
 
 function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
   const sorted = [...rows];
@@ -189,8 +189,8 @@ function SpekulationCard({
             {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
           </span>
         </Row>
-        <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
         <Row label="Preis">{fmtNum(row.price)}</Row>
+        <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
         <Row label="Trend 7T">
           <span className={trendClass(row.market_value_change_7d)}>
             {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)}{" "}
@@ -238,8 +238,8 @@ function SpekulationTable({
         </span>
       ),
     },
-    { key: "roi_pct", label: "Rendite%", align: "right", sortValue: (r) => r.roi_pct, render: (r) => `${r.roi_pct.toFixed(1)}%` },
     { key: "price", label: "Preis", align: "right", sortValue: (r) => r.price, render: (r) => fmtNum(r.price) },
+    { key: "roi_pct", label: "Rendite%", align: "right", sortValue: (r) => r.roi_pct, render: (r) => `${r.roi_pct.toFixed(1)}%` },
     {
       key: "market_value_change_7d",
       label: "Trend 7T",
@@ -317,19 +317,19 @@ function SpekulationDetailModal({
             </span>
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
-          <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
-          <Row label="Preis">{fmtNum(row.price)}</Row>
           <Row label="Trend 7T">
             <span className={trendClass(row.market_value_change_7d)}>
               {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)}{" "}
               {fmtSigned(row.market_value_change_7d)}
             </span>
           </Row>
+          <Row label="Preis">{fmtNum(row.price)}</Row>
+          <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
+          <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
+          <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
           <Row label="Auktion">
             <AuctionValue row={row} now={now} />
           </Row>
-          <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
-          <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
           {hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
             <Row label="Orientierungsgebot">
               {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
@@ -346,9 +346,6 @@ function SpekulationDetailModal({
           )}
           {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
         </dl>
-        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          Historischer Vergleichswert — keine Garantie, echte Konkurrenzgebote sind beim blinden Verfahren nie sichtbar.
-        </p>
       </div>
     </div>
   );
@@ -367,6 +364,7 @@ function CardHeader({ row }: { row: SpekulationRow }) {
 }
 
 function AuctionValue({ row }: { row: SpekulationRow; now: number }) {
+  if (row.auction_critical) return <Badge tone="crit">⏰ {row.auction_status ?? "unbekannt"}</Badge>;
   if (row.auction_urgent) return <Badge tone="crit">{row.auction_status ?? "unbekannt"}</Badge>;
   if (!row.auction_status && !row.auction_expires_at) {
     return <span className="text-slate-400 dark:text-slate-500">unbekannt</span>;

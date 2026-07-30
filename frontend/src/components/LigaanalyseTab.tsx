@@ -4,7 +4,7 @@ import { Badge, Row } from "./ui";
 import { fmtNum } from "../format";
 
 const HINT =
-  "Budgets außer der eigenen Zeile sind Schätzungen aus dem Activity-Feed (siehe MDs/methodik.md). " +
+  "Kapital/Budget außer der eigenen Zeile sind Schätzungen aus dem Activity-Feed (siehe MDs/methodik.md). " +
   "Stammspieler = starting_rank 1 oder 2 (wahrscheinlichster/zweitwahrscheinlichster Stammplatz je Position) im gesamten Kader.";
 
 export default function LigaanalyseTab({ data }: { data: DashboardSnapshot }) {
@@ -50,14 +50,14 @@ function LigaanalyseCard({ row }: { row: LigaanalyseRow }) {
       </div>
       <dl className="space-y-1.5 text-sm">
         <Row label="Platz">{fmtNum(row.season_placement)}</Row>
+        <Row label="Budget">{fmtNum(row.available_budget)}</Row>
+        <Row label={row.is_self ? "Kapital" : "Kapital (geschätzt)"}>{fmtNum(row.estimated_budget)}</Row>
+        <Row label="Teamwert">{fmtNum(row.team_value)}</Row>
+        <Row label="Kaderwert">{fmtNum(row.squad_value)}</Row>
         <Row label="Punkte">{fmtNum(row.season_points)}</Row>
         <Row label="Kadergröße">{fmtNum(row.squad_size)}</Row>
         <Row label="Stammspieler">{fmtNum(row.regular_count)}</Row>
         <Row label="Verkaufsangebote">{fmtNum(row.sell_count)}</Row>
-        <Row label="Teamwert">{fmtNum(row.team_value)}</Row>
-        <Row label="Kaderwert">{fmtNum(row.squad_value)}</Row>
-        <Row label={row.is_self ? "Budget" : "Budget (geschätzt)"}>{fmtNum(row.estimated_budget)}</Row>
-        <Row label="Verfügbar (inkl. Kredit)">{fmtNum(row.available_budget)}</Row>
       </dl>
     </div>
   );

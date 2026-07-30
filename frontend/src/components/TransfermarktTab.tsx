@@ -8,6 +8,7 @@ import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
 // cost_per_point bewusst weggelassen (redundant zu Signal, schneller Port
 // s. Plan - echter Feld-Audit folgt spaeter).
 const TREND_7D_THRESHOLDS = { flat: 200_000, strong: 1_500_000 };
+const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 const POSITIONS = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
 type Anbieter = "all" | "kickbase" | "mitspieler";
 type SortKey = "auction" | "price" | "signal" | "trend" | "ml" | "name";
@@ -47,7 +48,7 @@ function sortRows(rows: TransfermarktRow[], key: SortKey): TransfermarktRow[] {
 }
 
 const HINT =
-  "Signal > 1,25 = deutlich unter Fairwert, < 0,80 = Prämie (siehe MDs/methodik.md). Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Marktwert-Update ab.";
+  "Signal > 1,25 = deutlich unter Fairwert, < 0,80 = Prämie (siehe MDs/methodik.md). Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Marktwert-Update ab, ⏰ zusätzlich wenn nur noch bis zu 60 Minuten bleiben.";
 
 // Auktions-Status kommt clientseitig aus buildTransfermarktRows() statt als
 // fertiger Server-String - `rows`/`now` kommen vom gemeinsamen Ticker in
@@ -95,15 +96,17 @@ export default function TransfermarktTab({
       ),
     },
     { key: "price", label: "Preis", align: "right", sortValue: (r) => r.price, render: (r) => fmtNum(r.price) },
-    { key: "price_delta_pct", label: "Delta%", align: "right", sortValue: (r) => r.price_delta_pct, render: (r) => fmtPct(r.price_delta_pct) },
     {
-      key: "offering_username",
-      label: "Anbieter",
-      sortValue: (r) => (r.is_system_offer ? "Kickbase" : r.offering_username),
-      render: (r) => (r.is_system_offer ? "Kickbase" : r.offering_username ?? ""),
+      key: "ml_prediction",
+      label: "ML-Prognose",
+      align: "right",
+      sortValue: (r) => r.ml_prediction,
+      render: (r) => (
+        <span className={trendClass(r.ml_prediction)}>
+          {trendArrow(r.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(r.ml_prediction)}
+        </span>
+      ),
     },
-    { key: "average_points", label: "Schnitt", align: "right", sortValue: (r) => r.average_points, render: (r) => fmtNum(r.average_points) },
-    { key: "signal", label: "Signal", align: "right", sortValue: (r) => r.signal, render: (r) => <SignalBadge signal={r.signal} thresholds={thresholds} /> },
     {
       key: "market_value_change_7d",
       label: "Trend 7T",
@@ -115,7 +118,6 @@ export default function TransfermarktTab({
         </span>
       ),
     },
-    { key: "ml_prediction", label: "ML-Prognose", align: "right", sortValue: (r) => r.ml_prediction, render: (r) => fmtSigned(r.ml_prediction) },
     {
       key: "starting_rank",
       label: "Startelf-Rang",
@@ -123,12 +125,9 @@ export default function TransfermarktTab({
       sortValue: (r) => r.starting_rank,
       render: (r) => r.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>,
     },
-    {
-      key: "affordable",
-      label: "Leistbar",
-      sortValue: (r) => (r.affordable ? 1 : 0),
-      render: (r) => <Badge tone={r.affordable ? "good" : "crit"}>{r.affordable ? "ja" : "nein"}</Badge>,
-    },
+    { key: "average_points", label: "Schnitt", align: "right", sortValue: (r) => r.average_points, render: (r) => fmtNum(r.average_points) },
+    { key: "signal", label: "Signal", align: "right", sortValue: (r) => r.signal, render: (r) => <SignalBadge signal={r.signal} thresholds={thresholds} /> },
+    { key: "price_delta_pct", label: "Delta%", align: "right", sortValue: (r) => r.price_delta_pct, render: (r) => fmtPct(r.price_delta_pct) },
     {
       key: "bid_suggestion",
       label: "Gebotsempfehlung",
@@ -146,16 +145,34 @@ export default function TransfermarktTab({
       label: "Auktion",
       sortValue: (r) => r.auction_remaining_seconds,
       render: (r) =>
-        r.auction_urgent ? (
+        r.auction_critical ? (
+          <Badge tone="crit">⏰ {r.auction_status}</Badge>
+        ) : r.auction_urgent ? (
           <Badge tone="crit">{r.auction_status}</Badge>
         ) : (
           r.auction_status ?? <span className="text-slate-400 dark:text-slate-500">unbekannt</span>
         ),
     },
+    {
+      key: "offering_username",
+      label: "Anbieter",
+      sortValue: (r) => (r.is_system_offer ? "Kickbase" : r.offering_username),
+      render: (r) => (r.is_system_offer ? "Kickbase" : r.offering_username ?? ""),
+    },
   ];
 
   return (
     <div>
+      <div className="mb-4 flex flex-wrap gap-4 text-sm">
+        <div>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Kapital</span>{" "}
+          <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{fmtNum(data.own_budget_exact)}</span>
+        </div>
+        <div>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Budget</span>{" "}
+          <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{fmtNum(data.own_available_budget)}</span>
+        </div>
+      </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           Position
@@ -253,7 +270,7 @@ function TransfermarktDetailModal({
             type="button"
             onClick={onClose}
             aria-label="Schließen"
-            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           >
             ✕
           </button>
@@ -280,9 +297,6 @@ function TransfermarktDetailModal({
           )}
           {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
         </dl>
-        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          Historischer Vergleichswert aus abgeschlossenen Käufen dieser Liga — keine Garantie, echte Konkurrenzgebote sind beim blinden Verfahren nie sichtbar.
-        </p>
       </div>
     </div>
   );

@@ -116,7 +116,7 @@ export default function App() {
   const transfermarktRows = useMemo(
     () =>
       data && data.players
-        ? buildTransfermarktRows(data.players, data.transfermarkt_listings, data.calibration, data.own_available_budget, new Date(now))
+        ? buildTransfermarktRows(data.players, data.transfermarkt_listings, data.calibration, new Date(now))
         : [],
     [data, now]
   );
