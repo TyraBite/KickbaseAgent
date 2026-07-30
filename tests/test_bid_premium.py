@@ -200,6 +200,39 @@ class BuildNewEntriesTests(unittest.TestCase):
         self.assertEqual(entries, [])
         self.assertIsNone(pointer)
 
+    def test_marks_entry_as_bought_by_self_when_buyer_matches_own_name(self):
+        activities = [_trade_activity("2026-07-01T10:00:00Z", byr="Ich", trp=11_000_000, pi="p1")]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+
+        entries, _pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            own_name="Ich", get_history=lambda *a, **k: {"it": [{"dt": target_days, "mv": 10_000_000}]},
+        )
+
+        self.assertTrue(entries[0]["bought_by_self"])
+
+    def test_marks_entry_as_not_bought_by_self_when_buyer_differs(self):
+        activities = [_trade_activity("2026-07-01T10:00:00Z", byr="Rivale", trp=11_000_000, pi="p1")]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+
+        entries, _pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            own_name="Ich", get_history=lambda *a, **k: {"it": [{"dt": target_days, "mv": 10_000_000}]},
+        )
+
+        self.assertFalse(entries[0]["bought_by_self"])
+
+    def test_bought_by_self_is_false_when_own_name_not_provided(self):
+        activities = [_trade_activity("2026-07-01T10:00:00Z", byr="Rivale", trp=11_000_000, pi="p1")]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+
+        entries, _pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            own_name=None, get_history=lambda *a, **k: {"it": [{"dt": target_days, "mv": 10_000_000}]},
+        )
+
+        self.assertFalse(entries[0]["bought_by_self"])
+
 
 class UpdateAndLoadTests(unittest.TestCase):
     @patch("src.bid_premium.firestore_db")

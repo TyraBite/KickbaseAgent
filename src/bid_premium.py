@@ -64,6 +64,7 @@ def build_new_entries(
     activities: list[dict],
     since_dt: str | None,
     players_map: dict[str, dict],
+    own_name: str | None = None,
     get_history=get_market_value_history,
 ) -> tuple[list[dict], str | None]:
     """Filtert neue Systemkaeufe seit since_dt, loest pro Kauf den Marktwert
@@ -133,6 +134,7 @@ def build_new_entries(
             "average_points_then": player.get("average_points"),
             "premium_pct": premium_pct,
             "purchased_at": activity["dt"],
+            "bought_by_self": bool(own_name) and activity["data"].get("byr") == own_name,
         })
 
     return entries, (max(processed_dts) if processed_dts else None)
