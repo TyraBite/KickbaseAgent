@@ -304,7 +304,6 @@ def _build_players_map(
             "starting_rank": row["starting_rank"],
             "market_value": row["market_value"],
             "average_points": row["average_points"],
-            "total_points": row["total_points"],
         })
         for field in HISTORY_FIELDS:
             value = row[field]
@@ -332,7 +331,6 @@ def _build_transfermarkt_listings(market_listings) -> list[dict]:
             "price_delta_pct": r["price_delta_pct"],
             "offering_username": r["offering_username"],
             "is_system_offer": bool(r["is_system_offer"]),
-            "pending_offers_count": r["pending_offers_count"],
             "leading_bid_username": r["leading_bid_username"],
             "leading_bid_price": r["leading_bid_price"],
             "is_own_leading_bid": bool(r["is_own_leading_bid"]),

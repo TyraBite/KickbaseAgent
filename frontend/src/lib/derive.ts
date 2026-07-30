@@ -186,7 +186,7 @@ export interface PlayerRow {
   status_label: string | null; starting_rank: number | null;
   market_value: number | null; market_value_change_7d: number | null;
   market_value_low_92d: number | null; market_value_high_92d: number | null;
-  average_points: number | null; total_points: number | null;
+  average_points: number | null;
   fairwert: number | null; signal: number | null; ml_prediction: number | null;
 }
 
@@ -199,7 +199,7 @@ export function buildPlayerRow(player: PlayerRecord, calibration: Calibration | 
     market_value_change_7d: player.market_value_change_7d ?? null,
     market_value_low_92d: player.market_value_low_92d ?? null,
     market_value_high_92d: player.market_value_high_92d ?? null,
-    average_points: player.average_points, total_points: player.total_points ?? null,
+    average_points: player.average_points,
     fairwert, signal, ml_prediction: player.ml_prediction ?? null,
   };
 }

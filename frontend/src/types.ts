@@ -24,7 +24,6 @@ export interface PlayerRecord {
   market_value_low_92d?: number;
   market_value_high_92d?: number;
   market_value_in_drop_phase?: boolean;
-  total_points?: number;
   // Nur vorhanden, wenn das ML-Modell einen Wert produziert hat:
   ml_prediction?: number;
 }
@@ -35,7 +34,6 @@ export interface TransfermarktListing {
   price_delta_pct: number | null;
   offering_username: string | null;
   is_system_offer: boolean;
-  pending_offers_count: number | null;
   leading_bid_username: string | null;
   leading_bid_price: number | null;
   is_own_leading_bid: boolean;
