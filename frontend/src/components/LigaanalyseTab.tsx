@@ -52,8 +52,8 @@ function LigaanalyseCard({ row }: { row: LigaanalyseRow }) {
         <Row label="Platz">{fmtNum(row.season_placement)}</Row>
         <Row label="Punkte">{fmtNum(row.season_points)}</Row>
         <Row label="Kadergröße">{fmtNum(row.squad_size)}</Row>
-        <Row label="Verkaufsangebote">{fmtNum(row.sell_count)}</Row>
         <Row label="Stammspieler">{fmtNum(row.regular_count)}</Row>
+        <Row label="Verkaufsangebote">{fmtNum(row.sell_count)}</Row>
         <Row label="Teamwert">{fmtNum(row.team_value)}</Row>
         <Row label="Kaderwert">{fmtNum(row.squad_value)}</Row>
         <Row label={row.is_self ? "Budget" : "Budget (geschätzt)"}>{fmtNum(row.estimated_budget)}</Row>
