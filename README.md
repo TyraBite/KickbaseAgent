@@ -7,8 +7,9 @@ Kickbase-API (inkl. eingebautem Verletzt-/Gesperrt-Status und Startelf-Rang
 je Spieler), schaetzt die Budgets aller Liga-Manager aus dem Activity-Feed
 und prognostiziert Marktwertaenderungen per taeglich neu trainiertem
 RandomForest-Modell. Daraus entsteht ein live gehostetes Dashboard
-(`index.html`, per GitHub Pages + Firebase Auth/Firestore) mit drei
-Ansichten: Transfermarkt, Eigenes Team, Ligaanalyse.
+(React/Vite/Tailwind-Frontend in `frontend/`, per GitHub Pages + Firebase
+Auth/Firestore) mit sieben Ansichten: Eigenes Team, Spekulation,
+Wunschkader, Transfermarkt, Ligaanalyse, Alle Spieler, ML-Genauigkeit.
 
 Details siehe Plan-Dokument (Projektverlauf). Die manuelle Recherche-
 Methodik (Startelf-Einschaetzungen, Verletzungslage, Vereinskontext) liegt
@@ -60,13 +61,28 @@ copy .env.example .env  # Secrets lokal eintragen, .env nie committen
 
 ## Ausfuehren
 
-**Dashboard** (Transfermarkt/Eigenes Team/Ligaanalyse; laeuft automatisch per
-`.github/workflows/dashboard.yml`, alle 2h). Berechnet den Snapshot und schreibt ihn
-nach Firestore (`dashboard_snapshot/latest`), von wo `index.html` ihn live liest -
-`index.html` selbst ist eine handgepflegte Datei, wird nicht generiert:
+**Dashboard-Export** (Light, laeuft automatisch per `.github/workflows/dashboard.yml`,
+stuendlich). Berechnet den Snapshot und schreibt ihn nach Firestore
+(`dashboard_snapshot/latest`), von wo das React-Frontend (`frontend/`) ihn live liest:
 
 ```bash
 FIRESTORE_ENABLED=1 GOOGLE_APPLICATION_CREDENTIALS=./firebase-service-account.json python -m src.dashboard_export
+```
+
+**Dashboard-Export Marktwerte** (Heavy, laeuft automatisch per
+`.github/workflows/dashboard-marktwerte.yml`, 1x/Tag um 22:05 Berlin-Zeit).
+Teure Kickbase-Calls (Marktwert-Historie, ML-Prognosen) - ausgelagert aus dem
+stuendlichen Light-Lauf:
+
+```bash
+DASHBOARD_MODE=heavy FIRESTORE_ENABLED=1 GOOGLE_APPLICATION_CREDENTIALS=./firebase-service-account.json python -m src.dashboard_export
+```
+
+**Frontend** (`frontend/`, React/Vite/Tailwind, deployt per
+`.github/workflows/frontend-pilot.yml` auf GitHub Pages):
+
+```bash
+cd frontend && npm install && npm run dev
 ```
 
 **Fairwert/K-Punkt-Kalibrierung** (Referenzpreis je Position aus allen ~450 Liga-Spielern,

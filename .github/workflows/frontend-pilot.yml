@@ -1,10 +1,9 @@
 name: Frontend Pilot Deploy
 
-# Baut das neue React/Vite/Tailwind-Frontend (frontend/) und deployt es als
-# Standard-UI unter .../KickbaseAgent/. Die alte, unveraenderte index.html
-# bleibt separat unter .../KickbaseAgent/old/ erreichbar (Cutover
-# 2026-07-29, Phase 6 Sub-Projekt 4 - vorher lief das neue Frontend
-# parallel unter /preview/, siehe Git-Historie).
+# Baut das React/Vite/Tailwind-Frontend (frontend/) und deployt es als
+# alleiniges UI unter .../KickbaseAgent/. Die alte, handgepflegte index.html
+# ist seit dem Cutover (2026-07-29) entfernt (Commit dd964a0) - dieser
+# Workflow ist der einzige Deploy-Pfad, kein /old/-Fallback mehr.
 
 on:
   push:
