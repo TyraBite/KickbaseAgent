@@ -25,15 +25,8 @@ type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; r
 
 export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
   const split = useMemo(
-    () =>
-      buildEigenesTeamSplit(
-        data.players,
-        data.own_squad_ids,
-        data.wunschkader_targets,
-        data.wunschkader_sell_list ?? [],
-        data.calibration
-      ),
-    [data.players, data.own_squad_ids, data.wunschkader_targets, data.wunschkader_sell_list, data.calibration]
+    () => buildEigenesTeamSplit(data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration),
+    [data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration]
   );
 
   const ownSquadIdSet = useMemo(() => new Set(data.own_squad_ids), [data.own_squad_ids]);

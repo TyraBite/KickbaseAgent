@@ -401,7 +401,6 @@ def export() -> dict:
         "owned_by": heavy["owned_by"],
         "wunschkader_targets": wunschkader_targets,
         "wunschkader_formation": wunschkader_config.get("formation") if wunschkader_config else None,
-        "wunschkader_sell_list": wunschkader_config.get("sell_list") if wunschkader_config else None,
         "wunschkader_updated_at": wunschkader_config.get("updated_at") if wunschkader_config else None,
         "ligaanalyse": _build_ligaanalyse(
             token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad,

@@ -194,12 +194,13 @@ export function roiPct(mlPrediction: number | null, price: number | null): numbe
   return Math.round((mlPrediction / price) * 1000) / 10;
 }
 
-export function sellSignal(
-  playerId: string,
-  mlPrediction: number | null | undefined,
-  sellListIds: ReadonlySet<string>
-): "halten" | "verkaufen" {
-  return sellListIds.has(playerId) && (mlPrediction ?? 0) > 0 ? "halten" : "verkaufen";
+// Verkaufskandidaten (eigener Kader, nicht im aktuellen Wunschkader) werden
+// nur gehalten, um noch Gewinn mitzunehmen - keine separate manuelle Liste
+// mehr noetig (wunschkader_sell_list war nie ueber die UI editierbar und
+// stand oft nicht im Einklang mit der echten ML-Prognose, z.B. Bensebaini
+// mit +152k Prognose zeigte trotzdem "Jetzt verkaufen", User-Fund 2026-07-30).
+export function sellSignal(mlPrediction: number | null | undefined): "halten" | "verkaufen" {
+  return (mlPrediction ?? 0) > 0 ? "halten" : "verkaufen";
 }
 
 export interface PlayerRow {
@@ -292,11 +293,9 @@ export function buildEigenesTeamSplit(
   players: Record<string, PlayerRecord>,
   ownSquadIds: string[],
   targets: RawWunschkaderTarget[],
-  sellListIds: string[],
   calibration: Calibration | null
 ): EigenesTeamSplit {
   const targetIds = new Set(targets.map((t) => t.player_id));
-  const sellSet = new Set(sellListIds);
   const verkaufen: EigenesTeamRow[] = [];
   const bleibt: EigenesTeamRow[] = [];
   for (const pid of ownSquadIds) {
@@ -306,7 +305,7 @@ export function buildEigenesTeamSplit(
     if (targetIds.has(pid)) {
       bleibt.push(row);
     } else {
-      verkaufen.push({ ...row, sell_signal: sellSignal(pid, player.ml_prediction, sellSet) });
+      verkaufen.push({ ...row, sell_signal: sellSignal(player.ml_prediction) });
     }
   }
   return { verkaufen, bleibt };
