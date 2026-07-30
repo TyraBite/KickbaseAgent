@@ -200,8 +200,6 @@ function SpekulationTable({
           <TeamCrest teamName={r.team_name} />
           <span className="font-medium text-slate-900 dark:text-slate-50">{r.name}</span>
           <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[r.position] ?? r.position}</span>
-          {r.is_hype_gipfel && <Badge tone="crit">Hype-Gipfel</Badge>}
-          {r.near_floor && <Badge tone="good">Boden-Schutz</Badge>}
         </div>
       ),
     },

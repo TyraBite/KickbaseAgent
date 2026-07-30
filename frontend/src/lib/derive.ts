@@ -162,31 +162,9 @@ export function isAffordable(price: number | null, ownAvailableBudget: number | 
   return ownAvailableBudget !== null && price !== null && price <= ownAvailableBudget;
 }
 
-const HYPE_CHANGE_THRESHOLD = 1_500_000;
-const SPEKULATION_FLOOR_PROTECTED = 1_000_000;
-
 export function trendDirection(change7d: number | null | undefined): "flat" | "up" | "down" {
   if (change7d === null || change7d === undefined || change7d === 0) return "flat";
   return change7d > 0 ? "up" : "down";
-}
-
-export function isHypeGipfel(p: {
-  market_value_change_7d?: number | null;
-  market_value: number | null;
-  market_value_high_92d?: number | null;
-  average_points: number | null;
-}): boolean {
-  return Boolean(
-    p.market_value_change_7d &&
-      p.market_value_change_7d > HYPE_CHANGE_THRESHOLD &&
-      p.market_value !== null &&
-      p.market_value_high_92d === p.market_value &&
-      !p.average_points
-  );
-}
-
-export function isNearFloor(price: number | null): boolean {
-  return Boolean(price && price < SPEKULATION_FLOOR_PROTECTED);
 }
 
 export function roiPct(mlPrediction: number | null, price: number | null): number | null {
@@ -263,7 +241,6 @@ export interface SpekulationRow {
   market_value_low_92d: number | null; market_value_high_92d: number | null;
   ml_prediction: number | null; auction_status: string | null; auction_urgent: boolean;
   auction_remaining_seconds: number | null; auction_expires_at: string | null;
-  is_hype_gipfel: boolean; near_floor: boolean;
 }
 
 // Nimmt TransfermarktRow[] als Input, NICHT players+listings unabhaengig -
@@ -278,7 +255,6 @@ export function buildSpekulationRows(transfermarktRows: TransfermarktRow[]): Spe
       roi_pct: roiPct(r.ml_prediction, r.price)!,
       average_points: r.average_points, market_value_change_7d: r.market_value_change_7d,
       ml_prediction: r.ml_prediction,
-      is_hype_gipfel: isHypeGipfel(r), near_floor: isNearFloor(r.price),
       auction_status: r.auction_status, auction_remaining_seconds: r.auction_remaining_seconds,
       auction_urgent: r.auction_urgent, auction_expires_at: r.auction_expires_at,
       market_value_low_92d: r.market_value_low_92d, market_value_high_92d: r.market_value_high_92d,
