@@ -6,6 +6,7 @@ from src.bid_premium import (
     _filter_new_system_purchases,
     _is_system_purchase,
     _market_value_at,
+    build_new_entries,
 )
 
 
@@ -88,6 +89,82 @@ class MarketValueAtTests(unittest.TestCase):
 
     def test_returns_none_for_empty_history(self):
         self.assertIsNone(_market_value_at({"it": []}, 20660))
+
+
+class BuildNewEntriesTests(unittest.TestCase):
+    def _players_map(self):
+        return {"p1": {"player_id": "p1", "position": "Sturm", "average_points": 120}}
+
+    def test_builds_entry_with_premium_and_current_player_attrs(self):
+        activities = [_trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1")]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+
+        def fake_get_history(token, league_id, player_id, timeframe=365):
+            return {"it": [{"dt": target_days, "mv": 10_000_000}]}
+
+        entries, pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            get_history=fake_get_history,
+        )
+
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["player_id"], "p1")
+        self.assertEqual(entry["position"], "Sturm")
+        self.assertEqual(entry["average_points_then"], 120)
+        self.assertEqual(entry["market_value_then"], 10_000_000)
+        self.assertAlmostEqual(entry["premium_pct"], 0.1)
+        self.assertEqual(entry["purchased_at"], "2026-07-01T10:00:00Z")
+        self.assertEqual(entry["activity_id"], "act_2026-07-01T10:00:00Z")
+        self.assertEqual(pointer, "2026-07-01T10:00:00Z")
+
+    def test_skips_purchase_when_player_not_in_players_map(self):
+        activities = [_trade_activity("2026-07-01T10:00:00Z", pi="unknown")]
+
+        def fake_get_history(token, league_id, player_id, timeframe=365):
+            raise AssertionError("sollte fuer unbekannten Spieler nicht aufgerufen werden")
+
+        entries, pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            get_history=fake_get_history,
+        )
+
+        self.assertEqual(entries, [])
+        self.assertIsNone(pointer)
+
+    def test_single_failing_history_call_does_not_abort_others(self):
+        activities = [
+            _trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1"),
+            _trade_activity("2026-07-02T10:00:00Z", trp=12_000_000, pi="p1"),
+        ]
+        target_days = _days_since_epoch("2026-07-02T10:00:00Z")
+        call_count = {"n": 0}
+
+        def flaky_get_history(token, league_id, player_id, timeframe=365):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("API down")
+            return {"it": [{"dt": target_days, "mv": 10_000_000}]}
+
+        entries, pointer = build_new_entries(
+            "tok", "l1", activities, since_dt=None, players_map=self._players_map(),
+            get_history=flaky_get_history,
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["purchased_at"], "2026-07-02T10:00:00Z")
+        # Zeiger geht trotz des einen Fehlers bis zur letzten VERARBEITETEN
+        # Aktivitaet weiter (kein endloses Retry auf einen dauerhaft
+        # fehlenden Marktwert - siehe Global Constraints).
+        self.assertEqual(pointer, "2026-07-02T10:00:00Z")
+
+    def test_no_new_activities_returns_empty_and_none_pointer(self):
+        entries, pointer = build_new_entries(
+            "tok", "l1", [], since_dt="2026-07-01T00:00:00Z", players_map=self._players_map(),
+            get_history=lambda *a, **k: {"it": []},
+        )
+        self.assertEqual(entries, [])
+        self.assertIsNone(pointer)
 
 
 if __name__ == "__main__":
