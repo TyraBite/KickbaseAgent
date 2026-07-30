@@ -411,3 +411,38 @@ export function suggestBid(
     n: ranked.length,
   };
 }
+
+export interface SquadListEntry {
+  player_id: string;
+  name: string;
+  position: string;
+  market_value: number | null;
+  is_regular: boolean;
+}
+
+const SQUAD_POSITION_ORDER = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
+
+// is_regular-Schwelle (starting_rank 1/2) identisch zum bestehenden
+// Ligaanalyse-Hint-Text ("Stammspieler = starting_rank 1 oder 2").
+export function groupSquadByPosition(
+  playerIds: string[],
+  players: Record<string, PlayerRecord>
+): { position: string; entries: SquadListEntry[] }[] {
+  const entries: SquadListEntry[] = playerIds
+    .map((id) => players[id])
+    .filter((p): p is PlayerRecord => !!p)
+    .map((p) => ({
+      player_id: p.player_id,
+      name: p.name,
+      position: p.position,
+      market_value: p.market_value,
+      is_regular: p.starting_rank === 1 || p.starting_rank === 2,
+    }));
+
+  return SQUAD_POSITION_ORDER.map((position) => ({
+    position,
+    entries: entries
+      .filter((e) => e.position === position)
+      .sort((a, b) => (b.market_value ?? 0) - (a.market_value ?? 0)),
+  })).filter((group) => group.entries.length > 0);
+}

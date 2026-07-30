@@ -533,3 +533,46 @@ class BuildLigaanalyseTests(unittest.TestCase):
             )
 
         self.assertEqual(result["position_need"]["Torwart"]["n_rivals"], 1)
+
+    def test_self_row_gets_squad_player_ids_from_own_squad(self):
+        ranking_rows = [self._ranking_row("u_self", "Ich", ["p1"])]
+        budget_rows = [
+            {"user_id": "u_self", "is_own_exact": True, "estimated_budget": 1, "available_budget": 1, "trade_count": 0}
+        ]
+
+        result = _build_ligaanalyse(
+            "tok", "l1", ranking_rows, budget_rows, market_listings=[],
+            own_squad=[
+                {"player_id": "p1", "market_value": 1, "starting_rank": 1},
+                {"player_id": "p4", "market_value": 1, "starting_rank": 2},
+            ],
+            players_map=self._players_map(),
+        )
+
+        self.assertEqual(result["rows"][0]["squad_player_ids"], ["p1", "p4"])
+
+    def test_rival_row_gets_squad_player_ids_from_manager_squad(self):
+        ranking_rows = [self._ranking_row("u1", "Rivale", ["p1"])]
+        budget_rows = [{"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None}]
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.return_value = {"it": [{"pi": "p2"}, {"pi": "p3"}], "nps": 2}
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[], own_squad=[],
+                players_map=self._players_map(),
+            )
+
+        self.assertEqual(result["rows"][0]["squad_player_ids"], ["p2", "p3"])
+
+    def test_rival_row_squad_player_ids_empty_on_kickbase_error(self):
+        ranking_rows = [self._ranking_row("u1", "Rivale", ["p1"])]
+        budget_rows = [{"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None}]
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.side_effect = KickbaseError("down")
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[], own_squad=[],
+                players_map=self._players_map(),
+            )
+
+        self.assertEqual(result["rows"][0]["squad_player_ids"], [])
