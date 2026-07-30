@@ -8,6 +8,7 @@ import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type P
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
+import PlayerCompareModal from "./PlayerCompareModal";
 
 const MAX_SQUAD_SIZE = 17;
 
@@ -171,12 +172,12 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     setSelected(null);
   }
 
-  function replaceTarget(uid: number, replacement: AlleSpielerRow) {
+  function replaceTarget(uid: number, playerId: string) {
     setEditState((prev) =>
       prev.map((t) => {
         if (t._uid !== uid) return t;
         const { note: _note, ...keep } = t;
-        return { ...keep, player_id: replacement.player_id };
+        return { ...keep, player_id: playerId };
       })
     );
     setSelected(null);
@@ -320,10 +321,12 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
           plannedPrice={selectedPlannedPrice}
           thresholds={thresholds}
           alleSpieler={alleSpieler}
+          players={data.players}
+          calibration={data.calibration}
           onClose={() => setSelected(null)}
           onToggleBench={() => toggleBench(selected._uid)}
           onRemove={() => removeTarget(selected._uid)}
-          onReplace={(replacement) => replaceTarget(selected._uid, replacement)}
+          onReplace={(playerId) => replaceTarget(selected._uid, playerId)}
           onNoteChange={(note) => updateNote(selected._uid, note)}
         />
       )}
@@ -408,6 +411,8 @@ function DetailModal({
   plannedPrice,
   thresholds,
   alleSpieler,
+  players,
+  calibration,
   onClose,
   onToggleBench,
   onRemove,
@@ -419,14 +424,17 @@ function DetailModal({
   plannedPrice: number | null;
   thresholds: DashboardSnapshot["signal_thresholds"];
   alleSpieler: AlleSpielerRow[];
+  players: DashboardSnapshot["players"];
+  calibration: DashboardSnapshot["calibration"];
   onClose: () => void;
   onToggleBench: () => void;
   onRemove: () => void;
-  onReplace: (replacement: AlleSpielerRow) => void;
+  onReplace: (playerId: string) => void;
   onNoteChange: (note: string) => void;
 }) {
   const [wechselOpen, setWechselOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [compareWith, setCompareWith] = useState<AlleSpielerRow | null>(null);
 
   useModalOpenTracking();
   useEffect(() => {
@@ -447,6 +455,7 @@ function DetailModal({
   const searchResults = search.trim() ? searchReplacementPool(alleSpieler, targetForSearch, search.trim()) : [];
 
   return (
+    <>
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
@@ -520,7 +529,7 @@ function DetailModal({
                   <button
                     key={s.player_id}
                     type="button"
-                    onClick={() => onReplace(s)}
+                    onClick={() => setCompareWith(s)}
                     className="rounded-full border border-brand-300 bg-brand-50 px-3 py-1 text-xs text-brand-800 hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-300"
                   >
                     {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
@@ -544,7 +553,7 @@ function DetailModal({
                     <button
                       key={s.player_id}
                       type="button"
-                      onClick={() => onReplace(s)}
+                      onClick={() => setCompareWith(s)}
                       className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                     >
                       {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
@@ -559,6 +568,21 @@ function DetailModal({
         )}
       </div>
     </div>
+    {compareWith && (
+      <PlayerCompareModal
+        playerIdA={target.player_id}
+        playerIdB={compareWith.player_id}
+        players={players}
+        calibration={calibration}
+        thresholds={thresholds}
+        onSelectSide={(playerId) => {
+          onReplace(playerId);
+          setCompareWith(null);
+        }}
+        onClose={() => setCompareWith(null)}
+      />
+    )}
+    </>
   );
 }
 
