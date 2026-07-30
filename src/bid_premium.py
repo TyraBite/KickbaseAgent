@@ -134,7 +134,7 @@ def build_new_entries(
             "average_points_then": player.get("average_points"),
             "premium_pct": premium_pct,
             "purchased_at": activity["dt"],
-            "bought_by_self": bool(own_name) and activity["data"].get("byr") == own_name,
+            "bought_by_self": bool(own_name) and data.get("byr") == own_name,
         })
 
     return entries, (max(processed_dts) if processed_dts else None)
@@ -159,7 +159,7 @@ def detect_unsold_listings(
     Mitspieler-Handel ist regulaerer Weiterverkauf, kein Signal fuer
     Gebotsvorschlaege). Keine Kickbase-API-Calls - nutzt nur bereits
     abgerufene Daten."""
-    current_ids = [l["player_id"] for l in market_listings if l.get("is_system_offer")]
+    current_ids = [l["player_id"] for l in market_listings if l["is_system_offer"]]
     current_ids_set = set(current_ids)
     disappeared = set(last_seen_ids) - current_ids_set
 
@@ -210,6 +210,7 @@ def update_and_load(
     market_listings: list[dict],
     own_name: str | None,
     detected_at: str,
+    activity_feed_ok: bool = True,
     get_history=get_market_value_history,
 ) -> tuple[list[dict], dict]:
     """Zentraler Einstiegspunkt, von dashboard_export.export() aufgerufen.
@@ -229,7 +230,18 @@ def update_and_load(
     zu werden.
 
     outcome_counts wird aus der VOLLEN (nicht gedeckelten) Historie berechnet
-    - eine Zaehlung soll nicht durch den Snapshot-Cap verzerrt werden."""
+    - eine Zaehlung soll nicht durch den Snapshot-Cap verzerrt werden.
+
+    activity_feed_ok=False (dashboard_export.py konnte den Activity-Feed
+    NICHT laden, activities ist dann [] als sicherer No-Op fuer
+    build_new_entries() oben) macht detect_unsold_listings() NICHT sicher -
+    mit activities=[] waere JEDES verschwundene Systemangebot faelschlich
+    "unverkauft abgelaufen", auch tatsaechlich gekaufte. Deshalb in diesem
+    Fall die Unsold-Erkennung UND den last_seen_system_listing_ids-Zeiger-
+    Write komplett auslassen (Zeiger bleibt bewusst stehen - ein laengeres
+    Vergleichsfenster beim naechsten erfolgreichen Lauf ist harmlos, die
+    player_id_detected_at-Doc-Id macht Re-Erkennung am selben Tag ohnehin
+    idempotent)."""
     if client is None:
         return [], {}
 
@@ -242,13 +254,21 @@ def update_and_load(
     if new_pointer:
         firestore_db.upsert_bid_premium_pointer(client, new_pointer)
 
-    last_seen_ids = firestore_db.get_bid_premium_last_seen_listing_ids(client)
-    unsold_entries, current_ids = detect_unsold_listings(
-        market_listings, activities, last_seen_ids, players_map, detected_at
-    )
-    if unsold_entries:
-        firestore_db.upsert_unsold_log_entries(client, unsold_entries)
-    firestore_db.upsert_bid_premium_last_seen_listing_ids(client, current_ids)
+    if activity_feed_ok:
+        last_seen_ids = firestore_db.get_bid_premium_last_seen_listing_ids(client)
+        unsold_entries, current_ids = detect_unsold_listings(
+            market_listings, activities, last_seen_ids, players_map, detected_at
+        )
+        if unsold_entries:
+            firestore_db.upsert_unsold_log_entries(client, unsold_entries)
+        firestore_db.upsert_bid_premium_last_seen_listing_ids(client, current_ids)
+    else:
+        print(
+            "Warnung: bid_premium - Activity-Feed war nicht ladbar, "
+            "unsold-Erkennung fuer diesen Lauf uebersprungen (Zeiger "
+            "last_seen_system_listing_ids bleibt unveraendert)",
+            file=sys.stderr,
+        )
 
     full_history = firestore_db.get_bid_premium_history(client)
     unsold_log = firestore_db.get_unsold_log(client)

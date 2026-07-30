@@ -1,7 +1,9 @@
+import sqlite3
 import unittest
 from unittest.mock import MagicMock, patch
 
 from src.bid_premium import (
+    MAX_HISTORY_ENTRIES_IN_SNAPSHOT,
     _compute_premium,
     _days_since_epoch,
     _filter_new_system_purchases,
@@ -311,6 +313,101 @@ class UpdateAndLoadTests(unittest.TestCase):
         mock_fs.upsert_bid_premium_last_seen_listing_ids.assert_called_once_with(client, [])
         self.assertEqual(outcome_counts, {"Sturm": {"rival_purchases": 0, "self_purchases": 0, "unsold": 1}})
 
+    @patch("src.bid_premium.firestore_db")
+    def test_activity_feed_not_ok_skips_unsold_detection_but_still_logs_purchases(self, mock_fs):
+        # activity_feed_ok=False simuliert einen fehlgeschlagenen Activity-
+        # Feed-Fetch (dashboard_export.py setzt activities dann auf [], das
+        # ist fuer build_new_entries() ein sicheres No-Op - hier aber mit
+        # echten activities getestet, um zu zeigen, dass das Kauf-Logging
+        # UNABHAENGIG vom Flag laeuft, nur die Unsold-Erkennung nicht).
+        mock_fs.get_bid_premium_pointer.return_value = None
+        mock_fs.get_bid_premium_history.return_value = [
+            {"activity_id": "act_1", "player_id": "p1", "position": "Sturm", "purchased_at": "2026-07-01T10:00:00Z"}
+        ]
+        mock_fs.get_unsold_log.return_value = []
+        activities = [_trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1")]
+        target_days = _days_since_epoch("2026-07-01T10:00:00Z")
+        client = MagicMock()
+
+        history, outcome_counts = update_and_load(
+            client=client, token="tok", league_id="l1", activities=activities,
+            players_map={"p1": {"player_id": "p1", "position": "Sturm", "average_points": 100}},
+            market_listings=[], own_name="Ich", detected_at="2026-07-01",
+            activity_feed_ok=False,
+            get_history=lambda *a, **k: {"it": [{"dt": target_days, "mv": 10_000_000}]},
+        )
+
+        # Kauf-Logging (build_new_entries()) laeuft unveraendert weiter.
+        mock_fs.upsert_bid_premium_entries.assert_called_once()
+        mock_fs.upsert_bid_premium_pointer.assert_called_once_with(client, "2026-07-01T10:00:00Z")
+        # Unsold-Erkennung UND der last_seen_system_listing_ids-Zeiger-Write
+        # werden komplett uebersprungen - der Zeiger bleibt bewusst stehen.
+        mock_fs.get_bid_premium_last_seen_listing_ids.assert_not_called()
+        mock_fs.upsert_bid_premium_last_seen_listing_ids.assert_not_called()
+        mock_fs.upsert_unsold_log_entries.assert_not_called()
+        self.assertEqual(history, [{"player_id": "p1", "position": "Sturm", "purchased_at": "2026-07-01T10:00:00Z"}])
+        self.assertEqual(outcome_counts, {"Sturm": {"rival_purchases": 1, "self_purchases": 0, "unsold": 0}})
+
+    @patch("src.bid_premium.firestore_db")
+    def test_activity_feed_ok_default_true_still_runs_unsold_detection(self, mock_fs):
+        # Kein explizites activity_feed_ok uebergeben -> Default True ->
+        # unveraendertes bestehendes Verhalten (Unsold-Erkennung + Zeiger-
+        # Write laufen wie vor Fix 2).
+        mock_fs.get_bid_premium_pointer.return_value = "2026-07-05T00:00:00Z"
+        mock_fs.get_bid_premium_history.return_value = []
+        mock_fs.get_bid_premium_last_seen_listing_ids.return_value = ["p1"]
+        mock_fs.get_unsold_log.return_value = []
+        client = MagicMock()
+
+        update_and_load(
+            client=client, token="tok", league_id="l1", activities=[],
+            players_map={"p1": {"player_id": "p1", "position": "Sturm", "market_value": 1, "average_points": 1}},
+            market_listings=[], own_name=None, detected_at="2026-07-06",
+            get_history=lambda *a, **k: {"it": []},
+        )
+
+        mock_fs.get_bid_premium_last_seen_listing_ids.assert_called_once_with(client)
+        mock_fs.upsert_unsold_log_entries.assert_called_once()
+        mock_fs.upsert_bid_premium_last_seen_listing_ids.assert_called_once_with(client, [])
+
+    @patch("src.bid_premium.firestore_db")
+    def test_history_is_capped_sorted_descending_and_activity_id_stripped(self, mock_fs):
+        mock_fs.get_bid_premium_pointer.return_value = "2026-07-05T00:00:00Z"
+        mock_fs.get_bid_premium_last_seen_listing_ids.return_value = []
+        mock_fs.get_unsold_log.return_value = []
+        # Absichtlich mehr als das Cap UND in aufsteigender Reihenfolge
+        # gemockt, um sowohl Deckelung als auch Sortierung zu pruefen.
+        # "position" ist Pflicht (fuer _build_outcome_counts() im selben
+        # Aufruf), fuer diesen Test aber irrelevant - immer "Sturm".
+        unsorted_oversized_history = [
+            {
+                "activity_id": f"act_{i}",
+                "player_id": "p1",
+                "position": "Sturm",
+                "purchased_at": f"2026-01-{(i % 28) + 1:02d}T00:00:00Z",
+            }
+            for i in range(MAX_HISTORY_ENTRIES_IN_SNAPSHOT + 50)
+        ]
+        newest_entry = {
+            "activity_id": "act_newest",
+            "player_id": "p1",
+            "position": "Sturm",
+            "purchased_at": "2099-01-01T00:00:00Z",
+        }
+        mock_fs.get_bid_premium_history.return_value = unsorted_oversized_history + [newest_entry]
+
+        history, _outcome_counts = update_and_load(
+            client=MagicMock(), token="tok", league_id="l1", activities=[],
+            players_map={}, market_listings=[], own_name=None, detected_at="2026-07-05",
+            get_history=lambda *a, **k: {"it": []},
+        )
+
+        self.assertEqual(len(history), MAX_HISTORY_ENTRIES_IN_SNAPSHOT)
+        self.assertEqual(history[0]["purchased_at"], "2099-01-01T00:00:00Z")
+        purchased_ats = [e["purchased_at"] for e in history]
+        self.assertEqual(purchased_ats, sorted(purchased_ats, reverse=True))
+        self.assertTrue(all("activity_id" not in e for e in history))
+
 
 class DetectUnsoldListingsTests(unittest.TestCase):
     def _players_map(self):
@@ -399,6 +496,39 @@ class DetectUnsoldListingsTests(unittest.TestCase):
         )
         self.assertEqual(entries, [])
         self.assertEqual(current_ids, [])
+
+    def _sqlite_row(self, player_id: str, is_system_offer: bool) -> sqlite3.Row:
+        # Regressionstest fuer den Produktions-Crash: market_listings kommt
+        # in dashboard_export.py aus _load_snapshot() mit
+        # conn.row_factory = sqlite3.Row - sqlite3.Row unterstuetzt row["col"]
+        # (direkte Indizierung), hat aber KEIN .get() (anders als dict).
+        # detect_unsold_listings() MUSS deshalb direkte Indizierung nutzen.
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE t (player_id TEXT, is_system_offer INTEGER)")
+        conn.execute("INSERT INTO t VALUES (?, ?)", (player_id, int(is_system_offer)))
+        row = conn.execute("SELECT * FROM t").fetchone()
+        conn.close()
+        return row
+
+    def test_sqlite_row_market_listing_does_not_crash_and_is_correctly_classified(self):
+        # p1 ist ein sqlite3.Row mit is_system_offer=True -> muss in
+        # current_ids landen (und darf detect_unsold_listings() nicht mit
+        # AttributeError: 'sqlite3.Row' object has no attribute 'get' abschiessen).
+        # p2 ist ein sqlite3.Row mit is_system_offer=False -> muss ignoriert werden.
+        market_listings = [
+            self._sqlite_row("p1", True),
+            self._sqlite_row("p2", False),
+        ]
+        entries, current_ids = detect_unsold_listings(
+            market_listings=market_listings,
+            activities=[],
+            last_seen_ids=[],
+            players_map=self._players_map(),
+            detected_at="2026-07-30",
+        )
+        self.assertEqual(entries, [])
+        self.assertEqual(current_ids, ["p1"])
 
 
 if __name__ == "__main__":
