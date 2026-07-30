@@ -10,7 +10,10 @@ abgeschlossenen Systemkauf mit seinem Marktwert-Aufschlag in Firestore
 (bid_premium_log), inkrementell per Zeiger-Dokument (kein Full-Scan bei
 jedem 2h-Lauf)."""
 
+import datetime
+
 TRADE_ACTIVITY_TYPE = 15
+EPOCH = datetime.date(1970, 1, 1)
 
 
 def _is_system_purchase(activity: dict) -> bool:
@@ -36,3 +39,15 @@ def _filter_new_system_purchases(activities: list[dict], since_dt: str | None) -
         for a in activities
         if _is_system_purchase(a) and (since_dt is None or a.get("dt", "") >= since_dt)
     ]
+
+
+def _days_since_epoch(iso_date: str) -> int:
+    date_part = iso_date.split("T")[0]
+    return (datetime.date.fromisoformat(date_part) - EPOCH).days
+
+
+def _market_value_at(history: dict, target_days: int) -> float | None:
+    for entry in history.get("it") or []:
+        if entry.get("dt") == target_days:
+            return entry.get("mv")
+    return None

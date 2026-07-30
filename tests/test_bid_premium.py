@@ -1,6 +1,12 @@
 import unittest
 
-from src.bid_premium import _compute_premium, _filter_new_system_purchases, _is_system_purchase
+from src.bid_premium import (
+    _compute_premium,
+    _days_since_epoch,
+    _filter_new_system_purchases,
+    _is_system_purchase,
+    _market_value_at,
+)
 
 
 def _trade_activity(dt, byr="Fassii", slr=None, trp=1_000_000, pi="p1", pn="Spieler"):
@@ -62,6 +68,26 @@ class FilterNewSystemPurchasesTests(unittest.TestCase):
         activities = [_trade_activity("2026-07-02T00:00:00Z")]
         result = _filter_new_system_purchases(activities, since_dt="2026-07-02T00:00:00Z")
         self.assertEqual(len(result), 1)
+
+
+class DaysSinceEpochTests(unittest.TestCase):
+    def test_known_date_matches_kickbase_confirmed_value(self):
+        # 2026-07-26 == 20660 Tage seit Epoch, bestaetigt im Docstring von
+        # get_market_value_history() (27.07.2026 live gegengecheckt).
+        self.assertEqual(_days_since_epoch("2026-07-26T12:00:00Z"), 20660)
+
+
+class MarketValueAtTests(unittest.TestCase):
+    def test_returns_value_for_exact_matching_day(self):
+        history = {"it": [{"dt": 20660, "mv": 10_000_000}, {"dt": 20661, "mv": 10_100_000}]}
+        self.assertEqual(_market_value_at(history, 20660), 10_000_000)
+
+    def test_returns_none_when_day_not_in_history(self):
+        history = {"it": [{"dt": 20660, "mv": 10_000_000}]}
+        self.assertIsNone(_market_value_at(history, 20500))
+
+    def test_returns_none_for_empty_history(self):
+        self.assertIsNone(_market_value_at({"it": []}, 20660))
 
 
 if __name__ == "__main__":
