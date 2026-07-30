@@ -3,6 +3,7 @@ import type { SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
+import { useModalOpenTracking } from "../lib/modalOpenTracker";
 
 type SortKey = "auction" | "ml" | "roi" | "price" | "trend" | "name";
 
@@ -247,6 +248,7 @@ function SpekulationDetailModal({
   now: number;
   onClose: () => void;
 }) {
+  useModalOpenTracking();
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();

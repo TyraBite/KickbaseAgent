@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
@@ -11,6 +11,7 @@ import SpekulationTab from "./components/SpekulationTab";
 import TransfermarktTab from "./components/TransfermarktTab";
 import WunschkaderTab from "./components/WunschkaderTab";
 import { buildSpekulationRows, buildTransfermarktRows } from "./lib/derive";
+import { isAnyModalOpen } from "./lib/modalOpenTracker";
 import type { DashboardSnapshot } from "./types";
 
 // Gemeinsamer Ticker fuer SpekulationTab + TransfermarktTab (vormals in beiden
@@ -60,6 +61,44 @@ function readStoredActiveTab(): string {
   return stored && ACTIVE_TABS.has(stored) ? stored : "team";
 }
 
+// Wischen wechselt auf dem Handy schneller zwischen Tabs als die Tab-Leiste.
+// Reine Touch-Events, kein neues Package. Zwei Ausschluss-Faelle: ein Wisch,
+// der in einer horizontal scrollenden Tabelle beginnt (data-swipe-ignore auf
+// dem Wrapper in table.tsx), und jeder offene Detail-Modal (siehe
+// modalOpenTracker.ts) - sonst wechselt ein Wisch im Modal versehentlich den
+// Hintergrund-Tab.
+const SWIPE_THRESHOLD_PX = 60;
+const SWIPE_MAX_VERTICAL_PX = 50;
+
+function useSwipeTabs(activeTab: string, setActiveTab: (key: string) => void) {
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  function onTouchStart(e: ReactTouchEvent<HTMLElement>) {
+    touchStart.current = null;
+    if (isAnyModalOpen()) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-swipe-ignore]")) return;
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+
+  function onTouchEnd(e: ReactTouchEvent<HTMLElement>) {
+    const start = touchStart.current;
+    touchStart.current = null;
+    if (!start || isAnyModalOpen()) return;
+
+    const dx = e.changedTouches[0].clientX - start.x;
+    const dy = e.changedTouches[0].clientY - start.y;
+    if (Math.abs(dy) > SWIPE_MAX_VERTICAL_PX || Math.abs(dx) < SWIPE_THRESHOLD_PX) return;
+
+    const activeKeys = TABS.filter((t) => ACTIVE_TABS.has(t.key)).map((t) => t.key);
+    const i = activeKeys.indexOf(activeTab);
+    const next = dx < 0 ? activeKeys[i + 1] : activeKeys[i - 1];
+    if (next) setActiveTab(next);
+  }
+
+  return { onTouchStart, onTouchEnd };
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -79,6 +118,7 @@ export default function App() {
     [data, now]
   );
   const spekulationRows = useMemo(() => buildSpekulationRows(transfermarktRows), [transfermarktRows]);
+  const { onTouchStart, onTouchEnd } = useSwipeTabs(activeTab, setActiveTab);
 
   useEffect(() => {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
@@ -154,7 +194,7 @@ export default function App() {
           );
         })}
       </nav>
-      <main className="px-6 py-6">
+      <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {loadState === "loading" && (
           <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
         )}

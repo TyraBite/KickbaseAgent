@@ -7,6 +7,7 @@ import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum } from "../format";
+import { useModalOpenTracking } from "../lib/modalOpenTracker";
 
 const MAX_SQUAD_SIZE = 17;
 
@@ -427,6 +428,7 @@ function DetailModal({
   const [wechselOpen, setWechselOpen] = useState(false);
   const [search, setSearch] = useState("");
 
+  useModalOpenTracking();
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -605,6 +607,7 @@ function AddTargetModal({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
 
+  useModalOpenTracking();
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();

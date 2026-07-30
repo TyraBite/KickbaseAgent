@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DashboardSnapshot } from "../types";
 import { buildEigenesTeamSplit, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
+import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 
@@ -223,6 +224,7 @@ function useEscapeClose(onClose: () => void) {
 
 function DetailModalShell({ header, onClose, children }: { header: ReactNode; onClose: () => void; children: ReactNode }) {
   useEscapeClose(onClose);
+  useModalOpenTracking();
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
       <div
