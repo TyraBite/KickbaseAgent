@@ -471,3 +471,32 @@ class BuildLigaanalyseTests(unittest.TestCase):
         self.assertEqual(len(result["rows"]), 1)
         self.assertEqual(result["rows"][0]["name"], "Ich")
         self.assertTrue(result["rows"][0]["is_self"])
+
+    def test_self_row_does_not_contribute_to_position_need(self):
+        # Sowohl Ich (self) als auch ein Rivale stellen p1 (Torwart) in der
+        # Startelf auf. n_rivals muss trotzdem 1 bleiben (nicht 2) - der
+        # eigene Kader darf die Deckungsgrad-Aggregation nicht mitzaehlen.
+        # Anders als test_own_row_excluded_from_position_need (dort bleibt
+        # position_need bei nur einer self-Zeile ohnehin komplett leer,
+        # unabhaengig davon ob der Selbst-Ausschluss korrekt greift) gibt es
+        # hier einen echten Rivalen, der "Torwart" real in position_need
+        # einbringt - ein Regressions-Bug (Self faelschlich mitgezaehlt)
+        # wuerde hier n_rivals=2 statt 1 liefern und faellt damit auf.
+        ranking_rows = [
+            self._ranking_row("u_self", "Ich", ["p1"]),
+            self._ranking_row("u1", "Rivale", ["p1"]),
+        ]
+        budget_rows = [
+            {"user_id": "u_self", "is_own_exact": True, "estimated_budget": 1, "available_budget": 1, "trade_count": 0},
+            {"user_id": "u1", "is_own_exact": False, "estimated_budget": None, "available_budget": None, "trade_count": None},
+        ]
+
+        with patch("src.dashboard_export.get_manager_squad") as mock_squad:
+            mock_squad.return_value = {"it": [{"pi": "p1"}], "nps": 1}
+            result = _build_ligaanalyse(
+                "tok", "l1", ranking_rows, budget_rows, market_listings=[],
+                own_squad=[{"player_id": "p1", "market_value": 1, "starting_rank": 1}],
+                players_map=self._players_map(),
+            )
+
+        self.assertEqual(result["position_need"]["Torwart"]["n_rivals"], 1)
