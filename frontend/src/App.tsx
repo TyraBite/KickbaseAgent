@@ -147,7 +147,7 @@ export default function App() {
         )}
         {loadState === "ready" && data && (
           <div className={activeTab === "spekulation" ? "" : "hidden"}>
-            <SpekulationTab rows={spekulationRows} now={now} />
+            <SpekulationTab rows={spekulationRows} now={now} bidHistory={data.bid_premium_history ?? []} positionNeed={data.position_need ?? {}} />
           </div>
         )}
         {loadState === "ready" && data && (
