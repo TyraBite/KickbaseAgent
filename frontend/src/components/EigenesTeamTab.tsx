@@ -158,7 +158,7 @@ function MlPredictionRow({ value, mae }: { value: number | null; mae?: number | 
 // 2026-07-30: direkt sichtbar auf der Karte, nicht nur als Badge im Header).
 function StatusLabelRow({ value }: { value: string | null }) {
   return (
-    <Row label="Status">
+    <Row label="Fitness">
       <Badge tone={value ? "crit" : "good"}>{value ?? "Fit"}</Badge>
     </Row>
   );
@@ -330,7 +330,7 @@ function WatchlistDetailModal({
         </div>
       }
     >
-      <Row label="Status">{row.status ?? "—"}</Row>
+      <Row label="Verfügbarkeit">{row.status ?? "—"}</Row>
       <Row label="Signal">
         <SignalBadge signal={row.signal} thresholds={thresholds} />
       </Row>

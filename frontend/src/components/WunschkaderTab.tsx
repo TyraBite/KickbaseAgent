@@ -474,7 +474,7 @@ function DetailModal({
           <Row label="Signal">
             <SignalBadge signal={computed.signal} thresholds={thresholds} />
           </Row>
-          <Row label="Status">{computed.status}</Row>
+          <Row label="Verfügbarkeit">{computed.status}</Row>
           <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
           <Row label="Geplanter Preis">{fmtNum(plannedPrice)}</Row>
         </dl>

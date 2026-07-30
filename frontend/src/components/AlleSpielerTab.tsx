@@ -75,7 +75,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
       sortValue: (r) => r.starting_rank,
       render: (r) => r.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>,
     },
-    { key: "owner", label: "Status", sortValue: (r) => r.owner, render: (r) => <Badge tone={ownerTone(r.owner)}>{r.owner}</Badge> },
+    { key: "owner", label: "Verfügbarkeit", sortValue: (r) => r.owner, render: (r) => <Badge tone={ownerTone(r.owner)}>{r.owner}</Badge> },
     { key: "status_label", label: "Fitness", sortValue: (r) => r.status_label, render: (r) => (r.status_label ? <Badge tone="warn">{r.status_label}</Badge> : "") },
   ];
 
