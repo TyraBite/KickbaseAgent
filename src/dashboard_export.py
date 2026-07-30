@@ -433,7 +433,9 @@ def export() -> dict:
             activities = []
     else:
         activities = []
-    bid_premium_history = bid_premium.update_and_load(fs_client, token, league_id, activities, players_map)
+    bid_premium_history, bid_premium_outcome_counts = bid_premium.update_and_load(
+        fs_client, token, league_id, activities, players_map, market_listings, own_name, fetched_at
+    )
 
     ligaanalyse_result = _build_ligaanalyse(
         token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, players_map,
@@ -449,6 +451,7 @@ def export() -> dict:
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "players": players_map,
         "bid_premium_history": bid_premium_history,
+        "bid_premium_outcome_counts": bid_premium_outcome_counts,
         "transfermarkt_listings": _build_transfermarkt_listings(market_listings),
         "own_squad_ids": [r["player_id"] for r in own_squad],
         "owned_by": heavy["owned_by"],
