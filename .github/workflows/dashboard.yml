@@ -1,4 +1,4 @@
-name: Dashboard Export
+name: Dashboard Update (Light, stündlich)
 
 on:
   schedule:

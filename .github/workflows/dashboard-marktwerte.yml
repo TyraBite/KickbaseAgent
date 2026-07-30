@@ -1,4 +1,4 @@
-name: Dashboard Marktwerte (Heavy)
+name: Dashboard Update (Heavy, Marktwerte + ML)
 
 on:
   schedule:

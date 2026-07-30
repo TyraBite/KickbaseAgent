@@ -1,4 +1,4 @@
-name: Frontend Pilot Deploy
+name: Frontend Deploy (GitHub Pages)
 
 # Baut das React/Vite/Tailwind-Frontend (frontend/) und deployt es als
 # alleiniges UI unter .../KickbaseAgent/. Die alte, handgepflegte index.html
