@@ -11,7 +11,8 @@ Eine geteilte Komponente `PlayerCompareModal` (neue Datei `frontend/src/componen
 ## Einstiegspunkte (3 Tabs)
 
 - **Wunschkader** (`WunschkaderTab.tsx`): Klick auf einen vorgeschlagenen Ersatz in der bestehenden Ersatzspieler-Suche öffnet direkt `PlayerCompareModal(aktuelles Ziel, Vorschlag)` — keine weitere Auswahl nötig, beide IDs sind schon bekannt.
-- **Alle Spieler** (`AlleSpielerTab.tsx`) / **Eigenes Team** (`EigenesTeamTab.tsx`): das jeweils bestehende Detail-Modal bekommt einen neuen Button "Vergleichen mit…", öffnet einen kleinen Namens-Picker (gleiches Suchmuster wie die bestehende Ersatzspieler-Suche) → `PlayerCompareModal(aktueller Spieler, ausgewählter Spieler)`.
+- **Eigenes Team** (`EigenesTeamTab.tsx`): das bestehende Detail-Modal bekommt einen neuen Button "Vergleichen mit…", öffnet einen kleinen Namens-Picker (gleiches Suchmuster wie die bestehende Ersatzspieler-Suche) → `PlayerCompareModal(aktueller Spieler, ausgewählter Spieler)`.
+- **Alle Spieler** (`AlleSpielerTab.tsx`): hat aktuell noch KEIN Detail-Modal (nur die Tabelle, kein Zeilen-Klick) - live geprüft beim Schreiben dieser Spec. Bekommt ein neues, schlankes Detail-Modal (Zeilen-Klick öffnet es, gleiches Kernset wie überall sonst) MIT demselben "Vergleichen mit…"-Button - konsistent zum Klick-für-Detail-Muster der anderen Tabs, etwas mehr Scope als ursprünglich angenommen.
 - Transfermarkt/Spekulation sind bewusst NICHT Teil dieses Plans (siehe Out of Scope) — die geteilte Komponente ist so gebaut, dass eine spätere Erweiterung dort nur eine zusätzliche Wiring-Stelle braucht, kein Umbau der Komponente selbst.
 
 ## Spieler-Wechsel innerhalb des offenen Modals
