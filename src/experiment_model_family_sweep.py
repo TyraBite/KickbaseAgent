@@ -90,8 +90,12 @@ def run_backtest(history_df) -> None:
         folds_run += 1
         print(f"Fold {i + 1}/{FOLDS} ({cutoff}, {len(train)} Trainings-, {len(test)} Test-Zeilen)...", file=sys.stderr)
 
-        x_train, y_train = train[FEATURES], train[TARGET]
-        x_test = test[FEATURES]
+        # .astype(float) explizit: die "p"-Spalte kommt als object-Dtype aus
+        # dem Corpus, sklearn-Modelle tolerieren das stillschweigend, XGBoost
+        # nicht (ValueError: DataFrame.dtypes for data must be int, float,
+        # bool or category) - live gefunden im ersten Lauf dieses Skripts.
+        x_train, y_train = train[FEATURES].astype(float), train[TARGET]
+        x_test = test[FEATURES].astype(float)
         y_test_actual = test["mv_target"]
 
         for name, factory in MODEL_FACTORIES.items():
