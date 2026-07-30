@@ -152,8 +152,14 @@ def _evaluate_config(history_df, cutoffs, family: str, params: dict) -> dict:
 
 
 def _print_leaderboard(results: list[dict]) -> None:
-    ranked = sorted(results, key=lambda r: r["sign_accuracy"], reverse=True)
-    print(f"\n--- Zwischenstand ({len(results)} Konfigurationen fertig) ---")
+    # Nach MAE sortiert, NICHT nach Accuracy - ein Fund im 2h-Testlauf:
+    # Configs mit sehr niedriger learning_rate + wenig Estimators (=
+    # Unterfitting) trafen oefter zufaellig die Richtung (hohe Accuracy),
+    # lagen dabei aber im Betrag katastrophal daneben (MAE 30k+ statt ~25k).
+    # Reine Accuracy-Sortierung haette solche Configs faelschlich nach oben
+    # gespuelt.
+    ranked = sorted(results, key=lambda r: r["mae"])
+    print(f"\n--- Zwischenstand ({len(results)} Konfigurationen fertig, nach MAE sortiert) ---")
     print(f"{'Familie':<20} {'Accuracy':>10} {'MAE':>10} {'Fold-Std':>10} {'Params'}")
     for r in ranked[:10]:
         print(f"{r['family']:<20} {r['sign_accuracy']:>9.1f}% {r['mae']:>10.0f} {r['fold_std']:>9.1f}p {r['params']}")
@@ -193,6 +199,16 @@ def run(history_df, budget_seconds: float) -> None:
             print(f"Warnung: Konfiguration fehlgeschlagen, uebersprungen: {exc}", file=sys.stderr)
             continue
         last_config_duration = time.monotonic() - config_start
+
+        # JEDES Ergebnis einzeln loggen, nicht nur alle 3 in der
+        # Top-10-Bestenliste - sonst verschwinden schwaechere Configs
+        # spurlos aus dem Log, sobald sie aus der Top 10 rutschen (im
+        # 2h-Testlauf gefunden: von 29 Configs waren nur 19 ueberhaupt
+        # rekonstruierbar).
+        print(
+            f"ERGEBNIS {result['family']:<20} {result['sign_accuracy']:>5.1f}% "
+            f"MAE={result['mae']:.0f} std={result['fold_std']:.1f}p {result['params']}"
+        )
 
         if len(results) % 3 == 0 or i == len(queue) - 1:
             _print_leaderboard(results)
