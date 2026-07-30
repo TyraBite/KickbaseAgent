@@ -66,6 +66,7 @@ export interface LigaanalyseRow {
   squad_value: number | null;
   sell_count: number;
   regular_count: number | null;
+  squad_player_ids: string[];
 }
 
 export type MlModelType = "RandomForest" | "HistGradientBoosting";
