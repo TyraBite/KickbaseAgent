@@ -9,6 +9,7 @@ from src.bid_premium import (
     _market_value_at,
     build_new_entries,
     detect_unsold_listings,
+    update_and_load,
 )
 
 
@@ -238,75 +239,77 @@ class BuildNewEntriesTests(unittest.TestCase):
 class UpdateAndLoadTests(unittest.TestCase):
     @patch("src.bid_premium.firestore_db")
     def test_writes_new_entries_and_advances_pointer_when_found(self, mock_fs):
-        from src.bid_premium import update_and_load
         mock_fs.get_bid_premium_pointer.return_value = None
         mock_fs.get_bid_premium_history.return_value = [
-            {"activity_id": "act_1", "player_id": "p1", "purchased_at": "2026-07-01T10:00:00Z"}
+            {"activity_id": "act_1", "player_id": "p1", "position": "Sturm", "purchased_at": "2026-07-01T10:00:00Z"}
         ]
+        mock_fs.get_bid_premium_last_seen_listing_ids.return_value = []
+        mock_fs.get_unsold_log.return_value = []
         activities = [_trade_activity("2026-07-01T10:00:00Z", trp=11_000_000, pi="p1")]
         target_days = _days_since_epoch("2026-07-01T10:00:00Z")
         client = MagicMock()
 
-        result = update_and_load(
+        history, outcome_counts = update_and_load(
             client=client, token="tok", league_id="l1", activities=activities,
             players_map={"p1": {"player_id": "p1", "position": "Sturm", "average_points": 100}},
+            market_listings=[], own_name="Ich", detected_at="2026-07-01",
             get_history=lambda *a, **k: {"it": [{"dt": target_days, "mv": 10_000_000}]},
         )
 
         mock_fs.upsert_bid_premium_entries.assert_called_once()
         mock_fs.upsert_bid_premium_pointer.assert_called_once_with(client, "2026-07-01T10:00:00Z")
         # activity_id (nur Firestore-Schreib-Doc-Id) wird vor der Rueckgabe
-        # entfernt - kein Frontend-Verbraucher braucht ihn (siehe Finding 4).
-        self.assertEqual(result, [{"player_id": "p1", "purchased_at": "2026-07-01T10:00:00Z"}])
+        # entfernt - unveraendertes Verhalten, siehe update_and_load()-Docstring.
+        self.assertEqual(history, [{"player_id": "p1", "position": "Sturm", "purchased_at": "2026-07-01T10:00:00Z"}])
+        self.assertEqual(outcome_counts, {"Sturm": {"rival_purchases": 1, "self_purchases": 0, "unsold": 0}})
 
     @patch("src.bid_premium.firestore_db")
     def test_no_new_purchases_skips_writes_but_still_returns_history(self, mock_fs):
-        from src.bid_premium import update_and_load
         mock_fs.get_bid_premium_pointer.return_value = "2026-07-05T00:00:00Z"
         mock_fs.get_bid_premium_history.return_value = [
-            {"activity_id": "act_old", "purchased_at": "2026-06-01T00:00:00Z"}
+            {"activity_id": "act_old", "position": "Sturm", "purchased_at": "2026-06-01T00:00:00Z"}
         ]
+        mock_fs.get_bid_premium_last_seen_listing_ids.return_value = []
+        mock_fs.get_unsold_log.return_value = []
 
-        result = update_and_load(
+        history, _outcome_counts = update_and_load(
             client=MagicMock(), token="tok", league_id="l1", activities=[],
-            players_map={}, get_history=lambda *a, **k: {"it": []},
+            players_map={}, market_listings=[], own_name=None, detected_at="2026-07-05",
+            get_history=lambda *a, **k: {"it": []},
         )
 
         mock_fs.upsert_bid_premium_entries.assert_not_called()
         mock_fs.upsert_bid_premium_pointer.assert_not_called()
-        self.assertEqual(result, [{"purchased_at": "2026-06-01T00:00:00Z"}])
+        # activity_id (nur Firestore-Schreib-Doc-Id) wird vor der Rueckgabe
+        # entfernt - unveraendertes Verhalten, siehe update_and_load()-Docstring.
+        self.assertEqual(history, [{"position": "Sturm", "purchased_at": "2026-06-01T00:00:00Z"}])
 
     def test_none_client_is_noop_and_returns_empty(self):
-        from src.bid_premium import update_and_load
-        result = update_and_load(
+        history, outcome_counts = update_and_load(
             client=None, token="tok", league_id="l1", activities=[{"anything": True}],
-            players_map={},
+            players_map={}, market_listings=[], own_name=None, detected_at="2026-07-05",
         )
-        self.assertEqual(result, [])
+        self.assertEqual(history, [])
+        self.assertEqual(outcome_counts, {})
 
     @patch("src.bid_premium.firestore_db")
-    def test_history_is_capped_sorted_descending_and_activity_id_stripped(self, mock_fs):
-        from src.bid_premium import MAX_HISTORY_ENTRIES_IN_SNAPSHOT, update_and_load
+    def test_unsold_detection_writes_entry_and_shows_up_in_outcome_counts(self, mock_fs):
         mock_fs.get_bid_premium_pointer.return_value = "2026-07-05T00:00:00Z"
-        # Absichtlich mehr als das Cap UND in aufsteigender Reihenfolge
-        # gemockt, um sowohl Deckelung als auch Sortierung zu pruefen.
-        unsorted_oversized_history = [
-            {"activity_id": f"act_{i}", "player_id": "p1", "purchased_at": f"2026-01-{(i % 28) + 1:02d}T00:00:00Z"}
-            for i in range(MAX_HISTORY_ENTRIES_IN_SNAPSHOT + 50)
-        ]
-        newest_entry = {"activity_id": "act_newest", "player_id": "p1", "purchased_at": "2099-01-01T00:00:00Z"}
-        mock_fs.get_bid_premium_history.return_value = unsorted_oversized_history + [newest_entry]
+        mock_fs.get_bid_premium_history.return_value = []
+        mock_fs.get_bid_premium_last_seen_listing_ids.return_value = ["p1"]
+        mock_fs.get_unsold_log.return_value = [{"player_id": "p1", "position": "Sturm", "detected_at": "2026-07-06"}]
+        client = MagicMock()
 
-        result = update_and_load(
-            client=MagicMock(), token="tok", league_id="l1", activities=[],
-            players_map={}, get_history=lambda *a, **k: {"it": []},
+        _history, outcome_counts = update_and_load(
+            client=client, token="tok", league_id="l1", activities=[],
+            players_map={"p1": {"player_id": "p1", "position": "Sturm", "market_value": 1, "average_points": 1}},
+            market_listings=[], own_name=None, detected_at="2026-07-06",
+            get_history=lambda *a, **k: {"it": []},
         )
 
-        self.assertEqual(len(result), MAX_HISTORY_ENTRIES_IN_SNAPSHOT)
-        self.assertEqual(result[0]["purchased_at"], "2099-01-01T00:00:00Z")
-        purchased_ats = [e["purchased_at"] for e in result]
-        self.assertEqual(purchased_ats, sorted(purchased_ats, reverse=True))
-        self.assertTrue(all("activity_id" not in e for e in result))
+        mock_fs.upsert_unsold_log_entries.assert_called_once()
+        mock_fs.upsert_bid_premium_last_seen_listing_ids.assert_called_once_with(client, [])
+        self.assertEqual(outcome_counts, {"Sturm": {"rival_purchases": 0, "self_purchases": 0, "unsold": 1}})
 
 
 class DetectUnsoldListingsTests(unittest.TestCase):

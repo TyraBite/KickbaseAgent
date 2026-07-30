@@ -187,17 +187,34 @@ def detect_unsold_listings(
     return entries, current_ids
 
 
+def _build_outcome_counts(full_history: list[dict], unsold_log: list[dict]) -> dict:
+    counts: dict[str, dict[str, int]] = {}
+    for entry in full_history:
+        bucket = counts.setdefault(entry["position"], {"rival_purchases": 0, "self_purchases": 0, "unsold": 0})
+        if entry.get("bought_by_self"):
+            bucket["self_purchases"] += 1
+        else:
+            bucket["rival_purchases"] += 1
+    for entry in unsold_log:
+        bucket = counts.setdefault(entry["position"], {"rival_purchases": 0, "self_purchases": 0, "unsold": 0})
+        bucket["unsold"] += 1
+    return counts
+
+
 def update_and_load(
     client,
     token: str,
     league_id: str,
     activities: list[dict],
     players_map: dict[str, dict],
+    market_listings: list[dict],
+    own_name: str | None,
+    detected_at: str,
     get_history=get_market_value_history,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """Zentraler Einstiegspunkt, von dashboard_export.export() aufgerufen.
     client=None (FIRESTORE_ENABLED fehlt, lokaler Testlauf) ist ein reines
-    No-Op - kein bid_premium_history im Snapshot in diesem Fall.
+    No-Op - leere Historie UND leere outcome_counts in diesem Fall.
 
     Die bid_premium_log-Collection waechst dauerhaft (ein Eintrag pro
     Systemkauf, fuer den Rest der Saison und darueber hinaus) und wird
@@ -209,19 +226,34 @@ def update_and_load(
     ist nur die Firestore-Schreib-Doc-Id und wird von keinem Frontend-
     Verbraucher gelesen (siehe frontend/src/types.ts::BidPremiumEntry) -
     wird deshalb vor dem Zurueckgeben entfernt statt unnoetig mitgeschickt
-    zu werden."""
+    zu werden.
+
+    outcome_counts wird aus der VOLLEN (nicht gedeckelten) Historie berechnet
+    - eine Zaehlung soll nicht durch den Snapshot-Cap verzerrt werden."""
     if client is None:
-        return []
+        return [], {}
 
     pointer = firestore_db.get_bid_premium_pointer(client)
     new_entries, new_pointer = build_new_entries(
-        token, league_id, activities, pointer, players_map, get_history=get_history
+        token, league_id, activities, pointer, players_map, own_name, get_history=get_history
     )
     if new_entries:
         firestore_db.upsert_bid_premium_entries(client, new_entries)
     if new_pointer:
         firestore_db.upsert_bid_premium_pointer(client, new_pointer)
 
-    history = firestore_db.get_bid_premium_history(client)
-    capped = sorted(history, key=lambda e: e["purchased_at"], reverse=True)[:MAX_HISTORY_ENTRIES_IN_SNAPSHOT]
-    return [{k: v for k, v in e.items() if k != "activity_id"} for e in capped]
+    last_seen_ids = firestore_db.get_bid_premium_last_seen_listing_ids(client)
+    unsold_entries, current_ids = detect_unsold_listings(
+        market_listings, activities, last_seen_ids, players_map, detected_at
+    )
+    if unsold_entries:
+        firestore_db.upsert_unsold_log_entries(client, unsold_entries)
+    firestore_db.upsert_bid_premium_last_seen_listing_ids(client, current_ids)
+
+    full_history = firestore_db.get_bid_premium_history(client)
+    unsold_log = firestore_db.get_unsold_log(client)
+    outcome_counts = _build_outcome_counts(full_history, unsold_log)
+
+    capped = sorted(full_history, key=lambda e: e["purchased_at"], reverse=True)[:MAX_HISTORY_ENTRIES_IN_SNAPSHOT]
+    history_for_frontend = [{k: v for k, v in e.items() if k != "activity_id"} for e in capped]
+    return history_for_frontend, outcome_counts
