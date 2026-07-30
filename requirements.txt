@@ -1,6 +1,6 @@
-requests
-python-dotenv
-scikit-learn
-pandas
-numpy
-google-cloud-firestore
+requests==2.34.2
+python-dotenv==1.2.2
+scikit-learn==1.9.0
+pandas==3.0.5
+numpy==2.4.6
+google-cloud-firestore==2.28.0

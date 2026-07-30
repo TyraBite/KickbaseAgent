@@ -5,6 +5,9 @@ on:
     - cron: '0 * * * *' # stuendlich zur vollen Stunde (neue Transfermarkt-Angebote erscheinen oft kurz davor)
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   dashboard-export:
     runs-on: ubuntu-latest
