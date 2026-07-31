@@ -475,7 +475,10 @@ def export() -> dict:
                 {**change, "date": fetched_at, "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
                 for change in status_changes
             ]
-            firestore_db.upsert_fitness_history_entries(fs_client, fitness_entries)
+            try:
+                firestore_db.upsert_fitness_history_entries(fs_client, fitness_entries)
+            except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
+                print(f"Warnung: fitness_history_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
 
     activity_feed_ok = True
     if fs_client:
