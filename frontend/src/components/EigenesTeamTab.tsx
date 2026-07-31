@@ -27,9 +27,10 @@ type WatchlistRow = ResolvedTarget & { ml_prediction: number | null };
 type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; row: WatchlistRow } | null;
 
 export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
+  const liveMae = liveModelMae(data.ml_metrics);
   const split = useMemo(
-    () => buildEigenesTeamSplit(data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration),
-    [data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration]
+    () => buildEigenesTeamSplit(data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration, liveMae),
+    [data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration, liveMae]
   );
 
   const ownSquadIdSet = useMemo(() => new Set(data.own_squad_ids), [data.own_squad_ids]);
@@ -48,7 +49,6 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
     [data.wunschkader_targets, ownSquadIdSet, data.players, listingsByPlayerId, data.owned_by, data.calibration]
   );
   const thresholds = data.signal_thresholds;
-  const liveMae = liveModelMae(data.ml_metrics);
   const [selected, setSelected] = useState<Selected>(null);
 
   return (
@@ -196,8 +196,8 @@ function PlayerCard({
           <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
           <PositionBadge position={row.position} />
           {row.sell_signal && (
-            <Badge tone={row.sell_signal === "halten" ? "good" : "warn"}>
-              {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
+            <Badge tone={row.sell_signal === "halten" ? "good" : row.sell_signal === "unklar" ? "warn" : "crit"}>
+              {row.sell_signal === "halten" ? "Noch halten" : row.sell_signal === "unklar" ? "Unklar" : "Jetzt verkaufen"}
             </Badge>
           )}
         </div>
@@ -337,8 +337,8 @@ function PlayerDetailModal({
       >
         {row.sell_signal && (
           <Row label="Empfehlung">
-            <Badge tone={row.sell_signal === "halten" ? "good" : "warn"}>
-              {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
+            <Badge tone={row.sell_signal === "halten" ? "good" : row.sell_signal === "unklar" ? "warn" : "crit"}>
+              {row.sell_signal === "halten" ? "Noch halten" : row.sell_signal === "unklar" ? "Unklar" : "Jetzt verkaufen"}
             </Badge>
           </Row>
         )}

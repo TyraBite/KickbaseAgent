@@ -257,8 +257,13 @@ export function roiPct(mlPrediction: number | null, price: number | null): numbe
 // mehr noetig (wunschkader_sell_list war nie ueber die UI editierbar und
 // stand oft nicht im Einklang mit der echten ML-Prognose, z.B. Bensebaini
 // mit +152k Prognose zeigte trotzdem "Jetzt verkaufen", User-Fund 2026-07-30).
-export function sellSignal(mlPrediction: number | null | undefined): "halten" | "verkaufen" {
-  return (mlPrediction ?? 0) > 0 ? "halten" : "verkaufen";
+export function sellSignal(
+  mlPrediction: number | null | undefined,
+  mae: number | null
+): "halten" | "verkaufen" | "unklar" {
+  const pred = mlPrediction ?? 0;
+  if (mae !== null && Math.abs(pred) <= mae) return "unklar";
+  return pred > 0 ? "halten" : "verkaufen";
 }
 
 export interface PlayerRow {
@@ -342,14 +347,15 @@ export function buildSpekulationRows(transfermarktRows: TransfermarktRow[]): Spe
     .sort((a, b) => b.roi_pct - a.roi_pct);
 }
 
-export interface EigenesTeamRow extends PlayerRow { sell_signal?: "halten" | "verkaufen" }
+export interface EigenesTeamRow extends PlayerRow { sell_signal?: "halten" | "verkaufen" | "unklar" }
 export interface EigenesTeamSplit { verkaufen: EigenesTeamRow[]; bleibt: EigenesTeamRow[] }
 
 export function buildEigenesTeamSplit(
   players: Record<string, PlayerRecord>,
   ownSquadIds: string[],
   targets: RawWunschkaderTarget[],
-  calibration: Calibration | null
+  calibration: Calibration | null,
+  mae: number | null
 ): EigenesTeamSplit {
   const targetIds = new Set(targets.map((t) => t.player_id));
   const verkaufen: EigenesTeamRow[] = [];
@@ -361,7 +367,7 @@ export function buildEigenesTeamSplit(
     if (targetIds.has(pid)) {
       bleibt.push(row);
     } else {
-      verkaufen.push({ ...row, sell_signal: sellSignal(player.ml_prediction) });
+      verkaufen.push({ ...row, sell_signal: sellSignal(player.ml_prediction, mae) });
     }
   }
   return { verkaufen, bleibt };
