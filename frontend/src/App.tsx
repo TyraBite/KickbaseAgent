@@ -10,6 +10,7 @@ import MlGenauigkeitTab from "./components/MlGenauigkeitTab";
 import SpekulationTab from "./components/SpekulationTab";
 import TransfermarktTab from "./components/TransfermarktTab";
 import WunschkaderTab from "./components/WunschkaderTab";
+import FeedbackTab from "./components/FeedbackTab";
 import { buildSpekulationRows, buildTransfermarktRows, formatRelativeTime } from "./lib/derive";
 import { isAnyModalOpen } from "./lib/modalOpenTracker";
 import type { DashboardSnapshot } from "./types";
@@ -36,6 +37,7 @@ const TABS = [
   { key: "liga", label: "Ligaanalyse" },
   { key: "alle-spieler", label: "Alle Spieler" },
   { key: "ml-genauigkeit", label: "Modell-Tracking" },
+  { key: "feedback", label: "Bugs & Ideen" },
 ];
 
 // Sub-Projekt 3: Tabs werden nach und nach aktiviert, sobald migriert.
@@ -47,6 +49,7 @@ const ACTIVE_TABS = new Set([
   "transfermarkt",
   "liga",
   "ml-genauigkeit",
+  "feedback",
 ]);
 
 // Reload ist der einzige Weg an frische Daten zu kommen (Client pollt nicht,
@@ -206,10 +209,10 @@ export default function App() {
         })}
       </nav>
       <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        {loadState === "loading" && (
+        {loadState === "loading" && activeTab !== "feedback" && (
           <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
         )}
-        {loadState === "error" && (
+        {loadState === "error" && activeTab !== "feedback" && (
           <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
         )}
         {loadState === "ready" && data && (
@@ -253,6 +256,9 @@ export default function App() {
             <MlGenauigkeitTab data={data} />
           </div>
         )}
+        <div className={activeTab === "feedback" ? "" : "hidden"}>
+          <FeedbackTab now={now} />
+        </div>
       </main>
     </div>
   );

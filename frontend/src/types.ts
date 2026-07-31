@@ -134,6 +134,14 @@ export interface PositionNeedEntry {
 
 export type PositionNeed = Record<string, PositionNeedEntry>;
 
+export interface FeedbackItem {
+  id: string;
+  type: "bug" | "feature";
+  text: string;
+  created_at: string; // ISO-Timestamp, new Date().toISOString()
+  status: "open" | "done";
+}
+
 export interface DashboardSnapshot {
   fetched_at: string;
   generated_at: string;
