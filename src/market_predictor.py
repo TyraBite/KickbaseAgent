@@ -659,16 +659,25 @@ def _load_local_prediction_log() -> list[dict]:
 
 
 def _load_recent_prediction_log(today: str, horizon_days: int) -> list[dict]:
-    """Liest NUR die letzten EVALUATION_LOOKBACK_DAYS Tage roher Pro-Spieler-
-    Prognosen (Firestore serverseitig datumsgefiltert bei FIRESTORE_ENABLED,
-    sonst die lokale Datei client-seitig gefiltert) - genug um neu
-    auswertbare Eintraege zu finden, OHNE die komplette (taeglich
-    wachsende) Historie zu scannen. Firestore-Lesefehler faellt auf die
-    lokale Datei zurueck statt zu crashen. Die Firestore-Query selbst
-    filtert weiterhin nur nach Datum (kein neuer Composite-Index noetig) -
-    die Horizont-Filterung (`.get("horizon_days", 1)` fuer Alt-Eintraege
-    ohne das Feld) passiert client-seitig, hier und im lokalen Fallback."""
-    since = (datetime.date.fromisoformat(today) - datetime.timedelta(days=EVALUATION_LOOKBACK_DAYS)).isoformat()
+    """Liest die letzten (EVALUATION_LOOKBACK_DAYS + horizon_days - 1) Tage
+    roher Pro-Spieler-Prognosen (Firestore serverseitig datumsgefiltert bei
+    FIRESTORE_ENABLED, sonst die lokale Datei client-seitig gefiltert) -
+    genug um neu auswertbare Eintraege zu finden, OHNE die komplette
+    (taeglich wachsende) Historie zu scannen. Die Fensterbreite ist
+    horizont-abhaengig: fuer Horizont N ist ein am Tag D geloggter Eintrag
+    erst ab D+N auswertbar (der Marktwert an D+N muss bekannt sein) - ohne
+    diese Erweiterung haette ein hoeherer Horizont weniger "Slack" gegen
+    einen verpassten Cron-Lauf als Horizont 1 (bei Horizont 3 zuvor nur 1
+    statt 3 auswertbare Tage im Fenster - ein einziger verpasster Lauf haette
+    die Genauigkeits-Daten dieses Tages dauerhaft und unwiederbringlich
+    verloren, siehe finaler Review 2026-07-31). Firestore-Lesefehler faellt
+    auf die lokale Datei zurueck statt zu crashen. Die Firestore-Query
+    selbst filtert weiterhin nur nach Datum (kein neuer Composite-Index
+    noetig) - die Horizont-Filterung (`.get("horizon_days", 1)` fuer
+    Alt-Eintraege ohne das Feld) passiert client-seitig, hier und im
+    lokalen Fallback."""
+    lookback_days = EVALUATION_LOOKBACK_DAYS + horizon_days - 1
+    since = (datetime.date.fromisoformat(today) - datetime.timedelta(days=lookback_days)).isoformat()
     if os.environ.get("FIRESTORE_ENABLED"):
         try:
             entries = firestore_db.get_recent_prediction_log_entries(firestore_db.connect(), since, today)
@@ -755,7 +764,16 @@ def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, t
     Corpus bekannt) und aggregiert sie zu EINEM Dokument pro (date,
     model_type) - fuer ml_accuracy_daily. Log-Eintraege ohne model_type
     (altes Schema, vor Phase 4) werden uebersprungen statt einen KeyError
-    zu werfen."""
+    zu werfen.
+
+    Der Schluessel des `agg`-Dicts ist bewusst NUR (date, model_type) ohne
+    horizon_days und das ist KEIN Versehen: jeder Aufruf ist ueber den
+    `horizon_days`-Parameter schon auf genau einen Horizont eingegrenzt,
+    Kollisionen zwischen Horizonten sind innerhalb eines Aufrufs also
+    unmoeglich. Die tatsaechliche Firestore-Doc-Id ist trotzdem
+    `{date}_{model_type}_{horizon_days}` - die baut
+    firestore_db.upsert_accuracy_daily aus dem `horizon_days`-Feld, das hier
+    in jedes Aggregat mitgeschrieben wird."""
     agg: dict[tuple[str, str], dict] = {}
     for entry in recent_entries:
         model_type = entry.get("model_type")

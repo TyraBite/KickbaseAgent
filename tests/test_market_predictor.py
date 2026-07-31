@@ -154,6 +154,56 @@ class LoadRecentPredictionLogHorizonTests(unittest.TestCase):
             result = _load_recent_prediction_log("2026-07-31", horizon_days=3)
         self.assertEqual([e["predicted_delta"] for e in result], [2])
 
+    # --- Horizont-abhaengige Fensterbreite (finaler Review 2026-07-31) -------
+    # Das Fenster ist [today - (EVALUATION_LOOKBACK_DAYS + horizon_days - 1),
+    # today), untere Grenze INKLUSIV (`since <= e["date"] < today`). Fuer
+    # Horizont N ist ein an Tag D geloggter Eintrag erst ab D+N auswertbar,
+    # also braucht Horizont 3 ein um 2 Tage breiteres Fenster um dieselben 3
+    # auswertbaren Tage (= Slack gegen einen verpassten Cron-Lauf) zu haben
+    # wie Horizont 1. Mit today=2026-07-31:
+    #   Horizont 1: since=07-28 -> auswertbar 07-28/29/30 (je +1 Tag bekannt)
+    #   Horizont 3: since=07-26 -> auswertbar 07-26/27/28 (je +3 Tage bekannt)
+    # 07-26 und 07-27 sind daher die entscheidenden Datumsangaben: vor dem Fix
+    # (festes 3-Tage-Fenster fuer JEDEN Horizont) fielen sie fuer Horizont 3
+    # aus dem Fenster, obwohl sie auswertbar sind - ein verpasster Lauf hat
+    # ihre Genauigkeits-Daten dauerhaft verloren.
+    _WINDOW_FIXTURE = [
+        {"date": "2026-07-25", "player_id": "p_t6", "model_type": "RandomForest", "predicted_delta": 6, "horizon_days": 3},
+        {"date": "2026-07-26", "player_id": "p_t5", "model_type": "RandomForest", "predicted_delta": 5, "horizon_days": 3},
+        {"date": "2026-07-27", "player_id": "p_t4", "model_type": "RandomForest", "predicted_delta": 4, "horizon_days": 3},
+        {"date": "2026-07-28", "player_id": "p_t3", "model_type": "RandomForest", "predicted_delta": 3, "horizon_days": 3},
+    ]
+
+    def test_horizon_3_window_is_widened_to_keep_same_slack_as_horizon_1(self):
+        fixture = [dict(e) for e in self._WINDOW_FIXTURE]
+        with patch.dict(os.environ, {}, clear=True), patch("src.market_predictor._load_local_prediction_log", return_value=fixture):
+            result = _load_recent_prediction_log("2026-07-31", horizon_days=3)
+        # 07-26/07-27 sind neu drin (waren vorher ausgeschlossen), 07-28 wie
+        # bisher; 07-25 liegt auch nach der Erweiterung ausserhalb.
+        self.assertEqual([e["date"] for e in result], ["2026-07-26", "2026-07-27", "2026-07-28"])
+
+    def test_horizon_1_window_is_unchanged_by_the_widening(self):
+        fixture = [dict(e) for e in self._WINDOW_FIXTURE]
+        for entry in fixture:
+            entry["horizon_days"] = 1
+        with patch.dict(os.environ, {}, clear=True), patch("src.market_predictor._load_local_prediction_log", return_value=fixture):
+            result = _load_recent_prediction_log("2026-07-31", horizon_days=1)
+        # Unveraendert genau das alte Verhalten: nur 07-28 (== since, inklusiv)
+        # liegt im Fenster - der Fix darf das produktive 1-Tages-Modell weder
+        # verbreitern noch verengen (3 + 1 - 1 == 3).
+        self.assertEqual([e["date"] for e in result], ["2026-07-28"])
+
+    @patch("src.market_predictor.firestore_db.get_recent_prediction_log_entries")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_firestore_date_filter_is_horizon_aware(self, mock_connect, mock_get):
+        mock_get.return_value = []
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            _load_recent_prediction_log("2026-07-31", horizon_days=3)
+        # Auch die serverseitige Query (der Produktionspfad) muss das breitere
+        # Fenster anfragen, sonst kommen die neu auswertbaren Tage gar nicht an.
+        self.assertEqual(mock_get.call_args.args[1], "2026-07-26")  # today - (3 + 3 - 1)
+        self.assertEqual(mock_get.call_args.args[2], "2026-07-31")
+
 
 class AppendTodaysPredictionsHorizonTests(unittest.TestCase):
     def test_logged_entries_include_horizon_days(self):
@@ -402,6 +452,28 @@ class EngineerFeatures3dTargetTests(unittest.TestCase):
         row0 = history_df[history_df["date"] == pd.Timestamp("2026-07-21")].iloc[0]
         self.assertEqual(row0["mv_target"], 1000)
         self.assertEqual(row0["mv_target_3d"], 3000)
+
+    def test_rows_with_nan_3d_target_are_not_dropped_from_history_df(self):
+        # Gleiche 5-Tage-Fixture wie oben. history_df enthaelt die Zeilen
+        # i=1,2,3 (i=0 faellt durch mv_change_1d==NaN raus, i=4 wird zu
+        # today_df) - i=2 und i=3 haben aber KEINEN gueltigen 3-Tage-Wert
+        # mehr (braeuchten Zeilen i=5/i=6, die es in dieser 5-Tage-Fixture
+        # nicht gibt). Wenn ein kuenftiger Edit mv_target_3d_clipped
+        # versehentlich zum gemeinsamen dropna()-Filter hinzufuegt, wuerden
+        # genau diese Zeilen aus history_df verschwinden UND die
+        # 1-Tages-Trainingsbasis unnoetig verkleinern - dieser Test faengt
+        # das.
+        rows = [
+            {"player_id": "p1", "team_id": "t1", "date": pd.Timestamp(f"2026-07-{20+i:02d}"),
+             "mv": 10_000_000 + i * 1000, "md": pd.Timestamp(f"2026-07-{20+i:02d}"), "p": 5, "mp": 90, "mp_avg_3": 90,
+             "t1": "t1", "t2": "t2", "t1g": 1, "t2g": 0,
+             "days_since_last_status_change": 9999, "status_change_count_90d": 0}
+            for i in range(5)
+        ]
+        df = pd.DataFrame(rows)
+        history_df, _ = _engineer_features(df)
+        self.assertEqual(len(history_df), 3)
+        self.assertTrue(history_df["mv_target_3d"].isna().any())
 
 
 class TrainAndEvaluateTargetColTests(unittest.TestCase):
