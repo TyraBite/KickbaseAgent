@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from src import firestore_db
 from src.dashboard_export import (
@@ -269,6 +269,10 @@ class ExportActivityFeedGuardTests(unittest.TestCase):
         ), patch(
             "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=None
         ), patch(
+            "src.dashboard_export.firestore_db.get_fitness_status_baseline", return_value={}
+        ), patch(
+            "src.dashboard_export.firestore_db.upsert_fitness_status_baseline"
+        ), patch(
             "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
         ), patch("src.dashboard_export._load_wunschkader", return_value=None
         ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
@@ -281,7 +285,14 @@ class ExportActivityFeedGuardTests(unittest.TestCase):
 
 
 class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
-    def _run_export_with(self, cached_snapshot, fresh_all_players):
+    """Diff-Baseline ist bewusst das eigene fitness_status_baseline/latest-Dokument
+    (flaches player_id -> status_code-Dict) und NICHT dashboard_snapshot/latest:
+    letzteres wird vom stuendlichen Light-Cron ueberschrieben, der status_code fuer
+    own_squad/market_listings-Spieler frisch ueberlagert - ein zwischenzeitlicher
+    Statuswechsel waere im naechsten Heavy-Diff schon 'alt == neu' und damit
+    dauerhaft verloren (Fund im finalen Review)."""
+
+    def _run_export_with(self, baseline_status_by_player, fresh_all_players):
         with patch.dict(
             os.environ,
             {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
@@ -293,8 +304,11 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
         ), patch(
-            "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
+            "src.dashboard_export.firestore_db.get_fitness_status_baseline",
+            return_value=baseline_status_by_player,
         ), patch(
+            "src.dashboard_export.firestore_db.upsert_fitness_status_baseline"
+        ) as mock_upsert_baseline, patch(
             "src.dashboard_export.firestore_db.upsert_fitness_history_entries"
         ) as mock_upsert_fitness, patch(
             "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
@@ -304,16 +318,15 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
         ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
             export()
-        return mock_upsert_fitness
+        return mock_upsert_fitness, mock_upsert_baseline
 
     def test_status_change_in_heavy_mode_is_written_to_fitness_history(self):
-        cached_snapshot = {"players": {"p1": {"player_id": "p1", "status_code": 0}}}
         fresh_all_players = [
             {"player_id": "p1", "name": "Krauss", "position": "Sturm", "team_name": "Bremen",
              "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        mock_upsert_fitness = self._run_export_with(cached_snapshot, fresh_all_players)
+        mock_upsert_fitness, _mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
 
         mock_upsert_fitness.assert_called_once()
         written_entries = mock_upsert_fitness.call_args.args[1]
@@ -323,14 +336,25 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         self.assertEqual(written_entries[0]["to_status_code"], 1)
         self.assertEqual(written_entries[0]["date"], "2026-07-31")
 
+    def test_baseline_is_refreshed_to_current_status(self):
+        """Der Baseline-Write laeuft in JEDEM Heavy-Lauf auf den Ist-Stand von
+        heute - sonst wuerde derselbe Wechsel morgen erneut als Event gemeldet."""
+        fresh_all_players = [
+            {"player_id": "p1", "name": "Krauss", "position": "Sturm", "team_name": "Bremen",
+             "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        _mock_upsert_fitness, mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
+
+        mock_upsert_baseline.assert_called_once_with(ANY, {"p1": 1})
+
     def test_no_status_change_writes_nothing(self):
-        cached_snapshot = {"players": {"p1": {"player_id": "p1", "status_code": 0}}}
         unchanged_all_players = [
             {"player_id": "p1", "name": "Krauss", "position": "Sturm", "team_name": "Bremen",
              "status_code": 0, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        mock_upsert_fitness = self._run_export_with(cached_snapshot, unchanged_all_players)
+        mock_upsert_fitness, _mock_upsert_baseline = self._run_export_with({"p1": 0}, unchanged_all_players)
 
         mock_upsert_fitness.assert_not_called()
 
@@ -341,7 +365,6 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         Batch-Fehler) darf den restlichen export()-Lauf und insbesondere den
         kritischen dashboard_snapshot-Write (_finalize_firestore_write) nicht
         verhindern."""
-        cached_snapshot = {"players": {"p1": {"player_id": "p1", "status_code": 0}}}
         fresh_all_players = [
             {"player_id": "p1", "name": "Krauss", "position": "Sturm", "team_name": "Bremen",
              "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
@@ -358,7 +381,9 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
         ), patch(
-            "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
+            "src.dashboard_export.firestore_db.get_fitness_status_baseline", return_value={"p1": 0}
+        ), patch(
+            "src.dashboard_export.firestore_db.upsert_fitness_status_baseline"
         ), patch(
             "src.dashboard_export.firestore_db.upsert_fitness_history_entries",
             side_effect=RuntimeError("Firestore down"),

@@ -294,3 +294,43 @@ class GetFitnessHistoryTests(unittest.TestCase):
 
         client.collection.assert_any_call("fitness_history_log")
         self.assertEqual(result, [{"player_id": "p1", "date": "2026-07-31"}, {"player_id": "p2", "date": "2026-07-31"}])
+
+
+class FitnessStatusBaselineTests(unittest.TestCase):
+    """Eigenes Dokument als Diff-Baseline (analog BidPremiumPointerTests) -
+    absichtlich NICHT dashboard_snapshot/latest, das der stuendliche
+    Light-Cron ueberschreibt (siehe upsert_fitness_status_baseline)."""
+
+    def test_get_baseline_returns_empty_dict_when_no_doc(self):
+        client = MagicMock()
+        client.collection.return_value.document.return_value.get.return_value.exists = False
+
+        self.assertEqual(firestore_db.get_fitness_status_baseline(client), {})
+
+    def test_get_baseline_returns_stored_status_codes(self):
+        client = MagicMock()
+        doc_snapshot = client.collection.return_value.document.return_value.get.return_value
+        doc_snapshot.exists = True
+        doc_snapshot.to_dict.return_value = {"p1": 0, "p2": 2}
+
+        self.assertEqual(firestore_db.get_fitness_status_baseline(client), {"p1": 0, "p2": 2})
+
+    def test_upsert_baseline_writes_expected_doc(self):
+        client = MagicMock()
+
+        firestore_db.upsert_fitness_status_baseline(client, {"p1": 0, "p2": 2})
+
+        client.collection.assert_called_with("fitness_status_baseline")
+        client.collection.return_value.document.assert_called_with("latest")
+        client.collection.return_value.document.return_value.set.assert_called_once_with({"p1": 0, "p2": 2})
+
+    def test_upsert_baseline_replaces_instead_of_merging(self):
+        """Kein merge=True: verschwundene Spieler muessen aus der Baseline
+        fallen, sonst wuerde ein alter status_code ewig als Vorwert
+        weiterleben."""
+        client = MagicMock()
+
+        firestore_db.upsert_fitness_status_baseline(client, {"p1": 0})
+
+        _args, kwargs = client.collection.return_value.document.return_value.set.call_args
+        self.assertNotIn("merge", kwargs)

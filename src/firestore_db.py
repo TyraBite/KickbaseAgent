@@ -210,3 +210,25 @@ def get_fitness_history(client: firestore.Client) -> list[dict]:
     get_bid_premium_history. Wird einmal pro ML-Lauf gelesen, nicht pro
     Spieler."""
     return [doc.to_dict() for doc in client.collection("fitness_history_log").stream()]
+
+
+def upsert_fitness_status_baseline(client: firestore.Client, status_by_player: dict[str, int]) -> None:
+    """Baseline NUR der status_codes (player_id -> status_code), komplett
+    unabhaengig vom dashboard_snapshot/latest-Dokument und damit unberuehrt
+    vom stuendlichen Light-Cron (der dashboard_snapshot/latest ueberschreibt
+    und dabei status_code fuer own_squad/market_listings-Spieler aktualisiert -
+    genau das wuerde die Diff-Baseline korrumpieren, wenn sie stattdessen aus
+    dashboard_snapshot/latest gelesen wuerde). Wird JEDEN Heavy-Lauf komplett
+    ueberschrieben (kein Merge - immer der volle all_players-Stand von JETZT),
+    Diff-Quelle fuer den naechsten Heavy-Lauf (siehe _detect_status_changes in
+    dashboard_export.py)."""
+    client.collection("fitness_status_baseline").document("latest").set(status_by_player)
+
+
+def get_fitness_status_baseline(client: firestore.Client) -> dict[str, int]:
+    """Leeres Dict beim allerersten Lauf (Cold Start, noch kein Dokument
+    vorhanden) - _detect_status_changes() behandelt das korrekt (kein
+    Vorwert fuer irgendeinen Spieler -> keine Events, dann wird die Baseline
+    zum ersten Mal geschrieben)."""
+    doc = client.collection("fitness_status_baseline").document("latest").get()
+    return doc.to_dict() if doc.exists else {}

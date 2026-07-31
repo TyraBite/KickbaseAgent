@@ -377,13 +377,14 @@ def _build_players_map(
 
 
 def _detect_status_changes(previous_players: dict[str, dict], all_players: list[dict]) -> list[dict]:
-    """Reine Diff-Funktion: vergleicht status_code je Spieler zwischen dem
-    vorherigen Firestore-Snapshot (previous_players) und den frisch
-    gefetchten all_players (Heavy-Cron, 1x/Tag, siehe
+    """Reine Diff-Funktion: vergleicht status_code je Spieler zwischen der
+    vorherigen Baseline (previous_players, gespeist aus
+    firestore_db.get_fitness_status_baseline) und den frisch gefetchten
+    all_players (Heavy-Cron, 1x/Tag, siehe
     player_valuation.fetch_all_players). Liefert ein Event-Dict pro
     tatsaechlichem Wechsel - Rohbasis fuer fitness_history_log (siehe
-    firestore_db.upsert_fitness_history_entries). Spieler ohne Vorstand
-    (neu im Pool) oder die aus all_players verschwunden sind werden
+    firestore_db.upsert_fitness_history_entries). Spieler ohne vorherigen
+    Stand (neu im Pool) oder die aus all_players verschwunden sind werden
     uebersprungen, kein Crash."""
     changes = []
     for row in all_players:
@@ -433,7 +434,7 @@ def export() -> dict:
 
     mode = os.environ.get("DASHBOARD_MODE")
     cached_snapshot = None
-    if os.environ.get("FIRESTORE_ENABLED"):
+    if mode == "light" and os.environ.get("FIRESTORE_ENABLED"):
         cached_snapshot = firestore_db.get_dashboard_snapshot(firestore_db.connect())
     is_light = _resolve_is_light(mode, cached_snapshot)
 
@@ -468,17 +469,46 @@ def export() -> dict:
 
     fs_client = firestore_db.connect() if os.environ.get("FIRESTORE_ENABLED") else None
     if fs_client and heavy["all_players"] is not None:
-        previous_players_for_fitness_diff = cached_snapshot.get("players", {}) if cached_snapshot else {}
-        status_changes = _detect_status_changes(previous_players_for_fitness_diff, heavy["all_players"])
-        if status_changes:
-            fitness_entries = [
-                {**change, "date": fetched_at, "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-                for change in status_changes
-            ]
-            try:
-                firestore_db.upsert_fitness_history_entries(fs_client, fitness_entries)
-            except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
-                print(f"Warnung: fitness_history_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
+        # Diff-Baseline kommt aus einem EIGENEN Dokument (fitness_status_baseline/latest),
+        # nicht aus dashboard_snapshot/latest: dessen players-Map wird vom stuendlichen
+        # Light-Cron ueberschrieben, der status_code fuer own_squad/market_listings-Spieler
+        # frisch ueberlagert - ein Statuswechsel, den der Light-Lauf zwischenzeitlich
+        # eingebaut hat, waere im naechsten Heavy-Diff schon "alt == neu" und damit
+        # unwiederbringlich verloren (kein Backfill moeglich).
+        current_status_by_player = {
+            p["player_id"]: p["status_code"] for p in heavy["all_players"] if p.get("player_id")
+        }
+        try:
+            baseline_status_by_player = firestore_db.get_fitness_status_baseline(fs_client)
+        except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
+            print(
+                f"Warnung: fitness_status_baseline-Lesezugriff fehlgeschlagen, Fitness-Diff uebersprungen: {exc}",
+                file=sys.stderr,
+            )
+            baseline_status_by_player = None
+
+        if baseline_status_by_player is not None:
+            previous_players_for_fitness_diff = {
+                pid: {"status_code": code} for pid, code in baseline_status_by_player.items()
+            }
+            status_changes = _detect_status_changes(previous_players_for_fitness_diff, heavy["all_players"])
+            if status_changes:
+                fitness_entries = [
+                    {**change, "date": fetched_at, "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                    for change in status_changes
+                ]
+                try:
+                    firestore_db.upsert_fitness_history_entries(fs_client, fitness_entries)
+                except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
+                    print(f"Warnung: fitness_history_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
+
+        # Baseline-Write bewusst UNBEDINGT (auch wenn der Read oben fehlschlug oder es
+        # keine Wechsel gab): sie wird immer auf den heutigen Ist-Stand gesetzt, damit
+        # der naechste Heavy-Lauf eine korrekte, selbstheilende Startbasis hat.
+        try:
+            firestore_db.upsert_fitness_status_baseline(fs_client, current_status_by_player)
+        except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
+            print(f"Warnung: fitness_status_baseline-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
 
     activity_feed_ok = True
     if fs_client:
