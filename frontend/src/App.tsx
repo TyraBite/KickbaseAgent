@@ -10,7 +10,7 @@ import MlGenauigkeitTab from "./components/MlGenauigkeitTab";
 import SpekulationTab from "./components/SpekulationTab";
 import TransfermarktTab from "./components/TransfermarktTab";
 import WunschkaderTab from "./components/WunschkaderTab";
-import { buildSpekulationRows, buildTransfermarktRows } from "./lib/derive";
+import { buildSpekulationRows, buildTransfermarktRows, formatRelativeTime } from "./lib/derive";
 import { isAnyModalOpen } from "./lib/modalOpenTracker";
 import type { DashboardSnapshot } from "./types";
 
@@ -166,12 +166,20 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <header className="border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
+      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
         <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
           <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-md shadow-brand-500/50" />
           KickbaseAgent
           <span className="font-normal text-slate-400 dark:text-slate-500">Dashboard</span>
         </h1>
+        {data?.generated_at && (
+          <p
+            className="text-xs text-slate-400 dark:text-slate-500"
+            title={data.generated_at}
+          >
+            Stand: {formatRelativeTime(data.generated_at, new Date(now))}
+          </p>
+        )}
       </header>
       <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950">
         {TABS.map((tab) => {

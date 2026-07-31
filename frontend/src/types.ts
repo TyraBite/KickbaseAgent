@@ -135,6 +135,8 @@ export interface PositionNeedEntry {
 export type PositionNeed = Record<string, PositionNeedEntry>;
 
 export interface DashboardSnapshot {
+  fetched_at: string;
+  generated_at: string;
   players: Record<string, PlayerRecord>;
   calibration: Calibration | null;
   transfermarkt_listings: TransfermarktListing[];

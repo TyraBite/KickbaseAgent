@@ -74,7 +74,7 @@ function berlinParts(date: Date) {
 // 1:1 Port von dashboard_export.py::_parse_iso_z() - strikte Validierung des exakten
 // Formats "%Y-%m-%dT%H:%M:%SZ" (kein new Date(str), das parst Z-lose Strings permissiv
 // als Browser-Lokalzeit statt UTC und Bruchteile/Offsets, die Python ablehnen wuerde).
-function parseIsoZ(raw: string | null): Date | null {
+export function parseIsoZ(raw: string | null): Date | null {
   if (!raw) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/.exec(raw);
   if (!m) return null;
@@ -94,6 +94,22 @@ function parseIsoZ(raw: string | null): Date | null {
     return null;
   }
   return d;
+}
+
+// "Wann wurde das zuletzt aktualisiert" - Anzeige im Header (App.tsx), damit
+// nicht mehr manuell in GitHub Actions nachgeschaut werden muss, ob der letzte
+// Lauf schon durch ist. generated_at ist der exakte export()-Lauf-Zeitstempel
+// (im Gegensatz zu fetched_at, das nur ein reines Datum ohne Uhrzeit ist).
+export function formatRelativeTime(iso: string | null, now: Date): string {
+  const then = parseIsoZ(iso);
+  if (!then) return "unbekannt";
+  const diffMin = Math.max(0, Math.round((now.getTime() - then.getTime()) / 60_000));
+  if (diffMin < 1) return "gerade eben";
+  if (diffMin < 60) return `vor ${diffMin} Min.`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `vor ${diffH} Std.`;
+  const diffD = Math.round(diffH / 24);
+  return `vor ${diffD} Tag${diffD === 1 ? "" : "en"}`;
 }
 
 // 1:1 Port von dashboard_export.py::_next_update_cutoff() - DST-sicher: der UTC-Offset

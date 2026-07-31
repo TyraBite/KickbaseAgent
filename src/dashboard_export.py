@@ -501,6 +501,7 @@ def export() -> dict:
 
     data = _assemble_snapshot(
         fetched_at=fetched_at,
+        generated_at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         own_available_budget=own_available_budget,
         own_budget_exact=own_budget_row["estimated_budget"] if own_budget_row else None,
         calibration=heavy["calibration"],
@@ -524,6 +525,7 @@ def export() -> dict:
 
 def _assemble_snapshot(
     fetched_at,
+    generated_at,
     own_available_budget,
     own_budget_exact,
     calibration,
@@ -547,6 +549,7 @@ def _assemble_snapshot(
     Bildschirm sichtbar zu werden (siehe HANDOFF.md)."""
     return {
         "fetched_at": fetched_at,
+        "generated_at": generated_at,
         "own_available_budget": own_available_budget,
         "own_budget_exact": own_budget_exact,
         "calibration": calibration,

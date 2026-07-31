@@ -734,7 +734,7 @@ class AssembleSnapshotContractTests(unittest.TestCase):
     Test ohne jegliches Mocking laeuft."""
 
     EXPECTED_KEYS = {
-        "fetched_at", "own_available_budget", "own_budget_exact", "calibration",
+        "fetched_at", "generated_at", "own_available_budget", "own_budget_exact", "calibration",
         "ml_metrics", "ml_accuracy_trend", "signal_thresholds", "players",
         "bid_premium_history", "bid_premium_outcome_counts", "transfermarkt_listings",
         "own_squad_ids", "owned_by", "wunschkader_targets", "wunschkader_formation",
@@ -744,6 +744,7 @@ class AssembleSnapshotContractTests(unittest.TestCase):
     def test_returns_exactly_the_expected_top_level_keys(self):
         result = _assemble_snapshot(
             fetched_at="2026-07-30T00:00:00Z",
+            generated_at="2026-07-30T21:07:00Z",
             own_available_budget=1,
             own_budget_exact=1,
             calibration=None,
