@@ -334,12 +334,25 @@ def _infer_today(corpus: pd.DataFrame) -> str:
 
 def _build_candidates() -> dict[str, object]:
     """Baut die zwei Modell-Kandidaten mit denselben Hyperparametern, die
-    auch fuer die echte Live-Prognose (_train_and_evaluate) verwendet
-    werden - wichtig fuer backfill_prediction_log, damit historisch
-    geloggte Genauigkeit mit der Live-Prognose vergleichbar bleibt (vorher:
-    Backfill nutzte irrtuemlich dieselben (kleineren) Parameter wie der
-    unabhaengige _walk_forward_backtest, nicht die der echten
-    Live-Prognose)."""
+    auch fuer die echte Live-Prognose (_train_and_evaluate) UND den
+    Walk-Forward-Backtest (_walk_forward_backtest) verwendet werden - eine
+    einzige Quelle statt zwei duplizierter Definitionen, damit historisch
+    geloggte/gebacktestete Genauigkeit mit der echten Live-Prognose
+    vergleichbar bleibt (vorher: sowohl backfill_prediction_log als auch
+    _walk_forward_backtest nutzten unabhaengig eigene, abweichende
+    Parameter - siehe Git-History).
+
+    HistGradientBoosting-Parameter stammen aus einer randomisierten
+    Hyperparameter-Suche (277 Konfigurationen, 30-Fold-Walk-Forward,
+    2026-07-31): {learning_rate: 0.05, max_iter: 200, max_leaf_nodes: 127,
+    min_samples_leaf: 20, l2_regularization: 0.0} lag bei 83.4%
+    Richtungsgenauigkeit / MAE 25147 (Baseline mit sklearn-Standardwerten:
+    82.4% / 25370) - mehrere unabhaengig gezogene Konfigurationen aus 3
+    verschiedenen Bibliotheken (LightGBM/XGBoost/HistGradientBoosting)
+    landeten konvergent im selben Bereich (viele Iterationen, niedrige
+    Lernrate, hohe Blatt-Kapazitaet) - kein Einzeltreffer. LightGBM/XGBoost
+    lagen minimal davor, aber HistGradientBoosting braucht keine neue
+    Abhaengigkeit (bleibt bei reinem sklearn)."""
     return {
         "RandomForest": RandomForestRegressor(
             n_estimators=500,
@@ -350,7 +363,14 @@ def _build_candidates() -> dict[str, object]:
             n_jobs=-1,
             random_state=RANDOM_STATE,
         ),
-        "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
+        "HistGradientBoosting": HistGradientBoostingRegressor(
+            learning_rate=0.05,
+            max_iter=200,
+            max_leaf_nodes=127,
+            min_samples_leaf=20,
+            l2_regularization=0.0,
+            random_state=RANDOM_STATE,
+        ),
     }
 
 
@@ -441,18 +461,12 @@ def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
         x_test = test[FEATURES]
         y_test_actual = test["mv_target"]
 
-        candidates = {
-            "RandomForest": RandomForestRegressor(
-                n_estimators=200,
-                max_depth=20,
-                min_samples_split=5,
-                min_samples_leaf=2,
-                max_features="sqrt",
-                n_jobs=-1,
-                random_state=RANDOM_STATE,
-            ),
-            "HistGradientBoosting": HistGradientBoostingRegressor(random_state=RANDOM_STATE),
-        }
+        # _build_candidates() statt eigener Kopie - vorher hatte dieser
+        # Backtest eigene, von der echten Live-Prognose abweichende
+        # Parameter (RandomForest n_estimators=200 statt 500), genau die
+        # Inkonsistenz-Klasse, die _build_candidates()s Docstring schon
+        # fuer den Backfill-Pfad beschreibt.
+        candidates = _build_candidates()
         for name, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)

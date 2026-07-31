@@ -164,6 +164,17 @@ class BuildCandidatesTests(unittest.TestCase):
         self.assertEqual(candidates["RandomForest"].n_estimators, 500)
         self.assertIn("HistGradientBoosting", candidates)
 
+    def test_hist_gradient_boosting_matches_tuned_hyperparameters(self):
+        # Aus der randomisierten 277-Konfigurationen-Suche (2026-07-31,
+        # siehe _build_candidates()-Docstring) - 83.4% Richtungsgenauigkeit
+        # / MAE 25147 statt 82.4% / 25370 mit sklearn-Standardwerten.
+        hgb = _build_candidates()["HistGradientBoosting"]
+        self.assertEqual(hgb.learning_rate, 0.05)
+        self.assertEqual(hgb.max_iter, 200)
+        self.assertEqual(hgb.max_leaf_nodes, 127)
+        self.assertEqual(hgb.min_samples_leaf, 20)
+        self.assertEqual(hgb.l2_regularization, 0.0)
+
 
 def _performance_payload(minutes_by_matchday):
     return {
