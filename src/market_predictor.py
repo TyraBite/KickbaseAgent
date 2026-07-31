@@ -568,18 +568,33 @@ def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET) -
     return {"n_folds": folds_run, "per_model": per_model}
 
 
-def backfill_prediction_log(days: int = 90) -> dict:
+def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_days: int = 1) -> dict:
     """Einmalige Utility (dauerhaft im Code, nicht Teil des taeglichen Laufs):
     baut denselben Corpus wie ein normaler Lauf, aber statt nur der letzten
     BACKTEST_FOLDS Cutoffs werden bis zu `days` rollierende historische
     Cutoffs durchlaufen (begrenzt durch verfuegbare Kickbase-Historie UND
     genug Trainingszeilen je Cutoff - fruehe Tage im ~365-Tage-Fenster
     fallen typischerweise raus). Anders als der Live-Pfad kennt jeder
-    Walk-Forward-Fold Prognose UND tatsaechlichen Wert (mv_target) im
+    Walk-Forward-Fold Prognose UND tatsaechlichen Wert (target_col) im
     selben Schritt - schreibt deshalb DIREKT Tages-Aggregate nach
     ml_accuracy_daily, keine Rohdaten-Zwischenstation noetig (auch das
     spart Schreibvolumen: 2 Dokumente/Tag statt 2 x ~450). Wiederverwendbar,
-    falls die Firestore-Historie je zurueckgesetzt werden muss."""
+    falls die Firestore-Historie je zurueckgesetzt werden muss.
+
+    target_col/horizon_days (Default TARGET/1) spiegeln exakt das Muster von
+    _walk_forward_backtest: unclipped_col (target_col ohne "_clipped"-Suffix)
+    ist die Spalte, gegen die der TATSAECHLICHE Ausgang verglichen wird -
+    sowohl train als auch test werden vor der Nutzung auf ihre jeweils
+    relevante Zielspalte hin von NaN befreit. Ohne den test-seitigen Drop
+    wuerde bei einem Mehrtage-Horizont (z.B. TARGET_3D) eine NaN-Zeile in
+    y_test_actual via np.sign/np.abs in die aufsummierten
+    abs_error/sign_correct-Werte dieses Folds einsickern - siehe
+    _walk_forward_backtest-Docstring fuer die volle Herleitung dieses Bugs,
+    hier dieselbe Verwundbarkeit, derselbe Schutz. horizon_days wird in jedes
+    daily_updates-Element geschrieben - upsert_accuracy_daily() nutzt es als
+    Teil des Doc-Ids ({date}_{model_type}_{horizon_days}); ohne dieses Feld
+    wuerden alle Backfill-Laeufe unter Horizont 1 landen, auch ein
+    3-Tage-Backfill."""
     email = os.environ.get("KICKBASE_EMAIL")
     password = os.environ.get("KICKBASE_PASSWORD")
     if not email or not password:
@@ -597,18 +612,19 @@ def backfill_prediction_log(days: int = 90) -> dict:
     dates = sorted(history_df["date"].unique())
     cutoffs = dates[-days:] if len(dates) > days else dates
 
+    unclipped_col = target_col.removesuffix("_clipped")
     daily_updates = []
     folds_run = 0
     for cutoff in cutoffs:
-        train = history_df[history_df["date"] < cutoff]
-        test = history_df[history_df["date"] == cutoff]
+        train = history_df[history_df["date"] < cutoff].dropna(subset=[target_col])
+        test = history_df[history_df["date"] == cutoff].dropna(subset=[unclipped_col])
         if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
             continue
         folds_run += 1
 
-        x_train, y_train = train[FEATURES], train[TARGET]
+        x_train, y_train = train[FEATURES], train[target_col]
         x_test = test[FEATURES]
-        y_test_actual = test["mv_target"]
+        y_test_actual = test[unclipped_col]
         cutoff_date = pd.Timestamp(cutoff).date().isoformat()
 
         candidates = _build_candidates()
@@ -621,6 +637,7 @@ def backfill_prediction_log(days: int = 90) -> dict:
                 {
                     "date": cutoff_date,
                     "model_type": model_type,
+                    "horizon_days": horizon_days,
                     "n": int(len(sign_correct)),
                     "sign_correct": int(sign_correct.sum()),
                     "abs_error_sum": float(abs_error.sum()),
@@ -1036,8 +1053,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.backfill is not None:
-        result = backfill_prediction_log(args.backfill)
-        print(f"Backfill: {result['folds_run']} Folds, {result['days_written']} Tages-Aggregate geschrieben.")
+        result_1d = backfill_prediction_log(args.backfill, TARGET, 1)
+        result_3d = backfill_prediction_log(args.backfill, TARGET_3D, 3)
+        print(f"Backfill 1-Tage: {result_1d['folds_run']} Folds, {result_1d['days_written']} Tages-Aggregate geschrieben.")
+        print(f"Backfill 3-Tage: {result_3d['folds_run']} Folds, {result_3d['days_written']} Tages-Aggregate geschrieben.")
     else:
         result = predict_market_value_changes()
         if result is None:

@@ -287,6 +287,97 @@ class BackfillPredictionLogTests(unittest.TestCase):
         self.assertEqual(result, {"folds_run": 0, "days_written": 0})
 
 
+class BackfillPredictionLogTargetColTests(unittest.TestCase):
+    def _history_df(self, target_col, n=210):
+        import numpy as np
+        unclipped_col = target_col.removesuffix("_clipped")
+        dates = pd.date_range("2026-01-01", periods=n, freq="D")
+        rng = np.random.RandomState(7)
+        df = pd.DataFrame({
+            "date": dates, "player_id": ["p1"] * n,
+            "p": rng.rand(n), "mv": rng.rand(n) * 1_000_000,
+            "days_to_next": rng.randint(1, 8, n),
+            "mv_change_1d": rng.randn(n) * 1000, "mv_trend_1d": rng.randn(n) * 0.01,
+            "mv_change_3d": rng.randn(n) * 2000, "mv_vol_3d": rng.rand(n) * 500,
+            "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
+            "days_since_last_status_change": 9999, "status_change_count_90d": 0,
+            target_col: rng.randn(n) * 5000,
+            unclipped_col: rng.randn(n) * 5000,
+        })
+        return df
+
+    @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
+    @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
+    @patch("src.market_predictor._load_fitness_events_by_player", return_value={})
+    @patch("src.market_predictor._build_corpus", return_value=None)
+    @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
+    @patch("src.market_predictor.select_league", return_value={"id": "league1"})
+    @patch("src.market_predictor.login", return_value=("token", {}, []))
+    @patch("src.market_predictor._engineer_features")
+    def test_partial_nan_test_rows_are_dropped_not_averaged_into_nan(
+        self, mock_engineer, mock_login, mock_select_league, mock_get_me,
+        mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
+    ):
+        # Regression, identisches Muster wie
+        # WalkForwardBacktestTargetColTests.test_partial_nan_test_rows_are_dropped_not_averaged_into_nan:
+        # eine Zeile mit NaN in der ungeklippten Zielspalte am letzten
+        # Cutoff-Tag darf nicht in sign_correct/abs_error_sum einsickern.
+        target_col = "alt_target_clipped"
+        unclipped_col = "alt_target"
+        df = self._history_df(target_col)
+        extra_row = df.iloc[[-1]].copy()
+        extra_row["player_id"] = "p2"
+        extra_row[unclipped_col] = None
+        df = pd.concat([df, extra_row], ignore_index=True)
+        mock_engineer.return_value = (df, pd.DataFrame())
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "e", "KICKBASE_PASSWORD": "p", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ):
+            result = backfill_prediction_log(3, target_col=target_col, horizon_days=3)
+
+        self.assertGreater(result["folds_run"], 0)
+        mock_upsert.assert_called_once()
+        entries = mock_upsert.call_args[0][1]
+        last_cutoff = pd.Timestamp(df["date"].max()).date().isoformat()
+        last_cutoff_entries = [e for e in entries if e["date"] == last_cutoff]
+        self.assertTrue(last_cutoff_entries, "letzter Cutoff-Tag fehlt in den geschriebenen Aggregaten.")
+        for entry in last_cutoff_entries:
+            self.assertTrue(
+                math.isfinite(entry["abs_error_sum"]),
+                f"{entry}: abs_error_sum ist nicht finit - NaN-Zeile eingesickert.",
+            )
+            self.assertEqual(entry["n"], 1, "p2s NaN-Zeile darf nicht mitgezaehlt werden.")
+            self.assertEqual(entry["horizon_days"], 3)
+
+    @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
+    @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
+    @patch("src.market_predictor._load_fitness_events_by_player", return_value={})
+    @patch("src.market_predictor._build_corpus", return_value=None)
+    @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
+    @patch("src.market_predictor.select_league", return_value={"id": "league1"})
+    @patch("src.market_predictor.login", return_value=("token", {}, []))
+    @patch("src.market_predictor._engineer_features")
+    def test_default_horizon_is_1_and_target_is_1d(
+        self, mock_engineer, mock_login, mock_select_league, mock_get_me,
+        mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
+    ):
+        df = self._history_df(TARGET)
+        mock_engineer.return_value = (df, pd.DataFrame())
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "e", "KICKBASE_PASSWORD": "p", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ):
+            backfill_prediction_log(3)
+
+        entries = mock_upsert.call_args[0][1]
+        self.assertTrue(all(e["horizon_days"] == 1 for e in entries))
+
+
 class BuildCandidatesTests(unittest.TestCase):
     def test_random_forest_matches_live_hyperparameters(self):
         candidates = _build_candidates()
