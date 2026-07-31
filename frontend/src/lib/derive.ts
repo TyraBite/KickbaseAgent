@@ -350,8 +350,10 @@ export function buildBudgetPlan(params: {
   const sellProceeds = sellRows.reduce((sum, r) => sum + (r.market_value || 0), 0);
   const cash = ownBudgetExact || 0;
   const pool = cash + sellProceeds;
+  // Bank-Ziele zaehlen bewusst MIT (User-Korrektur 2026-07-31): Rotationsspieler
+  // sind echtes, gebundenes Budget, keine reine "optionale" Backup-Idee -
+  // vorher faelschlich ausgeschlossen.
   const committed = targets.reduce((sum, t) => {
-    if (t.role === "Bank/Backup-Option") return sum;
     const isOwn = ownSquadIds.has(t.player_id);
     if (isOwn) return sum;
     const marketValue = players[t.player_id]?.market_value ?? null;
