@@ -2,7 +2,7 @@ name: Dashboard Update (Light, stündlich)
 
 on:
   schedule:
-    - cron: '0 * * * *' # stuendlich zur vollen Stunde (neue Transfermarkt-Angebote erscheinen oft kurz davor)
+    - cron: '17 * * * *' # stuendlich, Minute 17 statt :00 - weicht der Lastspitze rund um volle Stunden aus (GitHub Actions schedule-Trigger ist "best effort", beobachteter mehrstuendiger Komplettausfall in der Nacht 30./31.07.2026)
   workflow_dispatch: {}
 
 permissions:
