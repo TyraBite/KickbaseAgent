@@ -9,6 +9,7 @@ from src.dashboard_export import (
     _build_players_map,
     _build_transfermarkt_listings,
     _build_wunschkader_targets,
+    _detect_status_changes,
     _finalize_firestore_write,
     _load_wunschkader,
     _resolve_heavy_data,
@@ -411,6 +412,40 @@ class BuildPlayersMapTests(unittest.TestCase):
         self.assertEqual(result["p1"]["market_value_change_7d"], 42_000)
         # But other fields from the source row ARE fresh
         self.assertEqual(result["p1"]["market_value"], 10_500_000)
+
+
+class DetectStatusChangesTests(unittest.TestCase):
+    def test_no_change_returns_empty_list(self):
+        previous = {"p1": {"player_id": "p1", "status_code": 0}}
+        all_players = [{"player_id": "p1", "status_code": 0}]
+        self.assertEqual(_detect_status_changes(previous, all_players), [])
+
+    def test_one_change_returns_one_event_with_correct_codes(self):
+        previous = {"p1": {"player_id": "p1", "status_code": 0}}
+        all_players = [{"player_id": "p1", "status_code": 1}]
+        result = _detect_status_changes(previous, all_players)
+        self.assertEqual(result, [{"player_id": "p1", "from_status_code": 0, "to_status_code": 1}])
+
+    def test_mixed_players_only_changed_ones_become_events(self):
+        previous = {
+            "p1": {"player_id": "p1", "status_code": 0},
+            "p2": {"player_id": "p2", "status_code": 1},
+        }
+        all_players = [
+            {"player_id": "p1", "status_code": 0},
+            {"player_id": "p2", "status_code": 0},
+        ]
+        result = _detect_status_changes(previous, all_players)
+        self.assertEqual(result, [{"player_id": "p2", "from_status_code": 1, "to_status_code": 0}])
+
+    def test_player_without_prior_snapshot_is_skipped(self):
+        result = _detect_status_changes({}, [{"player_id": "p_new", "status_code": 1}])
+        self.assertEqual(result, [])
+
+    def test_player_missing_from_all_players_causes_no_crash(self):
+        previous = {"p1": {"player_id": "p1", "status_code": 0}, "p2": {"player_id": "p2", "status_code": 0}}
+        result = _detect_status_changes(previous, [{"player_id": "p1", "status_code": 0}])
+        self.assertEqual(result, [])
 
 
 class BuildLigaanalyseTests(unittest.TestCase):

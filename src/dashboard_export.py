@@ -375,6 +375,32 @@ def _build_players_map(
     return base
 
 
+def _detect_status_changes(previous_players: dict[str, dict], all_players: list[dict]) -> list[dict]:
+    """Reine Diff-Funktion: vergleicht status_code je Spieler zwischen dem
+    vorherigen Firestore-Snapshot (previous_players) und den frisch
+    gefetchten all_players (Heavy-Cron, 1x/Tag, siehe
+    player_valuation.fetch_all_players). Liefert ein Event-Dict pro
+    tatsaechlichem Wechsel - Rohbasis fuer fitness_history_log (siehe
+    firestore_db.upsert_fitness_history_entries). Spieler ohne Vorstand
+    (neu im Pool) oder die aus all_players verschwunden sind werden
+    uebersprungen, kein Crash."""
+    changes = []
+    for row in all_players:
+        pid = row.get("player_id")
+        if not pid or pid not in previous_players:
+            continue
+        old_status = previous_players[pid].get("status_code")
+        new_status = row.get("status_code")
+        if old_status is None or new_status is None or old_status == new_status:
+            continue
+        changes.append({
+            "player_id": pid,
+            "from_status_code": old_status,
+            "to_status_code": new_status,
+        })
+    return changes
+
+
 def _build_transfermarkt_listings(market_listings) -> list[dict]:
     """Reine Markt-Rohfelder je Listing - kein Merge mit Spieler-Stammdaten
     mehr (die kommen aus der players-Map), kein auction_status/affordable
