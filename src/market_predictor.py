@@ -852,6 +852,69 @@ def _append_todays_predictions(
     _save_prediction_log(log)
 
 
+def _train_and_track_horizon(
+    history_df: pd.DataFrame,
+    today_df: pd.DataFrame,
+    target_col: str,
+    horizon_days: int,
+    today_iso: str,
+    mv_lookup: dict,
+) -> dict | None:
+    """Trainiert+trackt+waehlt live EINEN Prognose-Horizont. Faktorisiert
+    aus predict_market_value_changes(), das dies fuer horizon_days=1
+    (target_col=TARGET, unveraendertes Verhalten) und horizon_days=3
+    (target_col=TARGET_3D, Task 5) getrennt aufruft - ein fehlschlagendes
+    3-Tage-Training darf die 1-Tages-Prognose nicht mitreissen, deshalb
+    zwei unabhaengige Aufrufe statt einer gemeinsamen Fehlerbehandlung."""
+    trained = _train_and_evaluate(history_df, target_col)
+    if trained is None:
+        return None
+    models, metrics = trained
+    synthetic_winner = metrics["model_type"]
+
+    backtest = _walk_forward_backtest(history_df, target_col)
+    if backtest is not None:
+        metrics["backtest"] = backtest
+
+    recent_entries = _load_recent_prediction_log(today_iso, horizon_days)
+    daily_updates = _build_daily_accuracy_updates(recent_entries, mv_lookup, today_iso, horizon_days)
+    if daily_updates and os.environ.get("FIRESTORE_ENABLED"):
+        try:
+            firestore_db.upsert_accuracy_daily(firestore_db.connect(), daily_updates)
+        except Exception as exc:
+            print(f"Warnung: Firestore-Schreibzugriff fuer ml_accuracy_daily (Horizont {horizon_days}) fehlgeschlagen: {exc}", file=sys.stderr)
+
+    daily_docs: list[dict] = []
+    if os.environ.get("FIRESTORE_ENABLED"):
+        try:
+            all_docs = firestore_db.get_accuracy_daily(firestore_db.connect())
+            daily_docs = [d for d in all_docs if d.get("horizon_days", 1) == horizon_days]
+        except Exception as exc:
+            print(f"Warnung: ml_accuracy_daily-Lesezugriff (Horizont {horizon_days}) fehlgeschlagen: {exc}", file=sys.stderr)
+
+    realized_by_model = _realized_by_model_from_daily(daily_docs, today_iso)
+    metrics["realized_by_model"] = realized_by_model
+    metrics["accuracy_trend"] = _trend_from_daily(daily_docs)
+    metrics["synthetic_winner"] = synthetic_winner
+
+    live_model_name, selection_reason = _select_live_model(realized_by_model, synthetic_winner)
+    metrics["model_type"] = live_model_name
+    metrics["selection_reason"] = selection_reason
+    live_model = models[live_model_name]
+
+    predictions_by_model = {
+        name: {
+            player_id: round(float(value))
+            for player_id, value in zip(today_df["player_id"], model.predict(today_df[FEATURES]))
+        }
+        for name, model in models.items()
+    }
+    predictions = predictions_by_model[live_model_name]
+    _append_todays_predictions(today_df, predictions_by_model, horizon_days)
+
+    return {"predictions": predictions, "metrics": metrics}
+
+
 def predict_market_value_changes() -> dict | None:
     """Oeffentlicher Entry-Point: loggt sich unabhaengig von fetcher.py ein,
     baut den Corpus, trainiert und prognostiziert. Gibt bei Erfolg
@@ -877,33 +940,9 @@ def predict_market_value_changes() -> dict | None:
         corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player)
         history_df, today_df = _engineer_features(corpus)
 
-        trained = _train_and_evaluate(history_df)
-        if trained is None:
-            print(
-                f"Warnung: zu wenig Trainingsdaten ({len(history_df)} Zeilen, Minimum {MIN_TRAINING_ROWS}) - "
-                "ML-Prognose uebersprungen.",
-                file=sys.stderr,
-            )
-            return None
-        models, metrics = trained
-        synthetic_winner = metrics["model_type"]
-
-        backtest = _walk_forward_backtest(history_df)
-        if backtest is not None:
-            metrics["backtest"] = backtest
-
-        # Spieler ohne verwertbaren "naechster Spieltag" (kein Spiel seit
-        # Jahren wie Funk, oder Performance-Historie komplett leer wie
-        # Suleiman - beides live bestaetigt 27.07.2026) haben NaN bei
-        # days_to_next und wuerden sonst komplett aus der Prognose
-        # herausfallen. Fuer die Vorhersage (NICHT fuers Training, siehe
-        # history_df.dropna oben in _engineer_features) reicht der
-        # Median aus der Trainingshistorie als neutrale Annahme - lieber
-        # eine etwas unsicherere Prognose als gar keine.
         median_days_to_next = history_df["days_to_next"].median()
         today_df = today_df.copy()
         today_df["days_to_next"] = today_df["days_to_next"].fillna(median_days_to_next)
-
         today_df = today_df.dropna(subset=["mv"] + FEATURES)
         if today_df.empty:
             print("Warnung: keine heutigen Zeilen mit vollstaendigen Features - ML-Prognose uebersprungen.", file=sys.stderr)
@@ -912,42 +951,16 @@ def predict_market_value_changes() -> dict | None:
         today_iso = _infer_today(corpus)
         mv_lookup = _build_mv_lookup(corpus)
 
-        recent_entries = _load_recent_prediction_log(today_iso)
-        daily_updates = _build_daily_accuracy_updates(recent_entries, mv_lookup, today_iso)
-        if daily_updates and os.environ.get("FIRESTORE_ENABLED"):
-            try:
-                firestore_db.upsert_accuracy_daily(firestore_db.connect(), daily_updates)
-            except Exception as exc:
-                print(f"Warnung: Firestore-Schreibzugriff fuer ml_accuracy_daily fehlgeschlagen: {exc}", file=sys.stderr)
+        result_1d = _train_and_track_horizon(history_df, today_df, TARGET, 1, today_iso, mv_lookup)
+        if result_1d is None:
+            print(
+                f"Warnung: zu wenig Trainingsdaten ({len(history_df)} Zeilen, Minimum {MIN_TRAINING_ROWS}) - "
+                "ML-Prognose uebersprungen.",
+                file=sys.stderr,
+            )
+            return None
 
-        daily_docs: list[dict] = []
-        if os.environ.get("FIRESTORE_ENABLED"):
-            try:
-                daily_docs = firestore_db.get_accuracy_daily(firestore_db.connect())
-            except Exception as exc:
-                print(f"Warnung: ml_accuracy_daily-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
-
-        realized_by_model = _realized_by_model_from_daily(daily_docs, today_iso)
-        metrics["realized_by_model"] = realized_by_model
-        metrics["accuracy_trend"] = _trend_from_daily(daily_docs)
-        metrics["synthetic_winner"] = synthetic_winner
-
-        live_model_name, selection_reason = _select_live_model(realized_by_model, synthetic_winner)
-        metrics["model_type"] = live_model_name
-        metrics["selection_reason"] = selection_reason
-        live_model = models[live_model_name]
-
-        predictions_by_model = {
-            name: {
-                player_id: round(float(value))
-                for player_id, value in zip(today_df["player_id"], model.predict(today_df[FEATURES]))
-            }
-            for name, model in models.items()
-        }
-        predictions = predictions_by_model[live_model_name]
-        _append_todays_predictions(today_df, predictions_by_model)
-
-        return {"predictions": predictions, "metrics": metrics}
+        return {"predictions": result_1d["predictions"], "metrics": result_1d["metrics"]}
     except (KickbaseError, RuntimeError) as exc:
         print(f"Warnung: ML-Marktwertprognose fehlgeschlagen, wird uebersprungen: {exc}", file=sys.stderr)
         return None

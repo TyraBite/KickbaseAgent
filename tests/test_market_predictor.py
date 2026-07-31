@@ -27,6 +27,8 @@ from src.market_predictor import (
     FITNESS_NO_HISTORY_DAYS,
     _train_and_evaluate,
     _walk_forward_backtest,
+    _train_and_track_horizon,
+    TARGET,
     TARGET_3D,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
@@ -503,3 +505,10 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             self.assertIn("mae", model_metrics)
             self.assertIn("sign_accuracy", model_metrics)
             self.assertIn("n", model_metrics)
+
+
+class TrainAndTrackHorizonTests(unittest.TestCase):
+    def test_returns_none_when_too_few_training_rows(self):
+        df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target_clipped": [100]})
+        result = _train_and_track_horizon(df, df, TARGET, 1, "2026-07-31", {})
+        self.assertIsNone(result)
