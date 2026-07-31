@@ -9,6 +9,67 @@ export function liveModelMae(metrics: MlMetrics | null): number | null {
   return metrics?.realized_by_model?.[metrics.model_type]?.realized_30d?.mae ?? null;
 }
 
+export type MomentumConfidence = "sicher" | "wahrscheinlich" | "unsicher";
+
+export interface MomentumAssessment {
+  confidence: MomentumConfidence;
+  direction: "steigend" | "fallend";
+  agreesWith3d: boolean | null;
+  label: string;
+}
+
+// Reine Ableitung aus bereits vorhandenen Zahlen (1-Tages-Prognose, primaer;
+// 3-Tages-Prognose als Relativierer; MAE des 1-Tages-Modells als
+// Unsicherheits-Mass) - kein neues Training noetig. Konfidenz-Schwellen
+// beziehen sich bewusst NUR auf die 1-Tages-Prognose (der primaere
+// Indikator), die 3-Tages-Prognose beeinflusst nur den Text, nicht die
+// Konfidenz-Stufe selbst.
+export function momentumAssessment(
+  prediction1d: number | null,
+  prediction3d: number | null,
+  mae: number | null
+): MomentumAssessment | null {
+  if (prediction1d === null) return null;
+
+  const direction: "steigend" | "fallend" = prediction1d > 0 ? "steigend" : "fallend";
+  let confidence: MomentumConfidence;
+  if (mae === null) {
+    confidence = "wahrscheinlich";
+  } else if (Math.abs(prediction1d) > 2 * mae) {
+    confidence = "sicher";
+  } else if (Math.abs(prediction1d) > mae) {
+    confidence = "wahrscheinlich";
+  } else {
+    confidence = "unsicher";
+  }
+
+  const confidenceLabel = confidence.charAt(0).toUpperCase() + confidence.slice(1);
+  let label = `${confidenceLabel} ${direction} (${fmtSigned(prediction1d)}`;
+  label += mae !== null ? `, Modell-Ungenauigkeit ±${fmtNum(mae)})` : ")";
+
+  let agreesWith3d: boolean | null = null;
+  if (prediction3d !== null) {
+    agreesWith3d = Math.sign(prediction3d) === Math.sign(prediction1d) || prediction3d === 0;
+    if (agreesWith3d) {
+      label += ` — 3-Tage-Trend bestätigt (${fmtSigned(prediction3d)})`;
+    } else {
+      const dir3d = prediction3d > 0 ? "steigend" : "fallend";
+      label += ` — 3-Tage-Trend zeigt aber ${dir3d} (${fmtSigned(prediction3d)}), evtl. nur kurzfristiges Rauschen`;
+    }
+  }
+
+  return { confidence, direction, agreesWith3d, label };
+}
+
+function fmtSigned(value: number): string {
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${fmtNum(value)}`;
+}
+
+function fmtNum(value: number): string {
+  return Math.round(value).toLocaleString("de-DE");
+}
+
 // 1:1 Port von player_valuation.py::k_for_position()
 export function kForPosition(calibration: Calibration | null, position: string): number | null {
   if (!calibration) return null;
