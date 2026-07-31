@@ -1,4 +1,14 @@
 import { useState, type ReactNode } from "react";
+import {
+  IconPositionAbwehr,
+  IconPositionMittelfeld,
+  IconPositionSturm,
+  IconPositionTorwart,
+  IconStatusAngeschlagen,
+  IconStatusAufbau,
+  IconStatusFit,
+  IconStatusVerletzt,
+} from "./icons";
 
 export const POSITION_ABBR: Record<string, string> = {
   Torwart: "TW",
@@ -6,6 +16,51 @@ export const POSITION_ABBR: Record<string, string> = {
   Mittelfeld: "MF",
   Sturm: "ST",
 };
+
+export const POSITION_ICON: Record<string, typeof IconPositionTorwart> = {
+  Torwart: IconPositionTorwart,
+  Abwehr: IconPositionAbwehr,
+  Mittelfeld: IconPositionMittelfeld,
+  Sturm: IconPositionSturm,
+};
+
+// Ersetzt die bisher an ueber 10 Stellen duplizierte
+// `{POSITION_ABBR[position] ?? ...}`-Text-Anzeige - ein Icon (faellt bei
+// unbekannter Position einfach weg, kein Kuerzel-Fallback-Icon noetig, da
+// der Text-Fallback in POSITION_ABBR/teamAbbr-Stil ohnehin daneben steht).
+export function PositionBadge({ position }: { position: string }) {
+  const Icon = POSITION_ICON[position];
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
+      {Icon && <Icon className="h-3.5 w-3.5" />}
+      {POSITION_ABBR[position] ?? position.slice(0, 3).toUpperCase()}
+    </span>
+  );
+}
+
+const STATUS_ICON: Record<string, typeof IconStatusVerletzt> = {
+  Verletzt: IconStatusVerletzt,
+  Angeschlagen: IconStatusAngeschlagen,
+  "Im Aufbau": IconStatusAufbau,
+  Fit: IconStatusFit,
+};
+
+// Buendelt die an 4 Stellen (StatusLabelRow, AlleSpielerTab x2,
+// PlayerCompareModal) leicht unterschiedlich wiederholte
+// crit/good-Tone-Logik fuer statusLabel() an einer Stelle, plus neu ein
+// passendes Icon.
+export function FitnessBadge({ label }: { label: string | null }) {
+  const text = label ?? "Fit";
+  const Icon = STATUS_ICON[text];
+  return (
+    <Badge tone={label ? "crit" : "good"}>
+      <span className="inline-flex items-center gap-1">
+        {Icon && <Icon className="h-3 w-3" />}
+        {text}
+      </span>
+    </Badge>
+  );
+}
 
 // Offizielle 3-Buchstaben-Kuerzel (DFL/TV-Uebertragung, z.B. Sky/Kicker),
 // per WebSearch gegengecheckt (siehe Konversation, 2026-07-28). Nach

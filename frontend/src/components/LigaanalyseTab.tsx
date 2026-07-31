@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DashboardSnapshot, LigaanalyseRow } from "../types";
 import { groupSquadByPosition } from "../lib/derive";
-import { Badge, POSITION_ABBR, Row } from "./ui";
+import { Badge, POSITION_ABBR, POSITION_ICON, Row } from "./ui";
 import { fmtNum } from "../format";
 
 const HINT =
@@ -117,24 +117,28 @@ function LigaanalyseDetailModal({
           <p className="text-sm text-slate-500 dark:text-slate-400">Keine Kaderdaten verfügbar.</p>
         ) : (
           <div className="space-y-3">
-            {groups.map((group) => (
-              <div key={group.position}>
-                <p className="mb-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">
-                  {POSITION_ABBR[group.position] ?? group.position}
-                </p>
-                <ul className="space-y-1">
-                  {group.entries.map((entry) => (
-                    <li key={entry.player_id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
-                        {entry.name}
-                        {entry.is_regular && <Badge tone="good">Stamm</Badge>}
-                      </span>
-                      <span className="text-slate-500 dark:text-slate-400">{fmtNum(entry.market_value)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+            {groups.map((group) => {
+              const Icon = POSITION_ICON[group.position];
+              return (
+                <div key={group.position}>
+                  <p className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">
+                    {Icon && <Icon className="h-3.5 w-3.5" />}
+                    {POSITION_ABBR[group.position] ?? group.position}
+                  </p>
+                  <ul className="space-y-1">
+                    {group.entries.map((entry) => (
+                      <li key={entry.player_id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+                          {entry.name}
+                          {entry.is_regular && <Badge tone="good">Stamm</Badge>}
+                        </span>
+                        <span className="text-slate-500 dark:text-slate-400">{fmtNum(entry.market_value)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -3,7 +3,7 @@ import type { DashboardSnapshot } from "../types";
 import { buildEigenesTeamSplit, liveModelMae, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
-import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
+import { Badge, CARD_TONE_CLASSES, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import PlayerNamePicker from "./PlayerNamePicker";
 import PlayerCompareModal from "./PlayerCompareModal";
@@ -175,7 +175,7 @@ function MlPredictionRow({ value, mae }: { value: number | null; mae?: number | 
 function StatusLabelRow({ value }: { value: string | null }) {
   return (
     <Row label="Fitness">
-      <Badge tone={value ? "crit" : "good"}>{value ?? "Fit"}</Badge>
+      <FitnessBadge label={value} />
     </Row>
   );
 }
@@ -194,7 +194,7 @@ function PlayerCard({
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <TeamCrest teamName={row.team_name} />
           <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+          <PositionBadge position={row.position} />
           {row.sell_signal && (
             <Badge tone={row.sell_signal === "halten" ? "good" : "warn"}>
               {row.sell_signal === "halten" ? "Noch halten" : "Jetzt verkaufen"}
@@ -228,7 +228,7 @@ function WunschkaderWatchlistCard({
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <TeamCrest teamName={row.team_name} />
           <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+          <PositionBadge position={row.position} />
           {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
         </div>
       }
@@ -315,7 +315,7 @@ function PlayerDetailModal({
           <div className="flex flex-wrap items-center gap-2">
             <TeamCrest teamName={row.team_name} />
             <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+            <PositionBadge position={row.position} />
           </div>
         }
         footer={
@@ -396,7 +396,7 @@ function WatchlistDetailModal({
           <div className="flex flex-wrap items-center gap-2">
             <TeamCrest teamName={row.team_name} />
             <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+            <PositionBadge position={row.position} />
           </div>
         }
         footer={

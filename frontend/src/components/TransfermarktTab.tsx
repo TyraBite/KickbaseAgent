@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
 import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type TransfermarktRow } from "../lib/derive";
-import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
+import { Badge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
 
@@ -92,7 +92,7 @@ export default function TransfermarktTab({
         <div className="flex flex-wrap items-center gap-2">
           <TeamCrest teamName={r.team_name} />
           <span className="font-medium text-slate-900 dark:text-slate-50">{r.name}</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[r.position] ?? r.position}</span>
+          <PositionBadge position={r.position} />
         </div>
       ),
     },
@@ -268,7 +268,7 @@ function TransfermarktDetailModal({
           <div className="flex flex-wrap items-center gap-2">
             <TeamCrest teamName={row.team_name} />
             <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+            <PositionBadge position={row.position} />
           </div>
           <button
             type="button"

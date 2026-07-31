@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot } from "../types";
 import { buildAlleSpielerRows, type AlleSpielerRow } from "../lib/derive";
-import { Badge, POSITION_ABBR, Row, SignalBadge, TeamCrest } from "./ui";
+import { Badge, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import PlayerNamePicker from "./PlayerNamePicker";
@@ -73,7 +73,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
         <div className="flex flex-wrap items-center gap-2">
           <TeamCrest teamName={r.team_name} />
           <span className="font-medium text-slate-900 dark:text-slate-50">{r.name}</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[r.position] ?? r.position}</span>
+          <PositionBadge position={r.position} />
         </div>
       ),
     },
@@ -254,7 +254,7 @@ function AlleSpielerDetailModal({
             <div className="flex flex-wrap items-center gap-2">
               <TeamCrest teamName={row.team_name} />
               <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-              <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+              <PositionBadge position={row.position} />
             </div>
             <button
               type="button"
@@ -271,7 +271,7 @@ function AlleSpielerDetailModal({
             </Row>
             <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
             <Row label="Fitness">
-              <Badge tone={row.status_label ? "crit" : "good"}>{row.status_label ?? "Fit"}</Badge>
+              <FitnessBadge label={row.status_label} />
             </Row>
             <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
             <Row label="Signal">

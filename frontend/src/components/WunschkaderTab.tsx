@@ -5,7 +5,7 @@ import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
-import { Badge, CARD_TONE_CLASSES, POSITION_ABBR, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
+import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerCompareModal from "./PlayerCompareModal";
@@ -385,7 +385,7 @@ function TargetCard({
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <TeamCrest teamName={computed.team_name} />
-        <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[computed.position] ?? computed.position}</span>
+        <PositionBadge position={computed.position} />
         <span className="font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
         {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
         {clubCount >= 4 && (
@@ -479,7 +479,7 @@ function DetailModal({
         <div className="mb-4 flex items-start justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <TeamCrest teamName={computed.team_name} />
-            <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[computed.position] ?? computed.position}</span>
+            <PositionBadge position={computed.position} />
             <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
           </div>
           <button

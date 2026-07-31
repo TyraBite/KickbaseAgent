@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Calibration, PlayerRecord } from "../types";
 import { buildPlayerRow, type PlayerRow } from "../lib/derive";
-import { Badge, POSITION_ABBR, SignalBadge, TeamCrest } from "./ui";
+import { FitnessBadge, PositionBadge, SignalBadge, TeamCrest } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerNamePicker from "./PlayerNamePicker";
@@ -94,7 +94,7 @@ export default function PlayerCompareModal({
           <TeamCrest teamName={row.team_name} />
           <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
         </div>
-        <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[row.position] ?? row.position}</span>
+        <PositionBadge position={row.position} />
         <button
           type="button"
           onClick={() => setSwitching(side)}
@@ -180,8 +180,8 @@ export default function PlayerCompareModal({
           />
           <CompareRow
             label="Fitness"
-            valueA={<Badge tone={rowA.status_label ? "crit" : "good"}>{rowA.status_label ?? "Fit"}</Badge>}
-            valueB={<Badge tone={rowB.status_label ? "crit" : "good"}>{rowB.status_label ?? "Fit"}</Badge>}
+            valueA={<FitnessBadge label={rowA.status_label} />}
+            valueB={<FitnessBadge label={rowB.status_label} />}
             winner={betterFitness(rowA.status_label, rowB.status_label)}
           />
           <CompareRow

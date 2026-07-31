@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, MlMetrics, PositionNeed } from "../types";
 import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
-import { Badge, POSITION_ABBR, Row, TeamCrest } from "./ui";
+import { Badge, PositionBadge, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 
@@ -223,7 +223,7 @@ function SpekulationTable({
         <div className="flex flex-wrap items-center gap-2">
           <TeamCrest teamName={r.team_name} />
           <span className="font-medium text-slate-900 dark:text-slate-50">{r.name}</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{POSITION_ABBR[r.position] ?? r.position}</span>
+          <PositionBadge position={r.position} />
         </div>
       ),
     },
@@ -356,9 +356,7 @@ function CardHeader({ row }: { row: SpekulationRow }) {
     <div className="mb-3 flex flex-wrap items-center gap-2">
       <TeamCrest teamName={row.team_name} />
       <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-      <span className="text-xs text-slate-400 dark:text-slate-500">
-        {POSITION_ABBR[row.position] ?? row.position}
-      </span>
+      <PositionBadge position={row.position} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { arrayUnion, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { IconEmptyState } from "./icons";
 import { formatRelativeTime } from "../lib/derive";
 import type { FeedbackItem } from "../types";
 
@@ -183,7 +184,10 @@ export default function FeedbackTab({ now }: { now: number }) {
 
       <div className="space-y-2">
         {open.length === 0 && done.length === 0 && (
-          <p className="text-sm text-slate-400 dark:text-slate-500">Noch keine Einträge.</p>
+          <div className="flex flex-col items-center gap-2 py-6 text-slate-400 dark:text-slate-500">
+            <IconEmptyState className="h-12 w-12" />
+            <p className="text-sm">Noch keine Einträge.</p>
+          </div>
         )}
         {open.map((item) => (
           <FeedbackRow

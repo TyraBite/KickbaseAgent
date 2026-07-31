@@ -159,7 +159,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
         <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
-          <span className="inline-block h-3 w-3 rounded-full bg-brand-500 shadow-md shadow-brand-500/50" />
+          <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="h-6 w-6" />
           KickbaseAgent
           <span className="font-normal text-slate-400 dark:text-slate-500">Dashboard</span>
         </h1>
