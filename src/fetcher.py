@@ -89,6 +89,12 @@ def _squad_item_to_row(item: dict, team_names_by_id: dict) -> dict:
         # Startelf-Rang (1 = wahrscheinlichster Stammspieler seiner Position,
         # hoehere Werte unwahrscheinlicher) - keine offizielle Bestaetigung.
         "starting_rank": item.get("prob"),
+        # "mvgl" (Market-Value-Gain/Loss seit Kauf) - live verifiziert
+        # 2026-07-31 gegen 6 unabhaengig aus bid_premium_history
+        # rekonstruierte Preise, exakte Uebereinstimmung. mv - mvgl ist der
+        # tatsaechlich gezahlte Kaufpreis, deckt ALLE Kaderspieler ab (nicht
+        # nur Systemangebot-Kaeufe wie bid_premium_history).
+        "purchase_price": (item["mv"] - item["mvgl"]) if item.get("mv") is not None and item.get("mvgl") is not None else None,
     }
 
 

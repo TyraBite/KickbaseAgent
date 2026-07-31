@@ -2,7 +2,7 @@ import datetime
 import unittest
 from unittest.mock import patch
 
-from src.fetcher import _apply_or_reuse_market_value_history, _compute_expiry
+from src.fetcher import _apply_or_reuse_market_value_history, _compute_expiry, _squad_item_to_row
 
 
 class ComputeExpiryTests(unittest.TestCase):
@@ -48,3 +48,13 @@ class ApplyOrReuseMarketValueHistoryTests(unittest.TestCase):
         _apply_or_reuse_market_value_history("tok", "l1", row, {})
 
         mock_apply.assert_called_once_with("tok", "l1", row)
+
+
+class SquadItemToRowPurchasePriceTests(unittest.TestCase):
+    def test_computes_purchase_price_from_market_value_minus_gain_loss(self):
+        row = _squad_item_to_row({"i": "p1", "n": "Test", "pos": 3, "mv": 26_263_884, "mvgl": 322_616}, {})
+        self.assertEqual(row["purchase_price"], 25_941_268)
+
+    def test_purchase_price_none_when_mvgl_missing(self):
+        row = _squad_item_to_row({"i": "p1", "n": "Test", "pos": 3, "mv": 1_000_000}, {})
+        self.assertIsNone(row["purchase_price"])

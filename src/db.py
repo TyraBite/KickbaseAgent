@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS own_squad (
     team_id TEXT,
     team_name TEXT,
     starting_rank INTEGER,
+    purchase_price INTEGER,
     PRIMARY KEY (fetched_at, player_id)
 );
 
@@ -181,12 +182,12 @@ def replace_own_squad(conn: sqlite3.Connection, fetched_at: str, players: list[d
             fetched_at, player_id, name, position, status_code, status_label,
             market_value, market_value_trend, market_value_change_7d,
             market_value_low_92d, market_value_high_92d, market_value_in_drop_phase,
-            average_points, total_points, team_id, team_name, starting_rank
+            average_points, total_points, team_id, team_name, starting_rank, purchase_price
         ) VALUES (
             :fetched_at, :player_id, :name, :position, :status_code, :status_label,
             :market_value, :market_value_trend, :market_value_change_7d,
             :market_value_low_92d, :market_value_high_92d, :market_value_in_drop_phase,
-            :average_points, :total_points, :team_id, :team_name, :starting_rank
+            :average_points, :total_points, :team_id, :team_name, :starting_rank, :purchase_price
         )
         """,
         [{**p, "fetched_at": fetched_at} for p in players],

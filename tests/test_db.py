@@ -19,7 +19,7 @@ class GetMarketValueHistoryCacheTests(unittest.TestCase):
             "market_value_trend": 0, "market_value_change_7d": 50_000,
             "market_value_low_92d": 900_000, "market_value_high_92d": 1_100_000,
             "market_value_in_drop_phase": 0, "average_points": 100, "total_points": 500,
-            "team_id": "t1", "team_name": "Bremen", "starting_rank": 1,
+            "team_id": "t1", "team_name": "Bremen", "starting_rank": 1, "purchase_price": None,
         }])
 
         cache = db.get_market_value_history_cache(conn, "2026-07-29")
@@ -35,7 +35,7 @@ class GetMarketValueHistoryCacheTests(unittest.TestCase):
             "market_value_trend": 0, "market_value_change_7d": None,
             "market_value_low_92d": None, "market_value_high_92d": None,
             "market_value_in_drop_phase": None, "average_points": 80, "total_points": 400,
-            "team_id": "t2", "team_name": "Koeln", "starting_rank": 2,
+            "team_id": "t2", "team_name": "Koeln", "starting_rank": 2, "purchase_price": None,
         }])
 
         cache = db.get_market_value_history_cache(conn, "2026-07-29")
@@ -50,7 +50,7 @@ class GetMarketValueHistoryCacheTests(unittest.TestCase):
             "market_value_trend": 0, "market_value_change_7d": 10_000,
             "market_value_low_92d": 1_900_000, "market_value_high_92d": 2_100_000,
             "market_value_in_drop_phase": 0, "average_points": 120, "total_points": 600,
-            "team_id": "t3", "team_name": "Leipzig", "starting_rank": 3,
+            "team_id": "t3", "team_name": "Leipzig", "starting_rank": 3, "purchase_price": None,
         }])
 
         cache = db.get_market_value_history_cache(conn, "2026-07-29")

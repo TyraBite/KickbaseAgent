@@ -321,6 +321,21 @@ class BuildPlayersMapTests(unittest.TestCase):
         self.assertEqual(result["p1"]["market_value_change_7d"], 50_000)
         self.assertEqual(result["p1"]["market_value"], 10_500_000)
 
+    def test_overlays_purchase_price_from_own_squad_only(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row()],
+            own_squad=[{**self._light_row(), "purchase_price": 9_500_000}],
+            market_listings=[], predictions=None, previous_players=None, is_light=False,
+        )
+        self.assertEqual(result["p1"]["purchase_price"], 9_500_000)
+
+    def test_purchase_price_absent_when_own_squad_row_lacks_it(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row()], own_squad=[self._light_row()],
+            market_listings=[], predictions=None, previous_players=None, is_light=False,
+        )
+        self.assertNotIn("purchase_price", result["p1"])
+
     def test_market_listings_overlay_same_as_own_squad(self):
         result = _build_players_map(
             all_players=[self._all_players_row()], own_squad=[],

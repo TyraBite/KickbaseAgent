@@ -356,6 +356,17 @@ def _build_players_map(
                 entry[field] = value
         base[pid] = entry
 
+    # purchase_price kommt NUR aus own_squad (market_listings hat kein
+    # Konzept von "was ich dafuer bezahlt habe") - eigene Schleife statt
+    # Teil der gemeinsamen HISTORY_FIELDS-Ueberlagerung, .get() statt
+    # bracket-access weil market_listings-Zeilen die Spalte gar nicht haben.
+    for row in own_squad:
+        pid = row["player_id"]
+        if pid in base:
+            purchase_price = row["purchase_price"] if "purchase_price" in row.keys() else None
+            if purchase_price is not None:
+                base[pid]["purchase_price"] = purchase_price
+
     predictions_by_id = (predictions or {}).get("predictions", {})
     for pid, value in predictions_by_id.items():
         if pid in base:

@@ -22,6 +22,9 @@ export interface PlayerRecord {
   market_value_change_7d?: number;
   market_value_low_92d?: number;
   market_value_high_92d?: number;
+  // Nur vorhanden fuer Spieler im eigenen Kader (own_squad) - Kickbase-Feld
+  // "mvgl" (Market-Value-Gain/Loss seit Kauf), mv-mvgl = echter Kaufpreis.
+  purchase_price?: number;
   // Nur vorhanden, wenn das ML-Modell einen Wert produziert hat:
   ml_prediction?: number;
 }
