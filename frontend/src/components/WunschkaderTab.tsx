@@ -335,6 +335,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
           alleSpieler={alleSpieler}
           players={data.players}
           calibration={data.calibration}
+          ownSquadIds={ownSquadIds}
           onClose={() => setSelected(null)}
           onToggleBench={() => toggleBench(selected._uid)}
           onRemove={() => removeTarget(selected._uid)}
@@ -425,6 +426,7 @@ function DetailModal({
   alleSpieler,
   players,
   calibration,
+  ownSquadIds,
   onClose,
   onToggleBench,
   onRemove,
@@ -438,6 +440,7 @@ function DetailModal({
   alleSpieler: AlleSpielerRow[];
   players: DashboardSnapshot["players"];
   calibration: DashboardSnapshot["calibration"];
+  ownSquadIds: Set<string>;
   onClose: () => void;
   onToggleBench: () => void;
   onRemove: () => void;
@@ -494,7 +497,15 @@ function DetailModal({
             <SignalBadge signal={computed.signal} thresholds={thresholds} />
           </Row>
           <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
-          <Row label="Geplanter Preis">{fmtNum(plannedPrice)}</Row>
+          {ownSquadIds.has(target.player_id) ? (
+            <Row label="Tatsächlicher Kaufpreis">
+              {players[target.player_id]?.purchase_price != null
+                ? fmtNum(players[target.player_id].purchase_price)
+                : <span className="text-slate-400 dark:text-slate-500">n/v</span>}
+            </Row>
+          ) : (
+            <Row label="Geplanter Preis">{fmtNum(plannedPrice)}</Row>
+          )}
           <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
           <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
           <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
