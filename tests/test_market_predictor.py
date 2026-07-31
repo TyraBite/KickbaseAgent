@@ -1,3 +1,4 @@
+import datetime
 import os
 import unittest
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,8 @@ from src.market_predictor import (
     _select_live_model,
     _infer_today,
     _performance_frame,
+    _fitness_features_as_of,
+    FITNESS_NO_HISTORY_DAYS,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
 
@@ -214,3 +217,39 @@ class PerformanceFrameMinutesAvgTests(unittest.TestCase):
         mock_perf.return_value = {"it": [{"ph": []}]}
         df = _performance_frame("tok", "comp1", "p1")
         self.assertTrue(df.empty)
+
+
+class FitnessFeaturesAsOfTests(unittest.TestCase):
+    def test_no_prior_event_returns_placeholder(self):
+        result = _fitness_features_as_of([], datetime.date(2026, 7, 31))
+        self.assertEqual(result["days_since_last_status_change"], FITNESS_NO_HISTORY_DAYS)
+        self.assertEqual(result["status_change_count_90d"], 0)
+
+    def test_ignores_events_after_as_of_date(self):
+        events = [{"date": "2026-08-01", "from_status_code": 0, "to_status_code": 1}]
+        result = _fitness_features_as_of(events, datetime.date(2026, 7, 31))
+        self.assertEqual(result["days_since_last_status_change"], FITNESS_NO_HISTORY_DAYS)
+
+    def test_one_event_returns_correct_days_since(self):
+        events = [{"date": "2026-07-20", "from_status_code": 0, "to_status_code": 1}]
+        result = _fitness_features_as_of(events, datetime.date(2026, 7, 31))
+        self.assertEqual(result["days_since_last_status_change"], 11)
+        self.assertEqual(result["status_change_count_90d"], 1)
+
+    def test_multiple_events_only_within_window_counted(self):
+        events = [
+            {"date": "2026-01-01", "from_status_code": 0, "to_status_code": 1},
+            {"date": "2026-07-01", "from_status_code": 1, "to_status_code": 0},
+            {"date": "2026-07-20", "from_status_code": 0, "to_status_code": 1},
+        ]
+        result = _fitness_features_as_of(events, datetime.date(2026, 7, 31))
+        self.assertEqual(result["days_since_last_status_change"], 11)
+        self.assertEqual(result["status_change_count_90d"], 2)
+
+    def test_event_exactly_90_days_before_is_excluded_boundary(self):
+        as_of = datetime.date(2026, 7, 31)
+        boundary_date = (as_of - datetime.timedelta(days=90)).isoformat()
+        events = [{"date": boundary_date, "from_status_code": 0, "to_status_code": 1}]
+        result = _fitness_features_as_of(events, as_of)
+        self.assertEqual(result["status_change_count_90d"], 0)
+        self.assertEqual(result["days_since_last_status_change"], 90)

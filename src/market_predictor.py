@@ -86,6 +86,9 @@ EVALUATION_LOOKBACK_DAYS = 3
 BACKTEST_FOLDS = 6
 BACKTEST_MIN_TRAIN_ROWS = MIN_TRAINING_ROWS
 
+FITNESS_NO_HISTORY_DAYS = 9999  # Platzhalter: kein Fitness-Ereignis vor diesem Datum bekannt (Cold-Start oder Spieler nie im fitness_history_log)
+FITNESS_COUNT_WINDOW_DAYS = 90
+
 # Aggregierter Sicherheits-Check: schlagen zu viele der ersten Abrufe fehl,
 # lieber den ganzen Corpus-Aufbau abbrechen als auf degradierten Daten zu
 # trainieren (Rate-Limit? API-Aenderung?).
@@ -163,6 +166,24 @@ def _performance_frame(token: str, competition_id: str, player_id: str) -> pd.Da
     # mitteln.
     df["mp_avg_3"] = df["mp"].rolling(3, min_periods=1).mean()
     return df
+
+
+def _fitness_features_as_of(events: list[dict], as_of_date: datetime.date) -> dict:
+    """events: EIN Spielers Eintraege aus fitness_history_log (jeweils
+    {'date': 'YYYY-MM-DD', 'from_status_code': int, 'to_status_code': int}),
+    Reihenfolge egal. as_of_date: das Datum der Trainings-/Prognose-Zeile.
+    Nur Ereignisse mit event_date <= as_of_date fliessen ein - kein
+    Lookahead in die Zukunft dieser Zeile. Siehe
+    docs/superpowers/specs/2026-07-31-fitness-history-design.md,
+    Abschnitt 'ML-Integration'."""
+    relevant = [e for e in events if datetime.date.fromisoformat(e["date"]) <= as_of_date]
+    if not relevant:
+        return {"days_since_last_status_change": FITNESS_NO_HISTORY_DAYS, "status_change_count_90d": 0}
+    last_date = max(datetime.date.fromisoformat(e["date"]) for e in relevant)
+    days_since = (as_of_date - last_date).days
+    cutoff = as_of_date - datetime.timedelta(days=FITNESS_COUNT_WINDOW_DAYS)
+    count_90d = sum(1 for e in relevant if datetime.date.fromisoformat(e["date"]) > cutoff)
+    return {"days_since_last_status_change": days_since, "status_change_count_90d": count_90d}
 
 
 def _fetch_player_training_frame(
