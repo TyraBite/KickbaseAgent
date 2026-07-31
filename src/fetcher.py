@@ -19,6 +19,7 @@ from src.kickbase_client import (
     get_teams,
     login,
     position_label,
+    select_league,
     status_label,
 )
 
@@ -45,24 +46,6 @@ DEFAULT_START_BUDGET = 50_000_000
 # Vielfaches des Startbudgets, soll nur eindeutig kaputte Werte (z.B.
 # Vorzeichenfehler bei Kauf/Verkauf) abfangen, keine echten Grenzfaelle.
 IMPLAUSIBLE_BUDGET_MULTIPLE = 20
-
-
-def _select_league(leagues: list[dict]) -> dict:
-    league_id_override = os.environ.get("KICKBASE_LEAGUE_ID")
-    if league_id_override:
-        for league in leagues:
-            if str(league.get("id")) == str(league_id_override):
-                return league
-        raise RuntimeError(
-            f"KICKBASE_LEAGUE_ID={league_id_override} nicht unter den Ligen des Accounts gefunden"
-        )
-    if len(leagues) > 1:
-        names = ", ".join(f"{l.get('name')} ({l.get('id')})" for l in leagues)
-        print(
-            f"Warnung: Account ist in {len(leagues)} Ligen ({names}), nehme die erste. "
-            f"Setze KICKBASE_LEAGUE_ID um eine andere zu waehlen."
-        )
-    return leagues[0]
 
 
 def _squad_item_to_row(item: dict, team_names_by_id: dict) -> dict:
@@ -349,7 +332,7 @@ def run() -> str:
     token, user, leagues = login(email, password)
     if not leagues:
         raise RuntimeError("Account ist in keiner Liga Mitglied")
-    league = _select_league(leagues)
+    league = select_league(leagues)
     league_id = league["id"]
 
     me = get_me(token, league_id)

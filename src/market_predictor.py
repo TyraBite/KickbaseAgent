@@ -57,6 +57,7 @@ from src.kickbase_client import (
     get_team_players,
     get_teams,
     login,
+    select_league,
 )
 
 FEATURES = [
@@ -509,7 +510,7 @@ def backfill_prediction_log(days: int = 90) -> dict:
         return {"folds_run": 0, "days_written": 0}
 
     token, _user, leagues = login(email, password)
-    league_id = leagues[0]["id"]
+    league_id = select_league(leagues)["id"]
     me = get_me(token, league_id)
     competition_id = me.get("cpi") or "1"
     corpus = _build_corpus(token, league_id, competition_id)
@@ -780,7 +781,7 @@ def predict_market_value_changes() -> dict | None:
         if not leagues:
             print("Warnung: Account in keiner Liga, ML-Prognose uebersprungen.", file=sys.stderr)
             return None
-        league_id = leagues[0]["id"]
+        league_id = select_league(leagues)["id"]
         me = get_me(token, league_id)
         competition_id = me.get("cpi") or "1"
 

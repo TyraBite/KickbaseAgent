@@ -27,6 +27,8 @@ status_label() gibt deshalb bewusst weiterhin nur die rohe Zahl aus, bis
 das im echten Kickbase-Client gegengecheckt wurde.
 """
 
+import os
+
 import requests
 
 BASE_URL = "https://api.kickbase.com"
@@ -77,6 +79,33 @@ def login(email: str, password: str) -> tuple[str, dict, list[dict]]:
     user = data.get("u", {})
     leagues = data.get("srvl", [])
     return token, user, leagues
+
+
+def select_league(leagues: list[dict]) -> dict:
+    """Waehlt eine Liga aus login()s leagues-Liste - respektiert
+    KICKBASE_LEAGUE_ID falls gesetzt (Accounts in mehreren Ligen), sonst die
+    erste. Zentrale Stelle, damit ALLE Einstiegspunkte (fetcher.py,
+    dashboard_export.py, market_predictor.py, player_valuation.py) dasselbe
+    Verhalten haben - vorher pickte nur fetcher.py ueber diese Funktion
+    korrekt, die anderen drei hatten je ihr eigenes, das Secret ignorierendes
+    `leagues[0]` (live gefunden 2026-07-31: gesetztes KICKBASE_LEAGUE_ID-
+    Secret hatte keine Wirkung, weil es in keinem der anderen Call-Sites
+    gelesen wurde)."""
+    league_id_override = os.environ.get("KICKBASE_LEAGUE_ID")
+    if league_id_override:
+        for league in leagues:
+            if str(league.get("id")) == str(league_id_override):
+                return league
+        raise RuntimeError(
+            f"KICKBASE_LEAGUE_ID={league_id_override} nicht unter den Ligen des Accounts gefunden"
+        )
+    if len(leagues) > 1:
+        names = ", ".join(f"{l.get('name')} ({l.get('id')})" for l in leagues)
+        print(
+            f"Warnung: Account ist in {len(leagues)} Ligen ({names}), nehme die erste. "
+            f"Setze KICKBASE_LEAGUE_ID um eine andere zu waehlen."
+        )
+    return leagues[0]
 
 
 def get_squad(token: str, league_id: str) -> list[dict]:

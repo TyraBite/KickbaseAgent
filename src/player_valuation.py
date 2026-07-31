@@ -313,7 +313,7 @@ def _print_report(rows: list[dict], calibration: dict) -> None:
 if __name__ == "__main__":
     from dotenv import load_dotenv
 
-    from src.kickbase_client import get_me, login
+    from src.kickbase_client import get_me, login, select_league
 
     load_dotenv()
     email = os.environ.get("KICKBASE_EMAIL")
@@ -323,7 +323,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     token, _user, leagues = login(email, password)
-    league_id = leagues[0]["id"]
+    league_id = select_league(leagues)["id"]
     me = get_me(token, league_id)
     competition_id = me.get("cpi") or "1"
 

@@ -134,7 +134,7 @@ Session ist an einem sauberen Abschlusspunkt. Falls eine neue Session hier weite
 
 ## Setup Required
 
-- Nichts Neues: GitHub-Actions-Secrets sind `DISCORD_WEBHOOK_URL`, `FIREBASE_SERVICE_ACCOUNT`, `KICKBASE_EMAIL`, `KICKBASE_LEAGUE_START_BUDGET`, `KICKBASE_LEAGUE_START_DATE`, `KICKBASE_PASSWORD`. `KICKBASE_LEAGUE_START_BUDGET` steht weiterhin als Klartext-Wert direkt in beiden Workflow-YAMLs (nicht über das gleichnamige Secret referenziert) — nur `KICKBASE_LEAGUE_START_DATE` referenziert sein Secret.
+- GitHub-Actions-Secrets sind `DISCORD_WEBHOOK_URL`, `FIREBASE_SERVICE_ACCOUNT`, `KICKBASE_EMAIL`, `KICKBASE_LEAGUE_ID`, `KICKBASE_LEAGUE_START_BUDGET`, `KICKBASE_LEAGUE_START_DATE`, `KICKBASE_PASSWORD`. `KICKBASE_LEAGUE_START_BUDGET` steht weiterhin als Klartext-Wert direkt in beiden Workflow-YAMLs (nicht über das gleichnamige Secret referenziert) — die anderen referenzieren ihr Secret korrekt. `KICKBASE_LEAGUE_ID` neu (2026-07-31) — User hatte das Secret schon gesetzt, es wirkte aber nicht, weil es in keinem `env:`-Block referenziert war UND `select_league()` (die einzige Stelle, die es liest) nur von `fetcher.py` genutzt wurde, nicht von `dashboard_export.py`/`market_predictor.py`/`player_valuation.py` (jede Stelle pickte unabhängig ihr eigenes `leagues[0]`) — beides jetzt gefixt (`select_league()` nach `kickbase_client.py` verschoben, überall genutzt, Secret in beiden Workflow-YAMLs referenziert).
 
 ## Warnings
 

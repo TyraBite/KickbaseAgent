@@ -49,7 +49,7 @@ import sys
 from dotenv import load_dotenv
 
 from src import bid_premium, db, fetcher, firestore_db, market_predictor, player_valuation
-from src.kickbase_client import KickbaseError, get_activities_feed, get_manager_squad, get_me, login
+from src.kickbase_client import KickbaseError, get_activities_feed, get_manager_squad, get_me, login, select_league
 
 # Toleranzband aus MDs/methodik.md, Abschnitt "Fairwert und Signal".
 SIGNAL_GOOD = 1.25
@@ -413,7 +413,7 @@ def export() -> dict:
     fetched_at = fetcher.run()
 
     token, _user, leagues = login(email, password)
-    league_id = leagues[0]["id"]
+    league_id = select_league(leagues)["id"]
     competition_id = get_me(token, league_id).get("cpi") or "1"
 
     own_squad, market_listings, ranking_rows, manager_budget_rows = _load_snapshot(fetched_at)

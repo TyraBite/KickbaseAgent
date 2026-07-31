@@ -1,6 +1,30 @@
+import os
 import unittest
+from unittest.mock import patch
 
-from src.kickbase_client import status_label
+from src.kickbase_client import select_league, status_label
+
+
+class SelectLeagueTests(unittest.TestCase):
+    def _leagues(self):
+        return [{"id": "111", "name": "Kickb4se"}, {"id": "222", "name": "MLS Gameweek #16"}]
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_returns_first_league_without_override(self):
+        self.assertEqual(select_league(self._leagues())["id"], "111")
+
+    @patch.dict(os.environ, {"KICKBASE_LEAGUE_ID": "222"})
+    def test_returns_matching_league_when_override_set(self):
+        self.assertEqual(select_league(self._leagues())["id"], "222")
+
+    @patch.dict(os.environ, {"KICKBASE_LEAGUE_ID": "999"})
+    def test_raises_when_override_not_found(self):
+        with self.assertRaises(RuntimeError):
+            select_league(self._leagues())
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_single_league_no_warning_needed(self):
+        self.assertEqual(select_league([{"id": "111", "name": "Solo"}])["id"], "111")
 
 
 class StatusLabelTests(unittest.TestCase):
