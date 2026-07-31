@@ -27,6 +27,8 @@ export interface PlayerRecord {
   purchase_price?: number;
   // Nur vorhanden, wenn das ML-Modell einen Wert produziert hat:
   ml_prediction?: number;
+  // Nur vorhanden, wenn das 3-Tage-Modell einen Wert produziert hat:
+  ml_prediction_3d?: number;
 }
 
 export interface TransfermarktListing {
@@ -155,6 +157,8 @@ export interface DashboardSnapshot {
   ligaanalyse: LigaanalyseRow[];
   ml_metrics: MlMetrics | null;
   ml_accuracy_trend: MlAccuracyTrendEntry[] | null;
+  ml_metrics_3d: MlMetrics | null;
+  ml_accuracy_trend_3d: MlAccuracyTrendEntry[] | null;
   signal_thresholds: SignalThresholds;
   own_budget_exact: number | null;
   own_available_budget: number | null;
