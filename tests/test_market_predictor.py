@@ -28,6 +28,7 @@ from src.market_predictor import (
     _train_and_evaluate,
     _walk_forward_backtest,
     _train_and_track_horizon,
+    predict_market_value_changes,
     TARGET,
     TARGET_3D,
 )
@@ -512,3 +513,59 @@ class TrainAndTrackHorizonTests(unittest.TestCase):
         df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target_clipped": [100]})
         result = _train_and_track_horizon(df, df, TARGET, 1, "2026-07-31", {})
         self.assertIsNone(result)
+
+
+class PredictMarketValueChangesThreeDayIsolationTests(unittest.TestCase):
+    """Reviewer-Finding (Task 5, kritisch): eine unerwartete Exception im
+    3-Tage-Aufruf von _train_and_track_horizon() darf NICHT bis zum
+    aeusseren try/except von predict_market_value_changes() durchschlagen -
+    das wuerde das bereits berechnete result_1d verwerfen und die GESAMTE
+    Funktion mit None statt Ergebnis abschliessen lassen (kein Snapshot,
+    kein 1-Tages-Signal), obwohl nur der neue 3-Tage-Pfad kaputt ist. Vorher
+    war nur der DESIGNTE None-Rueckgabefall (zu wenig Trainingsdaten)
+    getestet (siehe TrainAndTrackHorizonTests) - eine echte Exception
+    (z.B. ein sklearn/pandas-Edge-Case) war ungetestet."""
+
+    def _today_df(self):
+        return pd.DataFrame({
+            "player_id": ["p1"],
+            "date": [pd.Timestamp("2026-07-31")],
+            "mv": [1_000_000],
+            "p": [5],
+            "days_to_next": [3],
+            "mv_change_1d": [100],
+            "mv_trend_1d": [0.01],
+            "mv_change_3d": [200],
+            "mv_vol_3d": [50],
+            "mv_trend_7d": [0.02],
+            "market_divergence": [1.0],
+            "days_since_last_status_change": [10],
+            "status_change_count_90d": [0],
+        })
+
+    def test_exception_in_3d_call_does_not_discard_1d_result(self):
+        result_1d = {"predictions": {"p1": 12_345}, "metrics": {"model_type": "HistGradientBoosting"}}
+        history_df = pd.DataFrame({"days_to_next": [1, 2, 3]})
+        today_df = self._today_df()
+
+        with patch.dict(
+            os.environ, {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x"}, clear=True,
+        ), patch("src.market_predictor.login", return_value=("tok", {"id": "u1"}, [{"id": "l1"}])
+        ), patch("src.market_predictor.get_me", return_value={"cpi": "1"}
+        ), patch("src.market_predictor._load_fitness_events_by_player", return_value={}
+        ), patch("src.market_predictor._build_corpus", return_value=pd.DataFrame()
+        ), patch("src.market_predictor._engineer_features", return_value=(history_df, today_df)
+        ), patch("src.market_predictor._infer_today", return_value="2026-07-31"
+        ), patch("src.market_predictor._build_mv_lookup", return_value={}
+        ), patch(
+            "src.market_predictor._train_and_track_horizon",
+            side_effect=[result_1d, RuntimeError("boom")],
+        ) as mock_horizon:
+            result = predict_market_value_changes()
+
+        self.assertEqual(mock_horizon.call_count, 2)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["predictions"], {"p1": 12_345})
+        self.assertEqual(result["metrics"], {"model_type": "HistGradientBoosting"})
+        self.assertIsNone(result["predictions_3d"])
+        self.assertIsNone(result["metrics_3d"])

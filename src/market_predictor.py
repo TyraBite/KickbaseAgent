@@ -968,13 +968,33 @@ def predict_market_value_changes() -> dict | None:
             )
             return None
 
-        result_3d = _train_and_track_horizon(history_df, today_df, TARGET_3D, 3, today_iso, mv_lookup)
-        if result_3d is None:
+        # Eigene Fehler-Klammer NUR um den 3-Tage-Aufruf (nicht Teil des
+        # aeusseren try/except dieser Funktion): eine unerwartete Exception
+        # hier (z.B. ein sklearn/pandas-Edge-Case spezifisch fuer
+        # TARGET_3D) darf NICHT bis zum aeusseren except durchschlagen -
+        # das wuerde das bereits berechnete result_1d verwerfen und den
+        # kompletten Dashboard-Export dieses Laufs abbrechen (siehe
+        # Docstring von _train_and_track_horizon: "ein fehlschlagendes
+        # 3-Tage-Training darf die 1-Tages-Prognose nicht mitreissen").
+        # Der regulaere None-Rueckgabefall (zu wenig Trainingsdaten) bleibt
+        # zusaetzlich abgedeckt, bekommt aber eine eigene, unterscheidbare
+        # Warnung (else-Zweig, kein doppelter Print bei einer Exception).
+        result_3d = None
+        try:
+            result_3d = _train_and_track_horizon(history_df, today_df, TARGET_3D, 3, today_iso, mv_lookup)
+        except Exception as exc:
             print(
-                "Warnung: 3-Tage-Prognose konnte nicht trainiert werden, wird uebersprungen "
+                f"Warnung: 3-Tage-Prognose unerwartet fehlgeschlagen ({exc}), wird uebersprungen "
                 "(1-Tages-Prognose unbetroffen).",
                 file=sys.stderr,
             )
+        else:
+            if result_3d is None:
+                print(
+                    "Warnung: 3-Tage-Prognose konnte nicht trainiert werden, wird uebersprungen "
+                    "(1-Tages-Prognose unbetroffen).",
+                    file=sys.stderr,
+                )
 
         return {
             "predictions": result_1d["predictions"],
