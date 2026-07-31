@@ -157,8 +157,6 @@ export interface DashboardSnapshot {
   ligaanalyse: LigaanalyseRow[];
   ml_metrics: MlMetrics | null;
   ml_accuracy_trend: MlAccuracyTrendEntry[] | null;
-  ml_metrics_3d: MlMetrics | null;
-  ml_accuracy_trend_3d: MlAccuracyTrendEntry[] | null;
   signal_thresholds: SignalThresholds;
   own_budget_exact: number | null;
   own_available_budget: number | null;
@@ -170,5 +168,7 @@ export interface DashboardSnapshot {
   bid_premium_history?: BidPremiumEntry[];
   bid_premium_outcome_counts?: BidPremiumOutcomeCounts;
   position_need?: PositionNeed;
+  ml_metrics_3d?: MlMetrics | null;
+  ml_accuracy_trend_3d?: MlAccuracyTrendEntry[] | null;
   [key: string]: unknown;
 }

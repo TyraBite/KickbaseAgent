@@ -1,4 +1,4 @@
-import { formatDurationMs } from "../format";
+import { fmtNum, fmtSigned, formatDurationMs } from "../format";
 import type { BidPremiumEntry, Calibration, MlMetrics, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
 
 // MAE des aktuell LIVE geschalteten Modells (nicht pauschal irgendein
@@ -40,6 +40,7 @@ export function momentumAssessment(
   } else if (Math.abs(prediction1d) > mae) {
     confidence = "wahrscheinlich";
   } else {
+    // Schwelle identisch zu sellSignal()s "unklar"-Trigger - bewusst, siehe dort
     confidence = "unsicher";
   }
 
@@ -59,15 +60,6 @@ export function momentumAssessment(
   }
 
   return { confidence, direction, agreesWith3d, label };
-}
-
-function fmtSigned(value: number): string {
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${fmtNum(value)}`;
-}
-
-function fmtNum(value: number): string {
-  return Math.round(value).toLocaleString("de-DE");
 }
 
 // 1:1 Port von player_valuation.py::k_for_position()
@@ -262,6 +254,7 @@ export function sellSignal(
   mae: number | null
 ): "halten" | "verkaufen" | "unklar" {
   const pred = mlPrediction ?? 0;
+  // Schwelle identisch zu momentumAssessment()s "unsicher"-Stufe - bewusst, siehe dort
   if (mae !== null && Math.abs(pred) <= mae) return "unklar";
   return pred > 0 ? "halten" : "verkaufen";
 }
