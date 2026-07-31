@@ -229,7 +229,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
       const updatedAt = new Date().toISOString().slice(0, 10);
       const targets = editState.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
       await setDoc(doc(db, "wunschkader", "current"), { targets, formation, updated_at: updatedAt }, { merge: true });
-      setSaveStatus("Gespeichert. Änderungen erscheinen im nächsten Pipeline-Lauf (~2h).");
+      setSaveStatus("Gespeichert - hier sofort sichtbar. In anderen Ansichten/nach einem Reload erst nach dem nächsten Pipeline-Lauf (kann verzögert sein, siehe HANDOFF.md).");
     } catch (err) {
       setSaveStatus("Fehler beim Speichern: " + (err as Error).message);
     }
