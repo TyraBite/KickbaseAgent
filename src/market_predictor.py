@@ -433,7 +433,7 @@ def _build_candidates() -> dict[str, object]:
     }
 
 
-def _train_and_evaluate(history_df: pd.DataFrame):
+def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
     """Trainiert zwei Modell-Kandidaten per Zeit-Split (75/25, kein Shuffle,
     verhindert Data Leakage) - RandomForestRegressor (bisherige feste
     Parameter) gegen HistGradientBoostingRegressor (eingebautes
@@ -443,11 +443,16 @@ def _train_and_evaluate(history_df: pd.DataFrame):
     Kandidaten (Phase 4: werden beide fuer die taegliche Prognose
     gebraucht, um beide zu loggen), nicht mehr nur den Gewinner.
     metrics["model_type"] zeigt, welcher Kandidat nach Test-R2 gewonnen
-    hat."""
-    if len(history_df) < MIN_TRAINING_ROWS:
+    hat. Erweitert um target_col: die Zeilen ohne bekannten Zielwert
+    (z.B. die letzten paar Tage pro Spieler beim 3-Tage-Ziel, siehe
+    TARGET_3D) werden hier - und nur hier, nicht global auf history_df -
+    verworfen, damit ein zweites Trainingsziel die Datenbasis des ersten
+    nicht verkleinert."""
+    df = history_df.dropna(subset=[target_col])
+    if len(df) < MIN_TRAINING_ROWS:
         return None
 
-    df = history_df.sort_values("date").reset_index(drop=True)
+    df = df.sort_values("date").reset_index(drop=True)
     split_idx = int(len(df) * 0.75)
     split_date = df["date"].iloc[split_idx]
     train = df[df["date"] < split_date]
@@ -456,8 +461,8 @@ def _train_and_evaluate(history_df: pd.DataFrame):
     if train.empty or test.empty:
         return None
 
-    x_train, y_train = train[FEATURES], train[TARGET]
-    x_test, y_test = test[FEATURES], test[TARGET]
+    x_train, y_train = train[FEATURES], train[target_col]
+    x_test, y_test = test[FEATURES], test[target_col]
 
     candidates = _build_candidates()
 
@@ -489,7 +494,7 @@ def _train_and_evaluate(history_df: pd.DataFrame):
     return models, metrics
 
 
-def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
+def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET) -> dict | None:
     """Beantwortet direkt "wie waere die Prognose damals gewesen" - ohne wie
     beim Live-Log (_realized_by_model_from_daily) tage-/wochenlang auf echte
     Folgetage warten zu muessen. history_df enthaelt fuer JEDEN historischen
@@ -509,16 +514,17 @@ def _walk_forward_backtest(history_df: pd.DataFrame) -> dict | None:
     abs_errors: dict[str, list[float]] = {"RandomForest": [], "HistGradientBoosting": []}
     folds_run = 0
 
+    unclipped_col = target_col.removesuffix("_clipped")
     for cutoff in cutoffs:
-        train = history_df[history_df["date"] < cutoff]
+        train = history_df[history_df["date"] < cutoff].dropna(subset=[target_col])
         test = history_df[history_df["date"] == cutoff]
-        if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
+        if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty or test[unclipped_col].isna().all():
             continue
         folds_run += 1
 
-        x_train, y_train = train[FEATURES], train[TARGET]
+        x_train, y_train = train[FEATURES], train[target_col]
         x_test = test[FEATURES]
-        y_test_actual = test["mv_target"]
+        y_test_actual = test[unclipped_col]
 
         # _build_candidates() statt eigener Kopie - vorher hatte dieser
         # Backtest eigene, von der echten Live-Prognose abweichende

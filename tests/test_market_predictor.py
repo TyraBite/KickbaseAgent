@@ -20,6 +20,9 @@ from src.market_predictor import (
     _load_fitness_events_by_player,
     _engineer_features,
     FITNESS_NO_HISTORY_DAYS,
+    _train_and_evaluate,
+    _walk_forward_backtest,
+    TARGET_3D,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
 
@@ -329,3 +332,41 @@ class EngineerFeatures3dTargetTests(unittest.TestCase):
         row0 = history_df[history_df["date"] == pd.Timestamp("2026-07-21")].iloc[0]
         self.assertEqual(row0["mv_target"], 1000)
         self.assertEqual(row0["mv_target_3d"], 3000)
+
+
+class TrainAndEvaluateTargetColTests(unittest.TestCase):
+    def _history_df(self, target_col):
+        import numpy as np
+        n = 250
+        dates = pd.date_range("2026-01-01", periods=n, freq="D")
+        rng = np.random.RandomState(42)
+        df = pd.DataFrame({
+            "date": dates, "player_id": ["p1"] * n,
+            "p": rng.rand(n), "mv": rng.rand(n) * 1_000_000,
+            "days_to_next": rng.randint(1, 8, n),
+            "mv_change_1d": rng.randn(n) * 1000, "mv_trend_1d": rng.randn(n) * 0.01,
+            "mv_change_3d": rng.randn(n) * 2000, "mv_vol_3d": rng.rand(n) * 500,
+            "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
+            "days_since_last_status_change": 9999, "status_change_count_90d": 0,
+            "mv_target_clipped": rng.randn(n) * 5000,
+            "alt_target_clipped": rng.randn(n) * 9000,
+        })
+        return df
+
+    def test_default_target_col_is_backward_compatible(self):
+        df = self._history_df("mv_target_clipped")
+        result = _train_and_evaluate(df)
+        self.assertIsNotNone(result)
+
+    def test_custom_target_col_is_used_for_training(self):
+        df = self._history_df("alt_target_clipped")
+        result = _train_and_evaluate(df, target_col="alt_target_clipped")
+        self.assertIsNotNone(result)
+        models, metrics = result
+        self.assertIn("model_type", metrics)
+
+    def test_rows_with_nan_target_col_are_dropped_not_fatal(self):
+        df = self._history_df("mv_target_clipped")
+        df.loc[df.index[:5], "alt_target_clipped"] = None
+        result = _train_and_evaluate(df, target_col="alt_target_clipped")
+        self.assertIsNotNone(result)
