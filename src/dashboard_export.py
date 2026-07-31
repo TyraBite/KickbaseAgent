@@ -273,6 +273,8 @@ def _resolve_heavy_data(
             "owned_by": cached_snapshot.get("owned_by", {}),
             "ml_metrics": cached_snapshot["ml_metrics"],
             "ml_accuracy_trend": cached_snapshot["ml_accuracy_trend"],
+            "ml_metrics_3d": cached_snapshot.get("ml_metrics_3d"),
+            "ml_accuracy_trend_3d": cached_snapshot.get("ml_accuracy_trend_3d"),
         }
 
     all_players = player_valuation.fetch_all_players(token, competition_id)
@@ -289,6 +291,8 @@ def _resolve_heavy_data(
         "owned_by": owned_by,
         "ml_metrics": predictions["metrics"] if predictions else None,
         "ml_accuracy_trend": predictions["metrics"].get("accuracy_trend") if predictions else None,
+        "ml_metrics_3d": predictions.get("metrics_3d") if predictions else None,
+        "ml_accuracy_trend_3d": (predictions.get("metrics_3d") or {}).get("accuracy_trend") if predictions else None,
     }
 
 
@@ -372,6 +376,11 @@ def _build_players_map(
     for pid, value in predictions_by_id.items():
         if pid in base:
             base[pid]["ml_prediction"] = value
+
+    predictions_3d_by_id = (predictions or {}).get("predictions_3d") or {}
+    for pid, value in predictions_3d_by_id.items():
+        if pid in base:
+            base[pid]["ml_prediction_3d"] = value
 
     return base
 
@@ -537,6 +546,8 @@ def export() -> dict:
         calibration=heavy["calibration"],
         ml_metrics=heavy["ml_metrics"],
         ml_accuracy_trend=heavy["ml_accuracy_trend"],
+        ml_metrics_3d=heavy["ml_metrics_3d"],
+        ml_accuracy_trend_3d=heavy["ml_accuracy_trend_3d"],
         players_map=players_map,
         bid_premium_history=bid_premium_history,
         bid_premium_outcome_counts=bid_premium_outcome_counts,
@@ -561,6 +572,8 @@ def _assemble_snapshot(
     calibration,
     ml_metrics,
     ml_accuracy_trend,
+    ml_metrics_3d,
+    ml_accuracy_trend_3d,
     players_map,
     bid_premium_history,
     bid_premium_outcome_counts,
@@ -585,6 +598,8 @@ def _assemble_snapshot(
         "calibration": calibration,
         "ml_metrics": ml_metrics,
         "ml_accuracy_trend": ml_accuracy_trend,
+        "ml_metrics_3d": ml_metrics_3d,
+        "ml_accuracy_trend_3d": ml_accuracy_trend_3d,
         "signal_thresholds": {"good": SIGNAL_GOOD, "critical": SIGNAL_CRITICAL},
         "players": players_map,
         "bid_premium_history": bid_premium_history,

@@ -475,6 +475,23 @@ class BuildPlayersMapTests(unittest.TestCase):
         self.assertEqual(result["p1"]["ml_prediction"], 45_000)
         self.assertNotIn("ml_prediction", result["p2"])
 
+    def test_overlays_ml_prediction_3d_only_for_predicted_ids(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row(player_id="p1"), self._all_players_row(player_id="p2", name="Foo")],
+            own_squad=[], market_listings=[],
+            predictions={"predictions": {}, "predictions_3d": {"p1": 70_000}},
+            previous_players=None, is_light=False,
+        )
+        self.assertEqual(result["p1"]["ml_prediction_3d"], 70_000)
+        self.assertNotIn("ml_prediction_3d", result["p2"])
+
+    def test_ml_prediction_3d_absent_when_predictions_3d_missing(self):
+        result = _build_players_map(
+            all_players=[self._all_players_row(player_id="p1")], own_squad=[], market_listings=[],
+            predictions={"predictions": {}}, previous_players=None, is_light=False,
+        )
+        self.assertNotIn("ml_prediction_3d", result["p1"])
+
     def test_light_mode_untouched_players_carried_forward_unchanged(self):
         previous = {"p9": {"player_id": "p9", "name": "Unberuehrt", "market_value": 1_000_000}}
         result = _build_players_map(
@@ -760,7 +777,7 @@ class AssembleSnapshotContractTests(unittest.TestCase):
 
     EXPECTED_KEYS = {
         "fetched_at", "generated_at", "own_available_budget", "own_budget_exact", "calibration",
-        "ml_metrics", "ml_accuracy_trend", "signal_thresholds", "players",
+        "ml_metrics", "ml_accuracy_trend", "ml_metrics_3d", "ml_accuracy_trend_3d", "signal_thresholds", "players",
         "bid_premium_history", "bid_premium_outcome_counts", "transfermarkt_listings",
         "own_squad_ids", "owned_by", "wunschkader_targets", "wunschkader_formation",
         "ligaanalyse", "position_need",
@@ -775,6 +792,8 @@ class AssembleSnapshotContractTests(unittest.TestCase):
             calibration=None,
             ml_metrics=None,
             ml_accuracy_trend=None,
+            ml_metrics_3d=None,
+            ml_accuracy_trend_3d=None,
             players_map={},
             bid_premium_history=[],
             bid_premium_outcome_counts={},

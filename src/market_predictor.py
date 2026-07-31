@@ -940,6 +940,14 @@ def predict_market_value_changes() -> dict | None:
         corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player)
         history_df, today_df = _engineer_features(corpus)
 
+        # Spieler ohne verwertbaren "naechster Spieltag" (kein Spiel seit
+        # Jahren wie Funk, oder Performance-Historie komplett leer wie
+        # Suleiman - beides live bestaetigt 27.07.2026) haben NaN bei
+        # days_to_next und wuerden sonst komplett aus der Prognose
+        # herausfallen. Fuer die Vorhersage (NICHT fuers Training, siehe
+        # history_df.dropna oben in _engineer_features) reicht der
+        # Median aus der Trainingshistorie als neutrale Annahme - lieber
+        # eine etwas unsicherere Prognose als gar keine.
         median_days_to_next = history_df["days_to_next"].median()
         today_df = today_df.copy()
         today_df["days_to_next"] = today_df["days_to_next"].fillna(median_days_to_next)
@@ -960,7 +968,20 @@ def predict_market_value_changes() -> dict | None:
             )
             return None
 
-        return {"predictions": result_1d["predictions"], "metrics": result_1d["metrics"]}
+        result_3d = _train_and_track_horizon(history_df, today_df, TARGET_3D, 3, today_iso, mv_lookup)
+        if result_3d is None:
+            print(
+                "Warnung: 3-Tage-Prognose konnte nicht trainiert werden, wird uebersprungen "
+                "(1-Tages-Prognose unbetroffen).",
+                file=sys.stderr,
+            )
+
+        return {
+            "predictions": result_1d["predictions"],
+            "metrics": result_1d["metrics"],
+            "predictions_3d": result_3d["predictions"] if result_3d else None,
+            "metrics_3d": result_3d["metrics"] if result_3d else None,
+        }
     except (KickbaseError, RuntimeError) as exc:
         print(f"Warnung: ML-Marktwertprognose fehlgeschlagen, wird uebersprungen: {exc}", file=sys.stderr)
         return None
