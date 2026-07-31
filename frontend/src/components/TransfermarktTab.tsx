@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
-import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type TransfermarktRow } from "../lib/derive";
+import type { BidPremiumEntry, DashboardSnapshot, PlayerRecord, PositionNeed } from "../types";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, momentumAssessment, suggestBid, type TransfermarktRow } from "../lib/derive";
 import { Badge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
@@ -221,6 +221,7 @@ export default function TransfermarktTab({
         <TransfermarktDetailModal
           row={selected}
           mae={mae}
+          player={data.players[selected.player_id]}
           bidHistory={data.bid_premium_history ?? []}
           positionNeed={data.position_need ?? {}}
           onClose={() => setSelected(null)}
@@ -236,12 +237,14 @@ const selectClass =
 function TransfermarktDetailModal({
   row,
   mae,
+  player,
   bidHistory,
   positionNeed,
   onClose,
 }: {
   row: TransfermarktRow;
   mae: number | null;
+  player: PlayerRecord | undefined;
   bidHistory: BidPremiumEntry[];
   positionNeed: PositionNeed;
   onClose: () => void;
@@ -286,6 +289,10 @@ function TransfermarktDetailModal({
             </span>
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
+          {(() => {
+            const assessment = momentumAssessment(row.ml_prediction, player?.ml_prediction_3d ?? null, mae);
+            return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
+          })()}
           <Row label="Trend 7T">
             <span className={trendClass(row.market_value_change_7d)}>
               {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}

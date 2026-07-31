@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
-import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
+import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, momentumAssessment, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -102,6 +102,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
     [data.players, data.own_squad_ids, data.owned_by, data.calibration]
   );
   const thresholds = data.signal_thresholds;
+  const liveMae = liveModelMae(data.ml_metrics);
 
   const ownSquadIds = useMemo(() => new Set(data.own_squad_ids), [data.own_squad_ids]);
   const listingsByPlayerId = useMemo(
@@ -332,6 +333,7 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
           computed={resolvedByPlayerId.get(selected.player_id)!}
           plannedPrice={selectedPlannedPrice}
           thresholds={thresholds}
+          mae={liveMae}
           alleSpieler={alleSpieler}
           players={data.players}
           calibration={data.calibration}
@@ -423,6 +425,7 @@ function DetailModal({
   computed,
   plannedPrice,
   thresholds,
+  mae,
   alleSpieler,
   players,
   calibration,
@@ -437,6 +440,7 @@ function DetailModal({
   computed: ResolvedTarget;
   plannedPrice: number | null;
   thresholds: DashboardSnapshot["signal_thresholds"];
+  mae: number | null;
   alleSpieler: AlleSpielerRow[];
   players: DashboardSnapshot["players"];
   calibration: DashboardSnapshot["calibration"];
@@ -496,6 +500,14 @@ function DetailModal({
           <Row label="Signal">
             <SignalBadge signal={computed.signal} thresholds={thresholds} />
           </Row>
+          {(() => {
+            const assessment = momentumAssessment(
+              players[target.player_id]?.ml_prediction ?? null,
+              players[target.player_id]?.ml_prediction_3d ?? null,
+              mae
+            );
+            return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
+          })()}
           <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
           {ownSquadIds.has(target.player_id) ? (
             <Row label="Tatsächlicher Kaufpreis">

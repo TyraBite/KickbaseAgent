@@ -224,6 +224,7 @@ export default function App() {
               mlMetrics={data.ml_metrics}
               bidHistory={data.bid_premium_history ?? []}
               positionNeed={data.position_need ?? {}}
+              players={data.players}
             />
           </div>
         )}

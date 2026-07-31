@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BidPremiumEntry, MlMetrics, PositionNeed } from "../types";
-import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type SpekulationRow } from "../lib/derive";
+import type { BidPremiumEntry, MlMetrics, PlayerRecord, PositionNeed } from "../types";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, momentumAssessment, suggestBid, type SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, PositionBadge, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -68,12 +68,14 @@ export default function SpekulationTab({
   mlMetrics,
   bidHistory,
   positionNeed,
+  players,
 }: {
   rows: SpekulationRow[];
   now: number;
   mlMetrics: MlMetrics | null;
   bidHistory: BidPremiumEntry[];
   positionNeed: PositionNeed;
+  players: Record<string, PlayerRecord>;
 }) {
   const mae = liveModelMae(mlMetrics);
   const [search, setSearch] = useState("");
@@ -151,6 +153,7 @@ export default function SpekulationTab({
           row={selected}
           now={now}
           mae={mae}
+          player={players[selected.player_id]}
           bidHistory={bidHistory}
           positionNeed={positionNeed}
           onClose={() => setSelected(null)}
@@ -266,6 +269,7 @@ function SpekulationDetailModal({
   row,
   now,
   mae,
+  player,
   bidHistory,
   positionNeed,
   onClose,
@@ -273,6 +277,7 @@ function SpekulationDetailModal({
   row: SpekulationRow;
   now: number;
   mae: number | null;
+  player: PlayerRecord | undefined;
   bidHistory: BidPremiumEntry[];
   positionNeed: PositionNeed;
   onClose: () => void;
@@ -317,6 +322,10 @@ function SpekulationDetailModal({
             </span>
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
+          {(() => {
+            const assessment = momentumAssessment(row.ml_prediction, player?.ml_prediction_3d ?? null, mae);
+            return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
+          })()}
           <Row label="Trend 7T">
             <span className={trendClass(row.market_value_change_7d)}>
               {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)}{" "}

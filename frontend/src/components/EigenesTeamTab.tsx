@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DashboardSnapshot } from "../types";
-import { buildEigenesTeamSplit, liveModelMae, type EigenesTeamRow } from "../lib/derive";
+import { buildEigenesTeamSplit, liveModelMae, momentumAssessment, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import { Badge, CARD_TONE_CLASSES, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -343,6 +343,10 @@ function PlayerDetailModal({
           </Row>
         )}
         <MlPredictionRow value={row.ml_prediction} mae={mae} />
+        {(() => {
+          const assessment = momentumAssessment(row.ml_prediction, players[row.player_id]?.ml_prediction_3d ?? null, mae);
+          return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
+        })()}
         <Row label="Trend 7T">
           <span className={trendClass(row.market_value_change_7d)}>
             {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
@@ -421,6 +425,10 @@ function WatchlistDetailModal({
           <SignalBadge signal={row.signal} thresholds={thresholds} />
         </Row>
         <MlPredictionRow value={row.ml_prediction} mae={mae} />
+        {(() => {
+          const assessment = momentumAssessment(row.ml_prediction, players[row.player_id]?.ml_prediction_3d ?? null, mae);
+          return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
+        })()}
         <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
         <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
         <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
