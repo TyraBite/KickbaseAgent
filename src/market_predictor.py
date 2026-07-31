@@ -69,6 +69,7 @@ FEATURES = [
     "days_since_last_status_change", "status_change_count_90d",
 ]
 TARGET = "mv_target_clipped"
+TARGET_3D = "mv_target_3d_clipped"
 
 MARKET_VALUE_TIMEFRAME = 365
 LAST_PERFORMANCE_VALUES = 50
@@ -336,6 +337,8 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     df["mv_next_day"] = df.groupby("player_id")["mv"].shift(-1)
     df["mv_target"] = df["mv_next_day"] - df["mv"]
+    df["mv_next_3d"] = df.groupby("player_id")["mv"].shift(-3)
+    df["mv_target_3d"] = df["mv_next_3d"] - df["mv"]
     df = df[df["mv"] != 0.0]
 
     df["mv_change_1d"] = df["mv"] - df.groupby("player_id")["mv"].shift(1)
@@ -356,6 +359,11 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     q3 = df["mv_target"].quantile(0.75)
     iqr = q3 - q1
     df["mv_target_clipped"] = df["mv_target"].clip(q1 - 2.5 * iqr, q3 + 2.5 * iqr)
+
+    q1_3d = df["mv_target_3d"].quantile(0.25)
+    q3_3d = df["mv_target_3d"].quantile(0.75)
+    iqr_3d = q3_3d - q1_3d
+    df["mv_target_3d_clipped"] = df["mv_target_3d"].clip(q1_3d - 2.5 * iqr_3d, q3_3d + 2.5 * iqr_3d)
 
     df = df.fillna({"market_divergence": 1, "mv_change_3d": 0, "mv_vol_3d": 0, "p": 0, "mp_avg_3": 0})
 

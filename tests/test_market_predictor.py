@@ -18,6 +18,7 @@ from src.market_predictor import (
     _fitness_features_as_of,
     _fetch_player_training_frame,
     _load_fitness_events_by_player,
+    _engineer_features,
     FITNESS_NO_HISTORY_DAYS,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
@@ -310,3 +311,21 @@ class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
         result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {})
 
         self.assertEqual(list(result["days_since_last_status_change"]), [FITNESS_NO_HISTORY_DAYS])
+
+
+class EngineerFeatures3dTargetTests(unittest.TestCase):
+    def test_mv_target_3d_uses_shift_of_three_not_one(self):
+        # 5 Tage, taeglich +1000 Marktwert-Aenderung fuer denselben Spieler.
+        rows = [
+            {"player_id": "p1", "team_id": "t1", "date": pd.Timestamp(f"2026-07-{20+i:02d}"),
+             "mv": 10_000_000 + i * 1000, "md": pd.Timestamp(f"2026-07-{20+i:02d}"), "p": 5, "mp": 90, "mp_avg_3": 90,
+             "t1": "t1", "t2": "t2", "t1g": 1, "t2g": 0,
+             "days_since_last_status_change": 9999, "status_change_count_90d": 0}
+            for i in range(5)
+        ]
+        df = pd.DataFrame(rows)
+        history_df, _ = _engineer_features(df)
+        # Zeile fuer 2026-07-21 (i=1): mv_target (1 Tag) = 1000, mv_target_3d (3 Tage) = 3000.
+        row0 = history_df[history_df["date"] == pd.Timestamp("2026-07-21")].iloc[0]
+        self.assertEqual(row0["mv_target"], 1000)
+        self.assertEqual(row0["mv_target_3d"], 3000)
