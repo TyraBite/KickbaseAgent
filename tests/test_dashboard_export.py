@@ -267,6 +267,8 @@ class ExportActivityFeedGuardTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
         ), patch(
+            "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=None
+        ), patch(
             "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
         ), patch("src.dashboard_export._load_wunschkader", return_value=None
         ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
@@ -276,6 +278,61 @@ class ExportActivityFeedGuardTests(unittest.TestCase):
             data = export()
 
         self.assertEqual(data["bid_premium_history"], [])
+
+
+class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
+    def _run_export_with(self, cached_snapshot, fresh_all_players):
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+            "src.dashboard_export.get_me", return_value={"cpi": "1"}
+        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-31"), patch(
+            "src.dashboard_export._load_snapshot", return_value=([], [], [], [])
+        ), patch("src.dashboard_export.firestore_db.connect"), patch(
+            "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
+        ), patch(
+            "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=cached_snapshot
+        ), patch(
+            "src.dashboard_export.firestore_db.upsert_fitness_history_entries"
+        ) as mock_upsert_fitness, patch(
+            "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
+        ), patch("src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
+        ), patch("src.dashboard_export.player_valuation.fetch_all_players", return_value=fresh_all_players
+        ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
+        ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
+            export()
+        return mock_upsert_fitness
+
+    def test_status_change_in_heavy_mode_is_written_to_fitness_history(self):
+        cached_snapshot = {"players": {"p1": {"player_id": "p1", "status_code": 0}}}
+        fresh_all_players = [
+            {"player_id": "p1", "name": "Krauss", "position": "Sturm", "team_name": "Bremen",
+             "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        mock_upsert_fitness = self._run_export_with(cached_snapshot, fresh_all_players)
+
+        mock_upsert_fitness.assert_called_once()
+        written_entries = mock_upsert_fitness.call_args.args[1]
+        self.assertEqual(len(written_entries), 1)
+        self.assertEqual(written_entries[0]["player_id"], "p1")
+        self.assertEqual(written_entries[0]["from_status_code"], 0)
+        self.assertEqual(written_entries[0]["to_status_code"], 1)
+        self.assertEqual(written_entries[0]["date"], "2026-07-31")
+
+    def test_no_status_change_writes_nothing(self):
+        cached_snapshot = {"players": {"p1": {"player_id": "p1", "status_code": 0}}}
+        unchanged_all_players = [
+            {"player_id": "p1", "name": "Krauss", "position": "Sturm", "team_name": "Bremen",
+             "status_code": 0, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        mock_upsert_fitness = self._run_export_with(cached_snapshot, unchanged_all_players)
+
+        mock_upsert_fitness.assert_not_called()
 
 
 class BuildPlayersMapTests(unittest.TestCase):

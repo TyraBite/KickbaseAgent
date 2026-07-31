@@ -42,6 +42,7 @@ frontend/src/lib/derive.ts) - dieses Modul liefert nur noch Rohdaten.
 
 from __future__ import annotations
 
+import datetime
 import os
 import sqlite3
 import sys
@@ -432,7 +433,7 @@ def export() -> dict:
 
     mode = os.environ.get("DASHBOARD_MODE")
     cached_snapshot = None
-    if mode == "light" and os.environ.get("FIRESTORE_ENABLED"):
+    if os.environ.get("FIRESTORE_ENABLED"):
         cached_snapshot = firestore_db.get_dashboard_snapshot(firestore_db.connect())
     is_light = _resolve_is_light(mode, cached_snapshot)
 
@@ -466,6 +467,16 @@ def export() -> dict:
     )
 
     fs_client = firestore_db.connect() if os.environ.get("FIRESTORE_ENABLED") else None
+    if fs_client and heavy["all_players"] is not None:
+        previous_players_for_fitness_diff = cached_snapshot.get("players", {}) if cached_snapshot else {}
+        status_changes = _detect_status_changes(previous_players_for_fitness_diff, heavy["all_players"])
+        if status_changes:
+            fitness_entries = [
+                {**change, "date": fetched_at, "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                for change in status_changes
+            ]
+            firestore_db.upsert_fitness_history_entries(fs_client, fitness_entries)
+
     activity_feed_ok = True
     if fs_client:
         try:
