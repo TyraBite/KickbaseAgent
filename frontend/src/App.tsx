@@ -155,18 +155,6 @@ export default function App() {
   if (user === undefined) return null;
   if (!user) return <Login />;
 
-  // Snapshot geladen, aber noch im alten Schema (kein "players"-Feld) - kein
-  // ErrorBoundary vorhanden, also hier gezielt abfangen statt weiss auf weiss
-  // abzustuerzen (siehe Review-Fund 2026-07-29).
-  if (data && !data.players) {
-    return (
-      <p className="p-6 text-sm text-slate-500 dark:text-slate-400">
-        Snapshot noch im alten Schema — der nächste Pipeline-Lauf schreibt das neue Format automatisch (bis zu ~2h,
-        oder manuell über GitHub Actions anstoßen).
-      </p>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
@@ -215,7 +203,20 @@ export default function App() {
         {loadState === "error" && activeTab !== "feedback" && (
           <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
         )}
-        {loadState === "ready" && data && (
+        {/* Snapshot geladen, aber noch im alten Schema (kein "players"-Feld) - kein
+            ErrorBoundary vorhanden, also gezielt abfangen statt weiss auf weiss
+            abzustuerzen (siehe Review-Fund 2026-07-29). Bewusst KEIN frueher
+            return mehr: sonst waere die Tab-Leiste (und damit der Feedback-Tab)
+            in genau diesem Zustand unerreichbar. Alle datenabhaengigen Tabs
+            unten pruefen deshalb zusaetzlich auf data.players - "hidden" allein
+            wuerde React nicht vom Mounten (und Crashen) abhalten. */}
+        {loadState === "ready" && data && !data.players && activeTab !== "feedback" && (
+          <p className="p-6 text-sm text-slate-500 dark:text-slate-400">
+            Snapshot noch im alten Schema — der nächste Pipeline-Lauf schreibt das neue Format automatisch (bis zu ~2h,
+            oder manuell über GitHub Actions anstoßen).
+          </p>
+        )}
+        {loadState === "ready" && data && data.players && (
           <div className={activeTab === "spekulation" ? "" : "hidden"}>
             <SpekulationTab
               rows={spekulationRows}
@@ -226,32 +227,32 @@ export default function App() {
             />
           </div>
         )}
-        {loadState === "ready" && data && (
+        {loadState === "ready" && data && data.players && (
           <div className={activeTab === "wunschkader" ? "" : "hidden"}>
             <WunschkaderTab data={data} />
           </div>
         )}
-        {loadState === "ready" && data && (
+        {loadState === "ready" && data && data.players && (
           <div className={activeTab === "team" ? "" : "hidden"}>
             <EigenesTeamTab data={data} />
           </div>
         )}
-        {loadState === "ready" && data && (
+        {loadState === "ready" && data && data.players && (
           <div className={activeTab === "alle-spieler" ? "" : "hidden"}>
             <AlleSpielerTab data={data} />
           </div>
         )}
-        {loadState === "ready" && data && (
+        {loadState === "ready" && data && data.players && (
           <div className={activeTab === "transfermarkt" ? "" : "hidden"}>
             <TransfermarktTab data={data} rows={transfermarktRows} now={now} />
           </div>
         )}
-        {loadState === "ready" && data && (
+        {loadState === "ready" && data && data.players && (
           <div className={activeTab === "liga" ? "" : "hidden"}>
             <LigaanalyseTab data={data} />
           </div>
         )}
-        {loadState === "ready" && data && (
+        {loadState === "ready" && data && data.players && (
           <div className={activeTab === "ml-genauigkeit" ? "" : "hidden"}>
             <MlGenauigkeitTab data={data} />
           </div>

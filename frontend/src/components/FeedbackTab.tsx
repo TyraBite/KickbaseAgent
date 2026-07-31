@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
+import { arrayUnion, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { formatRelativeTime } from "../lib/derive";
 import type { FeedbackItem } from "../types";
@@ -11,21 +11,30 @@ const TYPE_LABEL: Record<FeedbackItem["type"], string> = {
   feature: "💡 Idee",
 };
 
+// Nach dieser Zeit ohne Antwort vom Server gilt ein Save als "haengt"
+// (typischerweise offline) - Firestores Web-SDK loest das Promise dann
+// weder auf noch ab, weil der Write lokal in die Offline-Queue wandert und
+// erst bei wiederhergestellter Verbindung tatsaechlich committet.
+const SLOW_SAVE_HINT_MS = 6000;
+
 export default function FeedbackTab({ now }: { now: number }) {
   const [items, setItems] = useState<FeedbackItem[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveIsSlow, setSaveIsSlow] = useState(false);
   const [type, setType] = useState<FeedbackItem["type"]>("bug");
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const slowSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     getDoc(doc(db, "feedback", "current"))
       .then((snap) => {
-        const data = snap.exists() ? (snap.data() as { items?: FeedbackItem[] }) : {};
-        setItems(data.items ?? []);
+        const data = snap.exists() ? (snap.data() as { items?: unknown }) : {};
+        setItems(Array.isArray(data.items) ? (data.items as FeedbackItem[]) : []);
         setLoadState("ready");
       })
       .catch((err) => {
@@ -34,13 +43,26 @@ export default function FeedbackTab({ now }: { now: number }) {
       });
   }, []);
 
-  async function persist(next: FeedbackItem[]) {
-    setItems(next);
+  useEffect(
+    () => () => {
+      if (slowSaveTimer.current) clearTimeout(slowSaveTimer.current);
+    },
+    []
+  );
+
+  async function withSaveIndicator(work: () => Promise<void>) {
     setSaveError("");
+    setSaveIsSlow(false);
+    setIsSaving(true);
+    slowSaveTimer.current = setTimeout(() => setSaveIsSlow(true), SLOW_SAVE_HINT_MS);
     try {
-      await setDoc(doc(db, "feedback", "current"), { items: next });
+      await work();
     } catch (err) {
       setSaveError("Fehler beim Speichern: " + (err as Error).message);
+    } finally {
+      if (slowSaveTimer.current) clearTimeout(slowSaveTimer.current);
+      setIsSaving(false);
+      setSaveIsSlow(false);
     }
   }
 
@@ -54,8 +76,17 @@ export default function FeedbackTab({ now }: { now: number }) {
       created_at: new Date().toISOString(),
       status: "open",
     };
-    persist([item, ...items]);
+    setItems((prev) => [item, ...prev]);
     setText("");
+    // arrayUnion ist ein atomarer serverseitiger Append - braucht KEIN
+    // vorheriges getDoc, kann also nie einen zwischenzeitlich von einer
+    // anderen Session (z.B. der naechsten Claude-Code-Session per Admin-SDK)
+    // geaenderten Stand ueberschreiben. setDoc+merge legt das Dokument beim
+    // allerersten Eintrag ueberhaupt automatisch an (updateDoc wuerde das
+    // nicht tun, das Dokument existiert dann noch nicht).
+    withSaveIndicator(() =>
+      setDoc(doc(db, "feedback", "current"), { items: arrayUnion(item) }, { merge: true })
+    );
   }
 
   function startEdit(item: FeedbackItem) {
@@ -65,11 +96,25 @@ export default function FeedbackTab({ now }: { now: number }) {
 
   function saveEdit() {
     if (!editingId) return;
+    const id = editingId;
     const trimmed = editText.trim();
-    if (trimmed) {
-      persist(items.map((i) => (i.id === editingId ? { ...i, text: trimmed } : i)));
-    }
     setEditingId(null);
+    if (!trimmed) return;
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, text: trimmed } : i)));
+    // Bearbeiten ist (anders als Hinzufuegen) kein reiner Append - braucht
+    // echtes Read-Modify-Write. Absichtlich frisch gelesen statt den
+    // lokalen (evtl. veralteten) items-State zu schreiben, sonst wuerde ein
+    // zwischenzeitlich von einer anderen Session gesetztes status:"done"
+    // wieder verworfen (genau das war der Bug vor diesem Fix).
+    withSaveIndicator(async () => {
+      const ref = doc(db, "feedback", "current");
+      const snap = await getDoc(ref);
+      const remote = snap.exists() ? (snap.data() as { items?: unknown }) : {};
+      const remoteItems = Array.isArray(remote.items) ? (remote.items as FeedbackItem[]) : [];
+      const merged = remoteItems.map((i) => (i.id === id ? { ...i, text: trimmed } : i));
+      await setDoc(ref, { items: merged }, { merge: true });
+      setItems(merged);
+    });
   }
 
   if (loadState === "loading") {
@@ -79,7 +124,7 @@ export default function FeedbackTab({ now }: { now: number }) {
     return <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>;
   }
 
-  const sorted = [...items].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const sorted = [...items].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   const open = sorted.filter((i) => i.status === "open");
   const done = sorted.filter((i) => i.status === "done");
 
@@ -118,14 +163,21 @@ export default function FeedbackTab({ now }: { now: number }) {
           placeholder={type === "bug" ? "Was ist kaputt?" : "Was wäre hilfreich?"}
           className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
-        <button
-          type="button"
-          onClick={handleAdd}
-          disabled={!text.trim()}
-          className="mt-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-        >
-          Hinzufügen
-        </button>
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={!text.trim()}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            Hinzufügen
+          </button>
+          {isSaving && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {saveIsSlow ? "Dauert ungewöhnlich lange – evtl. offline?" : "Wird gespeichert…"}
+            </span>
+          )}
+        </div>
         {saveError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{saveError}</p>}
       </div>
 
