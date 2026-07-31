@@ -658,23 +658,27 @@ def _load_local_prediction_log() -> list[dict]:
     return entries
 
 
-def _load_recent_prediction_log(today: str) -> list[dict]:
+def _load_recent_prediction_log(today: str, horizon_days: int) -> list[dict]:
     """Liest NUR die letzten EVALUATION_LOOKBACK_DAYS Tage roher Pro-Spieler-
     Prognosen (Firestore serverseitig datumsgefiltert bei FIRESTORE_ENABLED,
     sonst die lokale Datei client-seitig gefiltert) - genug um neu
     auswertbare Eintraege zu finden, OHNE die komplette (taeglich
     wachsende) Historie zu scannen. Firestore-Lesefehler faellt auf die
-    lokale Datei zurueck statt zu crashen."""
+    lokale Datei zurueck statt zu crashen. Die Firestore-Query selbst
+    filtert weiterhin nur nach Datum (kein neuer Composite-Index noetig) -
+    die Horizont-Filterung (`.get("horizon_days", 1)` fuer Alt-Eintraege
+    ohne das Feld) passiert client-seitig, hier und im lokalen Fallback."""
     since = (datetime.date.fromisoformat(today) - datetime.timedelta(days=EVALUATION_LOOKBACK_DAYS)).isoformat()
     if os.environ.get("FIRESTORE_ENABLED"):
         try:
-            return firestore_db.get_recent_prediction_log_entries(firestore_db.connect(), since, today)
+            entries = firestore_db.get_recent_prediction_log_entries(firestore_db.connect(), since, today)
+            return [e for e in entries if e.get("horizon_days", 1) == horizon_days]
         except Exception as exc:
             print(
                 f"Warnung: ml_prediction_log-Lesezugriff fehlgeschlagen, nutze lokale Datei: {exc}",
                 file=sys.stderr,
             )
-    return [e for e in _load_local_prediction_log() if since <= e["date"] < today]
+    return [e for e in _load_local_prediction_log() if since <= e["date"] < today and e.get("horizon_days", 1) == horizon_days]
 
 
 def _save_prediction_log(entries: list[dict]) -> None:
@@ -691,7 +695,7 @@ def _save_prediction_log(entries: list[dict]) -> None:
     # liegen und duerfen den Speichervorgang nicht mit einem KeyError
     # crashen - sie landen einfach unter demselben (date, player_id, None)
     # -Schluessel wie bisher.
-    deduped = {(e["date"], e["player_id"], e.get("model_type")): e for e in entries}
+    deduped = {(e["date"], e["player_id"], e.get("model_type"), e.get("horizon_days", 1)): e for e in entries}
     kept_entries = list(deduped.values())
     latest = max(datetime.date.fromisoformat(e["date"]) for e in kept_entries)
     cutoff = latest - datetime.timedelta(days=LOG_RETENTION_DAYS)
@@ -745,12 +749,13 @@ def _summarize_from_daily(daily_docs: list[dict], today: str, days: int) -> dict
     return {"n": n, "sign_accuracy": round(sign_accuracy, 1), "mae": round(mae, 2)}
 
 
-def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, today: str) -> list[dict]:
+def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, today: str, horizon_days: int) -> list[dict]:
     """Wertet alle in recent_entries bereits auswertbaren Eintraege aus
-    (Datum < today, Folgetag-Marktwert im aktuellen Corpus bekannt) und
-    aggregiert sie zu EINEM Dokument pro (date, model_type) - fuer
-    ml_accuracy_daily. Log-Eintraege ohne model_type (altes Schema, vor
-    Phase 4) werden uebersprungen statt einen KeyError zu werfen."""
+    (Datum < today, Marktwert `horizon_days` Tage spaeter im aktuellen
+    Corpus bekannt) und aggregiert sie zu EINEM Dokument pro (date,
+    model_type) - fuer ml_accuracy_daily. Log-Eintraege ohne model_type
+    (altes Schema, vor Phase 4) werden uebersprungen statt einen KeyError
+    zu werfen."""
     agg: dict[tuple[str, str], dict] = {}
     for entry in recent_entries:
         model_type = entry.get("model_type")
@@ -759,7 +764,7 @@ def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, t
         date = entry["date"]
         if date >= today:
             continue
-        next_date = (datetime.date.fromisoformat(date) + datetime.timedelta(days=1)).isoformat()
+        next_date = (datetime.date.fromisoformat(date) + datetime.timedelta(days=horizon_days)).isoformat()
         mv_then = mv_lookup.get((entry["player_id"], date))
         mv_next = mv_lookup.get((entry["player_id"], next_date))
         if mv_then is None or mv_next is None:
@@ -768,7 +773,9 @@ def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, t
         sign_correct = bool(np.sign(entry["predicted_delta"]) == np.sign(actual_delta))
         abs_error = abs(entry["predicted_delta"] - actual_delta)
         key = (date, model_type)
-        bucket = agg.setdefault(key, {"date": date, "model_type": model_type, "n": 0, "sign_correct": 0, "abs_error_sum": 0.0})
+        bucket = agg.setdefault(
+            key, {"date": date, "model_type": model_type, "horizon_days": horizon_days, "n": 0, "sign_correct": 0, "abs_error_sum": 0.0}
+        )
         bucket["n"] += 1
         bucket["sign_correct"] += int(sign_correct)
         bucket["abs_error_sum"] += abs_error
@@ -826,13 +833,16 @@ def _select_live_model(realized_by_model: dict[str, dict], synthetic_winner: str
     return synthetic_winner, "synthetic_split_fallback"
 
 
-def _append_todays_predictions(today_df: pd.DataFrame, predictions_by_model: dict[str, dict[str, float]]) -> None:
+def _append_todays_predictions(
+    today_df: pd.DataFrame, predictions_by_model: dict[str, dict[str, float]], horizon_days: int
+) -> None:
     new_entries = [
         {
             "date": pd.Timestamp(date).date().isoformat(),
             "player_id": player_id,
             "model_type": model_type,
             "predicted_delta": predictions[player_id],
+            "horizon_days": horizon_days,
         }
         for model_type, predictions in predictions_by_model.items()
         for player_id, date in zip(today_df["player_id"], today_df["date"])

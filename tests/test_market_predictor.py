@@ -13,6 +13,7 @@ from src.market_predictor import (
     _trend_from_daily,
     _load_local_prediction_log,
     _load_recent_prediction_log,
+    _append_todays_predictions,
     _select_live_model,
     _infer_today,
     _performance_frame,
@@ -41,7 +42,7 @@ class LoadRecentPredictionLogTests(unittest.TestCase):
     def test_passes_date_filter_to_firestore(self, mock_connect, mock_get):
         mock_get.return_value = []
         with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
-            _load_recent_prediction_log("2026-07-28")
+            _load_recent_prediction_log("2026-07-28", horizon_days=1)
         mock_get.assert_called_once()
         self.assertEqual(mock_get.call_args.args[1], "2026-07-25")  # today - EVALUATION_LOOKBACK_DAYS(3)
         self.assertEqual(mock_get.call_args.args[2], "2026-07-28")  # exklusive Obergrenze: heute noch nicht auswertbar
@@ -57,7 +58,7 @@ class LoadRecentPredictionLogTests(unittest.TestCase):
                 {"date": "2026-07-28", "player_id": "p2", "model_type": "RandomForest", "predicted_delta": 3},
             ]
             with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
-                result = _load_recent_prediction_log("2026-07-28")
+                result = _load_recent_prediction_log("2026-07-28", horizon_days=1)
         self.assertEqual([e["player_id"] for e in result], ["p1"])
 
 
@@ -106,15 +107,55 @@ class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
             ("p1", "2026-07-27"): 1000.0, ("p1", "2026-07-28"): 1200.0,
             ("p2", "2026-07-27"): 1000.0, ("p2", "2026-07-28"): 1200.0,
         }
-        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29")
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["n"], 2)
         self.assertEqual(result[0]["sign_correct"], 1)  # p1 richtig (positiv+positiv), p2 falsch (negativ vorhergesagt, tatsaechlich positiv)
 
     def test_skips_entries_without_model_type(self):
         entries = [{"date": "2026-07-01", "player_id": "p1", "predicted_delta": 100}]
-        result = _build_daily_accuracy_updates(entries, {}, "2026-07-28")
+        result = _build_daily_accuracy_updates(entries, {}, "2026-07-28", horizon_days=1)
         self.assertEqual(result, [])
+
+
+class HorizonAwareAccuracyUpdatesTests(unittest.TestCase):
+    def test_uses_horizon_days_shift_not_hardcoded_one_day(self):
+        mv_lookup = {("p1", "2026-07-20"): 10_000_000, ("p1", "2026-07-23"): 10_003_000}
+        entries = [{"date": "2026-07-20", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 3000}]
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-31", horizon_days=3)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["horizon_days"], 3)
+        self.assertEqual(result[0]["sign_correct"], 1)
+
+    def test_missing_horizon_shifted_value_skips_entry(self):
+        mv_lookup = {("p1", "2026-07-20"): 10_000_000}  # kein Wert fuer +3 Tage bekannt
+        entries = [{"date": "2026-07-20", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 3000}]
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-31", horizon_days=3)
+        self.assertEqual(result, [])
+
+
+class LoadRecentPredictionLogHorizonTests(unittest.TestCase):
+    def test_returns_empty_dict_without_firestore_enabled_for_any_horizon(self):
+        with patch.dict(os.environ, {}, clear=True), patch("src.market_predictor._load_local_prediction_log", return_value=[]):
+            self.assertEqual(_load_recent_prediction_log("2026-07-31", horizon_days=3), [])
+
+    def test_filters_local_fallback_by_horizon(self):
+        with patch.dict(os.environ, {}, clear=True), patch("src.market_predictor._load_local_prediction_log") as mock_local:
+            mock_local.return_value = [
+                {"date": "2026-07-29", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 1, "horizon_days": 1},
+                {"date": "2026-07-29", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 2, "horizon_days": 3},
+            ]
+            result = _load_recent_prediction_log("2026-07-31", horizon_days=3)
+        self.assertEqual([e["predicted_delta"] for e in result], [2])
+
+
+class AppendTodaysPredictionsHorizonTests(unittest.TestCase):
+    def test_logged_entries_include_horizon_days(self):
+        with patch("src.market_predictor._load_local_prediction_log", return_value=[]), patch("src.market_predictor._save_prediction_log") as mock_save:
+            today_df = pd.DataFrame({"player_id": ["p1"], "date": [pd.Timestamp("2026-07-31")]})
+            _append_todays_predictions(today_df, {"RandomForest": {"p1": 500}}, horizon_days=3)
+        logged = mock_save.call_args.args[0]
+        self.assertEqual(logged[0]["horizon_days"], 3)
 
 
 class RealizedByModelFromDailyTests(unittest.TestCase):

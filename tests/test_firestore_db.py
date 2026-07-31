@@ -31,7 +31,7 @@ class UpsertPredictionLogEntriesTests(unittest.TestCase):
         firestore_db.upsert_prediction_log_entries(client, entries)
 
         client.collection.assert_any_call("ml_prediction_log")
-        self.assertEqual(_doc_ids(client), ["2026-07-27_p1_RandomForest", "2026-07-27_p2_HistGradientBoosting"])
+        self.assertEqual(_doc_ids(client), ["2026-07-27_p1_RandomForest_1", "2026-07-27_p2_HistGradientBoosting_1"])
         payloads = _batch_set_payloads(batch)
         self.assertEqual(payloads[0]["predicted_delta"], 15000)
         self.assertEqual(payloads[1]["player_id"], "p2")
@@ -124,7 +124,7 @@ class UpsertAccuracyDailyTests(unittest.TestCase):
         firestore_db.upsert_accuracy_daily(client, entries)
 
         doc_ids = _doc_ids(client)
-        self.assertIn("2026-07-27_RandomForest", doc_ids)
+        self.assertIn("2026-07-27_RandomForest_1", doc_ids)
 
 
 class GetAccuracyDailyTests(unittest.TestCase):
@@ -148,7 +148,32 @@ class UpsertPredictionLogEntriesModelTypeDocIdTests(unittest.TestCase):
         firestore_db.upsert_prediction_log_entries(client, entries)
 
         doc_ids = _doc_ids(client)
-        self.assertIn("2026-07-27_p1_RandomForest", doc_ids)
+        self.assertIn("2026-07-27_p1_RandomForest_1", doc_ids)
+
+
+class PredictionLogHorizonDocIdTests(unittest.TestCase):
+    def test_doc_id_includes_horizon_days(self):
+        client = MagicMock()
+        entries = [{"date": "2026-07-31", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100, "horizon_days": 3}]
+        firestore_db.upsert_prediction_log_entries(client, entries)
+        doc_ids = _doc_ids(client)
+        self.assertIn("2026-07-31_p1_RandomForest_3", doc_ids)
+
+    def test_doc_id_defaults_horizon_to_1_when_missing(self):
+        client = MagicMock()
+        entries = [{"date": "2026-07-31", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100}]
+        firestore_db.upsert_prediction_log_entries(client, entries)
+        doc_ids = _doc_ids(client)
+        self.assertIn("2026-07-31_p1_RandomForest_1", doc_ids)
+
+
+class AccuracyDailyHorizonDocIdTests(unittest.TestCase):
+    def test_doc_id_includes_horizon_days(self):
+        client = MagicMock()
+        entries = [{"date": "2026-07-31", "model_type": "RandomForest", "horizon_days": 3, "n": 10, "sign_correct": 7, "abs_error_sum": 1000.0}]
+        firestore_db.upsert_accuracy_daily(client, entries)
+        doc_ids = _doc_ids(client)
+        self.assertIn("2026-07-31_RandomForest_3", doc_ids)
 
 
 class UpsertBidPremiumEntriesTests(unittest.TestCase):

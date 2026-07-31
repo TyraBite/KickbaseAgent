@@ -66,7 +66,7 @@ def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict])
     `e["model_type"]`: Alt-Eintraege aus der Zeit vor Phase 4 (ohne
     model_type-Feld) duerfen den Batch-Write nicht mit einem KeyError
     abbrechen, wenn sie im selben Tages-Batch neben neuen Eintraegen liegen."""
-    docs = {f"{e['date']}_{e['player_id']}_{e.get('model_type')}": e for e in entries}
+    docs = {f"{e['date']}_{e['player_id']}_{e.get('model_type')}_{e.get('horizon_days', 1)}": e for e in entries}
     _write_in_batches(client, "ml_prediction_log", docs)
 
 
@@ -98,7 +98,7 @@ def upsert_accuracy_daily(client: firestore.Client, entries: list[dict]) -> None
     mit nur ~2 Dokumenten pro Tag statt ~900 - der eigentliche Fix fuers
     Quota-Problem. Idempotent (Ueberschreiben bei erneuter Auswertung
     desselben Tages ist unproblematisch)."""
-    docs = {f"{e['date']}_{e['model_type']}": e for e in entries}
+    docs = {f"{e['date']}_{e['model_type']}_{e.get('horizon_days', 1)}": e for e in entries}
     _write_in_batches(client, "ml_accuracy_daily", docs)
 
 
