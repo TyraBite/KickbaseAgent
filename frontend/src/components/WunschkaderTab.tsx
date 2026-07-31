@@ -701,6 +701,11 @@ function AddTargetModal({
           placeholder="Spieler suchen…"
           className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
+        {selected && (
+          <p className="text-sm text-brand-700 dark:text-brand-400">
+            ✓ Ausgewählt: {selected.name} ({fmtNum(selected.market_value)})
+          </p>
+        )}
         {!selected && search.trim() && (
           <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
             {results.length ? (
@@ -712,7 +717,7 @@ function AddTargetModal({
                     setSelected(p);
                     setSearch("");
                   }}
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
                   {p.name} ({fmtNum(p.market_value)}, Ø{fmtNum(p.average_points)})
                 </button>
