@@ -504,7 +504,20 @@ def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET) -
     tatsaechlichen (ungeklippten) Marktwert-Sprung. Bewertet beide
     Modell-Kandidaten pro Fold, damit sichtbar wird, welches Modell nicht
     nur im aktuellen 75/25-Split (_train_and_evaluate), sondern ueber
-    mehrere echte historische Tage hinweg konsistent gewinnt."""
+    mehrere echte historische Tage hinweg konsistent gewinnt.
+
+    target_col (Default TARGET) waehlt das Trainingsziel; unclipped_col
+    (target_col ohne "_clipped"-Suffix) ist die Spalte, gegen die der
+    TATSAECHLICHE Ausgang verglichen wird. Sowohl train als auch test
+    werden auf ihre jeweils relevante Zielspalte hin von NaN befreit -
+    bei TARGET (1 Tag) heute ein No-Op, aber Voraussetzung dafuer, dass
+    ein 3-Tage-Ziel (TARGET_3D) hier wiederverwendbar ist: dessen letzte
+    Tage pro Spieler (shift(-3)) kennen ihren Ausgang noch nicht, weder
+    beim Training noch - unabhaengig davon, pro Cutoff - beim Test. Ohne
+    den Test-seitigen Drop wuerde eine einzelne NaN-Zeile in y_test_actual
+    via np.sign/np.abs in sign_hits/abs_errors einsickern und, weil
+    abs_errors ueber ALLE Folds aufsummiert wird, den finalen mae fuer
+    BEIDE Modelle komplett auf NaN kippen."""
     dates = sorted(history_df["date"].unique())
     if len(dates) <= BACKTEST_FOLDS:
         return None
@@ -517,8 +530,8 @@ def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET) -
     unclipped_col = target_col.removesuffix("_clipped")
     for cutoff in cutoffs:
         train = history_df[history_df["date"] < cutoff].dropna(subset=[target_col])
-        test = history_df[history_df["date"] == cutoff]
-        if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty or test[unclipped_col].isna().all():
+        test = history_df[history_df["date"] == cutoff].dropna(subset=[unclipped_col])
+        if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
             continue
         folds_run += 1
 

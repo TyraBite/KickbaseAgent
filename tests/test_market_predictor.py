@@ -1,4 +1,5 @@
 import datetime
+import math
 import os
 import unittest
 from unittest.mock import MagicMock, patch
@@ -370,3 +371,69 @@ class TrainAndEvaluateTargetColTests(unittest.TestCase):
         df.loc[df.index[:5], "alt_target_clipped"] = None
         result = _train_and_evaluate(df, target_col="alt_target_clipped")
         self.assertIsNotNone(result)
+
+
+class WalkForwardBacktestTargetColTests(unittest.TestCase):
+    def _history_df(self, target_col, n=210):
+        import numpy as np
+        unclipped_col = target_col.removesuffix("_clipped")
+        dates = pd.date_range("2026-01-01", periods=n, freq="D")
+        rng = np.random.RandomState(7)
+        df = pd.DataFrame({
+            "date": dates, "player_id": ["p1"] * n,
+            "p": rng.rand(n), "mv": rng.rand(n) * 1_000_000,
+            "days_to_next": rng.randint(1, 8, n),
+            "mv_change_1d": rng.randn(n) * 1000, "mv_trend_1d": rng.randn(n) * 0.01,
+            "mv_change_3d": rng.randn(n) * 2000, "mv_vol_3d": rng.rand(n) * 500,
+            "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
+            "days_since_last_status_change": 9999, "status_change_count_90d": 0,
+            target_col: rng.randn(n) * 5000,
+            unclipped_col: rng.randn(n) * 5000,
+        })
+        return df
+
+    def test_partial_nan_test_rows_are_dropped_not_averaged_into_nan(self):
+        # Regression fuer Finding 1: eine einzelne Zeile mit NaN in der
+        # ungeklippten Zielspalte lag frueher NEBEN echten Werten im
+        # selben Fold (test.isna().all() war False, also kein Skip) und
+        # sickerte unverworfen in sign_hits/abs_errors - da abs_errors
+        # ueber ALLE Folds aufsummiert wird, kippte eine einzige solche
+        # Zeile den finalen mae fuer BEIDE Modelle auf NaN.
+        target_col = "alt_target_clipped"
+        unclipped_col = "alt_target"
+        df = self._history_df(target_col)
+        # Zweite Zeile am selben (letzten) Cutoff-Tag wie p1, aber ohne
+        # bekannten tatsaechlichen Ausgang (z.B. ein 3-Tage-Ziel, dessen
+        # Fenster ueber das Ende der Historie hinauslaeuft).
+        extra_row = df.iloc[[-1]].copy()
+        extra_row["player_id"] = "p2"
+        extra_row[unclipped_col] = None
+        df = pd.concat([df, extra_row], ignore_index=True)
+
+        result = _walk_forward_backtest(df, target_col=target_col)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["n_folds"], 6)
+        for name, model_metrics in result["per_model"].items():
+            self.assertTrue(
+                math.isfinite(model_metrics["mae"]),
+                f"{name}: mae ist nicht finit ({model_metrics['mae']!r}) - die NaN-Zeile ist eingesickert.",
+            )
+            # p2s NaN-Zeile darf im letzten Fold nicht mitgezaehlt werden -
+            # sonst waeren es 7 (6 Folds x 1 Testzeile + 1 zusaetzliche).
+            self.assertEqual(model_metrics["n"], 6)
+
+    def test_custom_target_col_is_honored(self):
+        target_col = "alt_target_clipped"
+        df = self._history_df(target_col)
+
+        result = _walk_forward_backtest(df, target_col=target_col)
+
+        self.assertIsNotNone(result)
+        self.assertIn("n_folds", result)
+        self.assertIn("per_model", result)
+        self.assertTrue(result["per_model"])
+        for model_metrics in result["per_model"].values():
+            self.assertIn("mae", model_metrics)
+            self.assertIn("sign_accuracy", model_metrics)
+            self.assertIn("n", model_metrics)
