@@ -8,3 +8,9 @@ __pycache__/
 *.bundle
 firebase-service-account.json
 .superpowers/
+# Lokale, pro-Lauf ephemere SQLite - wird von KEINEM Workflow zurueckcommitted,
+# jeder CI-Lauf checkt eine frische Kopie aus und erzeugt sie per
+# CREATE TABLE IF NOT EXISTS ohnehin neu. Ein committeter Snapshot mit
+# veraltetem Schema hat live einen Produktionsausfall verursacht
+# (2026-07-31: "table own_squad has no column named purchase_price").
+data/kickbase.db
