@@ -16,6 +16,8 @@ from src.market_predictor import (
     _infer_today,
     _performance_frame,
     _fitness_features_as_of,
+    _fetch_player_training_frame,
+    _load_fitness_events_by_player,
     FITNESS_NO_HISTORY_DAYS,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
@@ -253,3 +255,58 @@ class FitnessFeaturesAsOfTests(unittest.TestCase):
         result = _fitness_features_as_of(events, as_of)
         self.assertEqual(result["status_change_count_90d"], 0)
         self.assertEqual(result["days_since_last_status_change"], 90)
+
+
+class LoadFitnessEventsByPlayerTests(unittest.TestCase):
+    @patch("src.market_predictor.firestore_db.get_fitness_history")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_groups_entries_by_player_id(self, mock_connect, mock_get):
+        mock_get.return_value = [
+            {"player_id": "p1", "date": "2026-07-20", "from_status_code": 0, "to_status_code": 1},
+            {"player_id": "p1", "date": "2026-07-25", "from_status_code": 1, "to_status_code": 0},
+            {"player_id": "p2", "date": "2026-07-22", "from_status_code": 0, "to_status_code": 2},
+        ]
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            result = _load_fitness_events_by_player()
+        self.assertEqual(len(result["p1"]), 2)
+        self.assertEqual(len(result["p2"]), 1)
+
+    def test_returns_empty_dict_without_firestore_enabled(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_load_fitness_events_by_player(), {})
+
+    @patch("src.market_predictor.firestore_db.get_fitness_history")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_returns_empty_dict_on_firestore_error(self, mock_connect, mock_get):
+        mock_get.side_effect = RuntimeError("Firestore down")
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            self.assertEqual(_load_fitness_events_by_player(), {})
+
+
+class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
+    @patch("src.market_predictor._performance_frame")
+    @patch("src.market_predictor._market_value_frame")
+    def test_adds_fitness_columns_computed_as_of_each_row_date(self, mock_mv_frame, mock_perf_frame):
+        mock_mv_frame.return_value = pd.DataFrame({
+            "date": pd.to_datetime(["2026-07-25", "2026-07-31"]),
+            "mv": [10_000_000, 10_200_000],
+        })
+        mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
+        fitness_events_by_player = {
+            "p1": [{"player_id": "p1", "date": "2026-07-20", "from_status_code": 0, "to_status_code": 1}],
+        }
+
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", fitness_events_by_player)
+
+        self.assertEqual(list(result["days_since_last_status_change"]), [5, 11])
+        self.assertEqual(list(result["status_change_count_90d"]), [1, 1])
+
+    @patch("src.market_predictor._performance_frame")
+    @patch("src.market_predictor._market_value_frame")
+    def test_player_without_any_fitness_events_gets_placeholder(self, mock_mv_frame, mock_perf_frame):
+        mock_mv_frame.return_value = pd.DataFrame({"date": pd.to_datetime(["2026-07-31"]), "mv": [10_000_000]})
+        mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
+
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {})
+
+        self.assertEqual(list(result["days_since_last_status_change"]), [FITNESS_NO_HISTORY_DAYS])

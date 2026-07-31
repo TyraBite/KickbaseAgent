@@ -36,6 +36,7 @@ _trend_from_daily.
 
 from __future__ import annotations
 
+from collections import defaultdict
 import concurrent.futures
 import datetime
 import json
@@ -65,6 +66,7 @@ FEATURES = [
     "mv_change_1d", "mv_trend_1d",
     "mv_change_3d", "mv_vol_3d",
     "mv_trend_7d", "market_divergence",
+    "days_since_last_status_change", "status_change_count_90d",
 ]
 TARGET = "mv_target_clipped"
 
@@ -98,6 +100,24 @@ _ABORT_FAILURE_RATE = 0.5
 
 def _max_workers() -> int:
     return int(os.environ.get("MARKET_PREDICTOR_MAX_WORKERS", 8))
+
+
+def _load_fitness_events_by_player() -> dict[str, list[dict]]:
+    """Liest fitness_history_log (siehe firestore_db.get_fitness_history)
+    einmal pro Lauf und gruppiert nach player_id - Basis fuer
+    _fitness_features_as_of() in _fetch_player_training_frame(). Leeres
+    Dict bei deaktiviertem Firestore oder Lesefehler (gleiches
+    Resilienz-Muster wie _load_recent_prediction_log) - jeder Spieler
+    bekommt dann ueberall den Cold-Start-Platzhalter, kein Crash."""
+    events_by_player: dict[str, list[dict]] = defaultdict(list)
+    if os.environ.get("FIRESTORE_ENABLED"):
+        try:
+            for entry in firestore_db.get_fitness_history(firestore_db.connect()):
+                events_by_player[entry["player_id"]].append(entry)
+        except Exception as exc:
+            print(f"Warnung: fitness_history_log-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
+            return {}
+    return dict(events_by_player)
 
 
 def _fetch_competition_player_ids(token: str, competition_id: str) -> dict[str, str]:
@@ -187,7 +207,8 @@ def _fitness_features_as_of(events: list[dict], as_of_date: datetime.date) -> di
 
 
 def _fetch_player_training_frame(
-    token: str, league_id: str, competition_id: str, player_id: str, team_id: str
+    token: str, league_id: str, competition_id: str, player_id: str, team_id: str,
+    fitness_events_by_player: dict[str, list[dict]],
 ) -> pd.DataFrame | None:
     """Holt Marktwert- und Performance-Historie eines Spielers und merged sie
     zu einer Zeitreihe. Faengt Fehler selbst ab (Resilienz-Pattern analog
@@ -218,10 +239,18 @@ def _fetch_player_training_frame(
 
     merged["player_id"] = player_id
     merged["team_id"] = team_id
+
+    events = fitness_events_by_player.get(player_id, [])
+    fitness_features = merged["date"].apply(lambda ts: _fitness_features_as_of(events, ts.date()))
+    merged["days_since_last_status_change"] = fitness_features.apply(lambda f: f["days_since_last_status_change"])
+    merged["status_change_count_90d"] = fitness_features.apply(lambda f: f["status_change_count_90d"])
+
     return merged
 
 
-def _build_corpus(token: str, league_id: str, competition_id: str) -> pd.DataFrame:
+def _build_corpus(
+    token: str, league_id: str, competition_id: str, fitness_events_by_player: dict[str, list[dict]]
+) -> pd.DataFrame:
     player_to_team = _fetch_competition_player_ids(token, competition_id)
     if not player_to_team:
         raise RuntimeError("Keine Spieler-Ids ueber get_team_players() gefunden")
@@ -232,7 +261,7 @@ def _build_corpus(token: str, league_id: str, competition_id: str) -> pd.DataFra
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=_max_workers()) as executor:
         futures = {
-            executor.submit(_fetch_player_training_frame, token, league_id, competition_id, pid, tid): pid
+            executor.submit(_fetch_player_training_frame, token, league_id, competition_id, pid, tid, fitness_events_by_player): pid
             for pid, tid in player_to_team.items()
         }
         for future in concurrent.futures.as_completed(futures):
@@ -534,7 +563,8 @@ def backfill_prediction_log(days: int = 90) -> dict:
     league_id = select_league(leagues)["id"]
     me = get_me(token, league_id)
     competition_id = me.get("cpi") or "1"
-    corpus = _build_corpus(token, league_id, competition_id)
+    fitness_events_by_player = _load_fitness_events_by_player()
+    corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player)
     history_df, _today_df = _engineer_features(corpus)
 
     dates = sorted(history_df["date"].unique())
@@ -806,7 +836,8 @@ def predict_market_value_changes() -> dict | None:
         me = get_me(token, league_id)
         competition_id = me.get("cpi") or "1"
 
-        corpus = _build_corpus(token, league_id, competition_id)
+        fitness_events_by_player = _load_fitness_events_by_player()
+        corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player)
         history_df, today_df = _engineer_features(corpus)
 
         trained = _train_and_evaluate(history_df)
