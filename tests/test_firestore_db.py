@@ -259,3 +259,38 @@ class GetBidPremiumHistoryTests(unittest.TestCase):
         result = firestore_db.get_bid_premium_history(client)
 
         self.assertEqual(result, [{"activity_id": "act_1"}, {"activity_id": "act_2"}])
+
+
+class UpsertFitnessHistoryEntriesTests(unittest.TestCase):
+    def test_writes_docs_keyed_by_date_and_player_id(self):
+        client = MagicMock()
+        entries = [
+            {"player_id": "p1", "date": "2026-07-31", "from_status_code": 0, "to_status_code": 1, "recorded_at": "2026-07-31T21:07:00+00:00"},
+            {"player_id": "p2", "date": "2026-07-31", "from_status_code": 2, "to_status_code": 0, "recorded_at": "2026-07-31T21:07:00+00:00"},
+        ]
+
+        firestore_db.upsert_fitness_history_entries(client, entries)
+
+        client.collection.assert_any_call("fitness_history_log")
+        self.assertEqual(_doc_ids(client), ["2026-07-31_p1", "2026-07-31_p2"])
+        batch = client.batch.return_value
+        batch.commit.assert_called_once()
+
+    def test_empty_entries_writes_nothing(self):
+        client = MagicMock()
+        firestore_db.upsert_fitness_history_entries(client, [])
+        client.batch.assert_not_called()
+
+
+class GetFitnessHistoryTests(unittest.TestCase):
+    def test_returns_all_docs_as_dicts(self):
+        client = MagicMock()
+        doc1, doc2 = MagicMock(), MagicMock()
+        doc1.to_dict.return_value = {"player_id": "p1", "date": "2026-07-31"}
+        doc2.to_dict.return_value = {"player_id": "p2", "date": "2026-07-31"}
+        client.collection.return_value.stream.return_value = [doc1, doc2]
+
+        result = firestore_db.get_fitness_history(client)
+
+        client.collection.assert_any_call("fitness_history_log")
+        self.assertEqual(result, [{"player_id": "p1", "date": "2026-07-31"}, {"player_id": "p2", "date": "2026-07-31"}])

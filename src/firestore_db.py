@@ -193,3 +193,20 @@ def get_unsold_log(client: firestore.Client) -> list[dict]:
     langsam wachsend (nur bei tatsaechlich unverkauften Angeboten), analog
     get_bid_premium_history."""
     return [doc.to_dict() for doc in client.collection("bid_premium_unsold_log").stream()]
+
+
+def upsert_fitness_history_entries(client: firestore.Client, entries: list[dict]) -> None:
+    """Ein Dokument pro Status-Wechsel (siehe
+    dashboard_export._detect_status_changes), Doc-Id `{date}_{player_id}`
+    macht einen erneuten Heavy-Lauf am selben Tag idempotent (ueberschreibt
+    statt zu duplizieren)."""
+    docs = {f"{e['date']}_{e['player_id']}": e for e in entries}
+    _write_in_batches(client, "fitness_history_log", docs)
+
+
+def get_fitness_history(client: firestore.Client) -> list[dict]:
+    """Liest die komplette fitness_history_log-Collection - bleibt klein
+    (nur echte Statuswechsel, deutlich unter 450/Tag), analog
+    get_bid_premium_history. Wird einmal pro ML-Lauf gelesen, nicht pro
+    Spieler."""
+    return [doc.to_dict() for doc in client.collection("fitness_history_log").stream()]
