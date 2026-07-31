@@ -60,12 +60,15 @@ def _write_in_batches(client: firestore.Client, collection: str, docs: dict[str,
 
 def upsert_prediction_log_entries(client: firestore.Client, entries: list[dict]) -> None:
     """Firestore-Pendant zu data/ml_prediction_log.jsonl (kein SQLite-Original -
-    neue Collection laut Spec). Doc-Id `{date}_{player_id}_{model_type}` macht
-    Re-Laeufe desselben Tages idempotent (pro Modell-Kandidat), analog zur
-    Dedup-Logik in market_predictor._save_prediction_log(). `.get()` statt
-    `e["model_type"]`: Alt-Eintraege aus der Zeit vor Phase 4 (ohne
-    model_type-Feld) duerfen den Batch-Write nicht mit einem KeyError
-    abbrechen, wenn sie im selben Tages-Batch neben neuen Eintraegen liegen."""
+    neue Collection laut Spec). Doc-Id `{date}_{player_id}_{model_type}_{horizon_days}`
+    macht Re-Laeufe desselben Tages idempotent (pro Modell-Kandidat UND pro
+    Prognose-Horizont), analog zur Dedup-Logik in
+    market_predictor._save_prediction_log(). `.get()` statt `e["model_type"]`:
+    Alt-Eintraege aus der Zeit vor Phase 4 (ohne model_type-Feld) duerfen den
+    Batch-Write nicht mit einem KeyError abbrechen, wenn sie im selben
+    Tages-Batch neben neuen Eintraegen liegen. `.get("horizon_days", 1)`
+    analog: Alt-Eintraege aus der Zeit vor der Horizont-Dimension (ohne das
+    Feld) landen weiterhin unter Horizont 1, keine Migration noetig."""
     docs = {f"{e['date']}_{e['player_id']}_{e.get('model_type')}_{e.get('horizon_days', 1)}": e for e in entries}
     _write_in_batches(client, "ml_prediction_log", docs)
 
@@ -93,11 +96,14 @@ def get_recent_prediction_log_entries(client: firestore.Client, since_date: str,
 
 def upsert_accuracy_daily(client: firestore.Client, entries: list[dict]) -> None:
     """Aggregierte Tages-/Modell-Genauigkeit (EIN Dokument pro (date,
-    model_type) statt Rohdaten pro Spieler) - Doc-Id `{date}_{model_type}`.
-    Ermoeglicht Trailing-Fenster-/Trend-Berechnung ueber lange Zeitraeume
-    mit nur ~2 Dokumenten pro Tag statt ~900 - der eigentliche Fix fuers
-    Quota-Problem. Idempotent (Ueberschreiben bei erneuter Auswertung
-    desselben Tages ist unproblematisch)."""
+    model_type, horizon_days) statt Rohdaten pro Spieler) - Doc-Id
+    `{date}_{model_type}_{horizon_days}`. Ermoeglicht Trailing-Fenster-/
+    Trend-Berechnung ueber lange Zeitraeume mit nur ~2 Dokumenten pro Tag
+    (pro Horizont) statt ~900 - der eigentliche Fix fuers Quota-Problem.
+    Idempotent (Ueberschreiben bei erneuter Auswertung desselben Tages ist
+    unproblematisch). `.get("horizon_days", 1)`: Alt-Eintraege aus der Zeit
+    vor der Horizont-Dimension (ohne das Feld) landen weiterhin unter
+    Horizont 1, keine Migration noetig."""
     docs = {f"{e['date']}_{e['model_type']}_{e.get('horizon_days', 1)}": e for e in entries}
     _write_in_batches(client, "ml_accuracy_daily", docs)
 

@@ -1,7 +1,9 @@
 import datetime
 import math
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -14,6 +16,7 @@ from src.market_predictor import (
     _load_local_prediction_log,
     _load_recent_prediction_log,
     _append_todays_predictions,
+    _save_prediction_log,
     _select_live_model,
     _infer_today,
     _performance_frame,
@@ -156,6 +159,28 @@ class AppendTodaysPredictionsHorizonTests(unittest.TestCase):
             _append_todays_predictions(today_df, {"RandomForest": {"p1": 500}}, horizon_days=3)
         logged = mock_save.call_args.args[0]
         self.assertEqual(logged[0]["horizon_days"], 3)
+
+
+class SavePredictionLogHorizonDedupTests(unittest.TestCase):
+    def test_1day_and_3day_entries_for_same_key_both_survive(self):
+        """Dedup-Key in _save_prediction_log() ist (date, player_id,
+        model_type, horizon_days) - ein 1-Tages- und ein 3-Tages-Eintrag
+        fuer denselben (date, player_id, model_type) duerfen sich NICHT
+        gegenseitig ueberschreiben (das war der eigentliche Zweck der
+        Erweiterung des Dedup-Keys um horizon_days)."""
+        entries = [
+            {"date": "2026-07-31", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100, "horizon_days": 1},
+            {"date": "2026-07-31", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 300, "horizon_days": 3},
+        ]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir) / "ml_prediction_log.jsonl"
+            with patch("src.market_predictor.PREDICTION_LOG_PATH", tmp_path), patch.dict(os.environ, {}, clear=True):
+                _save_prediction_log(entries)
+                result = _load_local_prediction_log()
+        self.assertEqual(len(result), 2)
+        self.assertEqual(sorted(e["horizon_days"] for e in result), [1, 3])
+        by_horizon = {e["horizon_days"]: e["predicted_delta"] for e in result}
+        self.assertEqual(by_horizon, {1: 100, 3: 300})
 
 
 class RealizedByModelFromDailyTests(unittest.TestCase):

@@ -166,6 +166,25 @@ class PredictionLogHorizonDocIdTests(unittest.TestCase):
         doc_ids = _doc_ids(client)
         self.assertIn("2026-07-31_p1_RandomForest_1", doc_ids)
 
+    def test_horizon_1_and_3_entries_for_same_date_player_model_dont_collide(self):
+        """Der eigentliche Zweck des horizon_days-Suffix: ein 1-Tages- und
+        ein 3-Tages-Eintrag fuer denselben (date, player_id, model_type)
+        muessen als ZWEI eigenstaendige Dokumente ankommen, nicht als
+        einer, der den anderen im selben Batch-Write ueberschreibt."""
+        client = MagicMock()
+        batch = client.batch.return_value
+        entries = [
+            {"date": "2026-07-31", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100, "horizon_days": 1},
+            {"date": "2026-07-31", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 300, "horizon_days": 3},
+        ]
+        firestore_db.upsert_prediction_log_entries(client, entries)
+        doc_ids = _doc_ids(client)
+        self.assertIn("2026-07-31_p1_RandomForest_1", doc_ids)
+        self.assertIn("2026-07-31_p1_RandomForest_3", doc_ids)
+        self.assertEqual(len(doc_ids), 2)
+        payloads = _batch_set_payloads(batch)
+        self.assertEqual(sorted(p["predicted_delta"] for p in payloads), [100, 300])
+
 
 class AccuracyDailyHorizonDocIdTests(unittest.TestCase):
     def test_doc_id_includes_horizon_days(self):
@@ -174,6 +193,24 @@ class AccuracyDailyHorizonDocIdTests(unittest.TestCase):
         firestore_db.upsert_accuracy_daily(client, entries)
         doc_ids = _doc_ids(client)
         self.assertIn("2026-07-31_RandomForest_3", doc_ids)
+
+    def test_horizon_1_and_3_entries_for_same_date_model_dont_collide(self):
+        """Gleiche Garantie wie oben, aber fuer ml_accuracy_daily: ein
+        1-Tages- und ein 3-Tages-Aggregat fuer denselben (date, model_type)
+        duerfen sich nicht gegenseitig ueberschreiben."""
+        client = MagicMock()
+        batch = client.batch.return_value
+        entries = [
+            {"date": "2026-07-31", "model_type": "RandomForest", "horizon_days": 1, "n": 10, "sign_correct": 7, "abs_error_sum": 1000.0},
+            {"date": "2026-07-31", "model_type": "RandomForest", "horizon_days": 3, "n": 10, "sign_correct": 5, "abs_error_sum": 2000.0},
+        ]
+        firestore_db.upsert_accuracy_daily(client, entries)
+        doc_ids = _doc_ids(client)
+        self.assertIn("2026-07-31_RandomForest_1", doc_ids)
+        self.assertIn("2026-07-31_RandomForest_3", doc_ids)
+        self.assertEqual(len(doc_ids), 2)
+        payloads = _batch_set_payloads(batch)
+        self.assertEqual(sorted(p["sign_correct"] for p in payloads), [5, 7])
 
 
 class UpsertBidPremiumEntriesTests(unittest.TestCase):
