@@ -107,3 +107,55 @@ export function IconEmptyState(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function IconActionBank(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Bank" {...props}>
+      <path d="M4 8 H20 V9.5 H4 Z" />
+      <path d="M3 13 H21 V14.5 H3 Z" />
+      <path d="M4.5 9.5 H6 V13 H4.5 Z" />
+      <path d="M18 9.5 H19.5 V13 H18 Z" />
+      <path d="M4.5 14.5 H6 V20 H4.5 Z" />
+      <path d="M18 14.5 H19.5 V20 H18 Z" />
+    </svg>
+  );
+}
+
+export function IconActionField(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Startelf" {...props}>
+      <path fillRule="evenodd" clipRule="evenodd" d="M2.8 4.4 H21.2 V19.6 H2.8 Z M4 5.6 H20 V18.4 H4 Z" />
+      <path d="M11.4 5.6 H12.6 V18.4 H11.4 Z" />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M12 9.8 A2.2 2.2 0 1 1 12 14.2 A2.2 2.2 0 1 1 12 9.8 Z M12 10.8 A1.2 1.2 0 1 1 12 13.2 A1.2 1.2 0 1 1 12 10.8 Z"
+      />
+    </svg>
+  );
+}
+
+export function IconActionSwap(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Wechseln" {...props}>
+      <path d="M12 3.4 A8.6 8.6 0 0 1 20.2 10.4 L18.1 9.7 A6.5 6.5 0 0 0 12 5.4 Z" />
+      <path d="M17.2 7.3 L21.4 8.7 L20.2 12.9 Z" />
+      <path d="M12 20.6 A8.6 8.6 0 0 1 3.8 13.6 L5.9 14.3 A6.5 6.5 0 0 0 12 18.6 Z" />
+      <path d="M6.8 16.7 L2.6 15.3 L3.8 11.1 Z" />
+    </svg>
+  );
+}
+
+export function IconActionTrash(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Entfernen" {...props}>
+      <path d="M9.5 3.5 H14.5 V5 H9.5 Z" />
+      <path d="M4.5 5 H19.5 V6.5 H4.5 Z" />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M6.3 7 H17.7 L16.7 20.2 A1.4 1.4 0 0 1 15.3 21.5 H8.7 A1.4 1.4 0 0 1 7.3 20.2 Z M9.6 9.5 H10.9 V19 H9.6 Z M13.1 9.5 H14.4 V19 H13.1 Z"
+      />
+    </svg>
+  );
+}
