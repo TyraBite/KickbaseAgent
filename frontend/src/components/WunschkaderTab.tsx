@@ -9,6 +9,7 @@ import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, c
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerCompareModal from "./PlayerCompareModal";
+import { IconActionBank, IconActionField, IconActionSwap, IconActionTrash } from "./icons";
 
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 const MAX_SQUAD_SIZE = 17;
@@ -566,22 +567,34 @@ function DetailModal({
           <button
             type="button"
             onClick={onToggleBench}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           >
-            {isBench(target) ? "In Startelf verschieben" : "Auf Bank verschieben"}
+            {isBench(target) ? (
+              <>
+                <IconActionField className="h-4 w-4" />
+                Startelf
+              </>
+            ) : (
+              <>
+                <IconActionBank className="h-4 w-4" />
+                Bank
+              </>
+            )}
           </button>
           <button
             type="button"
             onClick={() => setWechselOpen((v) => !v)}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           >
+            <IconActionSwap className="h-4 w-4" />
             Wechsel
           </button>
           <button
             type="button"
             onClick={onRemove}
-            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+            className="flex items-center gap-1.5 rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
           >
+            <IconActionTrash className="h-4 w-4" />
             Entfernen
           </button>
         </div>
