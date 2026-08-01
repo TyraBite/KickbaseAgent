@@ -348,11 +348,12 @@ function AlleSpielerDetailModal({
               <SignalBadge signal={row.signal} thresholds={thresholds} />
             </Row>
             <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-            <Row label="ML-Prognose">
+            <Row label="Prognose 1T">
               <span className={trendClass(row.ml_prediction)}>
                 {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
               </span>
             </Row>
+            <Row label="Prognose 3T">{fmtSigned(row.ml_prediction_3d)}</Row>
           </dl>
           <button
             type="button"

@@ -155,10 +155,16 @@ export default function PlayerCompareModal({
 
         <div>
           <CompareRow
-            label="ML-Prognose"
+            label="Prognose 1T"
             valueA={<span className={trendClass(rowA.ml_prediction)}>{trendArrow(rowA.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowA.ml_prediction)}</span>}
             valueB={<span className={trendClass(rowB.ml_prediction)}>{trendArrow(rowB.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowB.ml_prediction)}</span>}
             winner={better(rowA.ml_prediction, rowB.ml_prediction)}
+          />
+          <CompareRow
+            label="Prognose 3T"
+            valueA={fmtSigned(rowA.ml_prediction_3d)}
+            valueB={fmtSigned(rowB.ml_prediction_3d)}
+            winner={better(rowA.ml_prediction_3d, rowB.ml_prediction_3d)}
           />
           <CompareRow
             label="Signal"
