@@ -5,6 +5,7 @@ import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, PositionBadge, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
+import { useViewMode } from "../lib/useViewMode";
 
 type SortKey = "auction" | "ml" | "roi" | "price" | "trend" | "name";
 
@@ -60,7 +61,6 @@ function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
 // kaputtem auction_expires_at schlechter als der Fallback der geteilten
 // Funktion (siehe Review-Fund 2026-07-29). auction_urgent ist ebenfalls
 // clientseitig in derive.ts berechnet, nicht serverseitig.
-type ViewMode = "cards" | "table";
 
 export default function SpekulationTab({
   rows,
@@ -82,7 +82,7 @@ export default function SpekulationTab({
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
   const [selected, setSelected] = useState<SpekulationRow | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [viewMode, setViewMode] = useViewMode("kickbaseagent_view_spekulation");
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
