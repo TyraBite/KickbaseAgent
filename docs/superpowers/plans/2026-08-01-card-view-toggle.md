@@ -16,6 +16,7 @@
 - Karten-Klick ruft denselben `onSelect`/`setSelected`-Callback auf wie heute schon der Tabellen-Zeilen-Klick — keine neue Modal-Logik.
 - Nach JEDEM Task: `cd frontend && node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit` muss weiterhin fehlerfrei durchlaufen.
 - Kein Push in dieser Session (Standing-Rule `NeverPushOnMain`) - Repo-Owner pusht selbst.
+- **Abhängigkeits-Warnung (2026-08-01 beim Cross-Plan-Check gefunden)**: falls `docs/superpowers/plans/2026-08-01-ml-horizonte-frontend-anzeige.md` vor diesem Plan umgesetzt wird (empfohlene Reihenfolge), ändert dessen Task 3 `TransfermarktTab.tsx`s ML-Prognose-Anzeige (Label "ML-Prognose" → "Prognose 1T"/"Prognose 3T", vermutlich entfällt die `player`/`PlayerRecord`-Prop-Durchreichung, die Task 2 Step 4 dieses Plans für die `ML-Prognose 3T`-Kartenzeile nutzt). **Vor Task 2 Step 4 den dann aktuellen Stand von `TransfermarktTab.tsx` neu lesen** und die `TransfermarktCard`-Prognose-Zeile(n) an das dort tatsächlich vorhandene Prop/Label anpassen — NICHT den unten stehenden Code blind übernehmen, falls er nicht mehr zum Datei-Stand passt.
 
 ---
 
