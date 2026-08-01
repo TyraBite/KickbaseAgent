@@ -4,7 +4,7 @@
 
 **Goal:** Bug fixen, bei dem eine Wunschkader-Änderung im "Eigenes Team"-Tab erst nach einem Reload (bzw. nie, ohne Reload) sichtbar wird — `EigenesTeamTab` soll die aktuelle Wunschkader-Zielliste live lesen statt aus der beim App-Mount eingefrorenen Snapshot-Kopie.
 
-**Architecture:** `App.tsx` bekommt einen zweiten, unabhängigen Firestore-Read (`wunschkader/current`, live) neben dem bestehenden `dashboard_snapshot/latest`-Read, gehalten in eigenem State. `EigenesTeamTab`/`WunschkaderTab` lesen diesen neuen State statt `data.wunschkader_targets`/`data.wunschkader_formation`. `WunschkaderTab.handleSave()` aktualisiert diesen State per Callback sofort nach dem Firestore-Write — kein Reload, kein Realtime-Listener nötig.
+**Architecture:** `App.tsx` bekommt einen zweiten, unabhängigen Firestore-Read (`wunschkader/current`, live) neben dem bestehenden `dashboard_snapshot/latest`-Read, gehalten in eigenem State. `EigenesTeamTab`/`WunschkaderTab` lesen diesen neuen State statt `data.wunschkader_targets`. `WunschkaderTab.handleSave()` aktualisiert diesen State per Callback sofort nach dem Firestore-Write — kein Reload, kein Realtime-Listener nötig. `formation`/die Formation-Combobox sind NICHT Teil dieses Plans (bleiben unverändert bei `data.wunschkader_formation` — ein separates Vorhaben ersetzt das komplett, siehe Spec).
 
 **Tech Stack:** React + TypeScript (Vite), Firebase JS SDK (`firebase/firestore`), kein Test-Framework im Frontend — Verifikation über `tsc --noEmit` + manuelle Browser-Reproduktion des gemeldeten Bugs.
 
@@ -26,7 +26,7 @@
 |---|---|
 | `frontend/src/App.tsx` | Neuer `wunschkader`-State + eigener Firestore-Read im bestehenden Lade-Effect, an `WunschkaderTab`/`EigenesTeamTab` durchgereicht |
 | `frontend/src/components/EigenesTeamTab.tsx` | Liest `wunschkader.targets` (neue Prop) statt `data.wunschkader_targets` |
-| `frontend/src/components/WunschkaderTab.tsx` | Liest `wunschkader.targets`/`wunschkader.formation` (neue Props) statt `data.wunschkader_targets`/`data.wunschkader_formation`, `handleSave()` ruft neuen `onSaved`-Callback + korrigierter Bestätigungstext |
+| `frontend/src/components/WunschkaderTab.tsx` | Liest `wunschkader.targets` (neue Prop) statt `data.wunschkader_targets` — `formation` bleibt unverändert aus `data.wunschkader_formation`. `handleSave()` ruft neuen `onSaved`-Callback (nur `targets`) + korrigierter Bestätigungstext |
 
 ---
 
@@ -37,15 +37,13 @@
 
 **Interfaces:**
 - Consumes: nichts Neues (bestehende `getDoc`/`doc`/`db`-Imports, `DashboardSnapshot`-Typ).
-- Produces: neuer App-Level-State `wunschkader: { targets: RawWunschkaderTarget[]; formation: string | null } | null`, durchgereicht an `WunschkaderTab`/`EigenesTeamTab` als Prop `wunschkader`. Neuer Callback `onSaved: (targets: RawWunschkaderTarget[], formation: FormationKey) => void`, durchgereicht an `WunschkaderTab`. **Task 2/3 müssen diese exakten Prop-Namen/Typen in ihren Komponentensignaturen übernehmen.**
+- Produces: neuer App-Level-State `wunschkader: { targets: RawWunschkaderTarget[] } | null`, durchgereicht an `WunschkaderTab`/`EigenesTeamTab` als Prop `wunschkader`. Neuer Callback `onSaved: (targets: RawWunschkaderTarget[]) => void`, durchgereicht an `WunschkaderTab`. **Task 2/3 müssen diese exakten Prop-Namen/Typen in ihren Komponentensignaturen übernehmen.**
 
-- [ ] **Step 1: Imports ergänzen**
+- [ ] **Step 1: Import ergänzen**
 
 Alt: `import type { DashboardSnapshot } from "./types";`
 
 Neu: `import type { DashboardSnapshot, RawWunschkaderTarget } from "./types";`
-
-Neue Zeile direkt danach ergänzen: `import type { FormationKey } from "./lib/formations";`
 
 - [ ] **Step 2: Neuer State**
 
@@ -58,7 +56,7 @@ Alt:
 Neu:
 ```typescript
   const [data, setData] = useState<DashboardSnapshot | null>(null);
-  const [wunschkader, setWunschkader] = useState<{ targets: RawWunschkaderTarget[]; formation: string | null } | null>(null);
+  const [wunschkader, setWunschkader] = useState<{ targets: RawWunschkaderTarget[] } | null>(null);
   const [activeTab, setActiveTab] = useState(readStoredActiveTab);
 ```
 
@@ -111,19 +109,13 @@ Neu:
         try {
           const wunschkaderSnap = await getDoc(doc(db, "wunschkader", "current"));
           if (wunschkaderSnap.exists()) {
-            const raw = wunschkaderSnap.data() as { targets?: RawWunschkaderTarget[]; formation?: string };
-            setWunschkader({ targets: raw.targets ?? [], formation: raw.formation ?? null });
+            const raw = wunschkaderSnap.data() as { targets?: RawWunschkaderTarget[] };
+            setWunschkader({ targets: raw.targets ?? [] });
           } else {
-            setWunschkader({
-              targets: snapshotData.wunschkader_targets ?? [],
-              formation: snapshotData.wunschkader_formation ?? null,
-            });
+            setWunschkader({ targets: snapshotData.wunschkader_targets ?? [] });
           }
         } catch {
-          setWunschkader({
-            targets: snapshotData.wunschkader_targets ?? [],
-            formation: snapshotData.wunschkader_formation ?? null,
-          });
+          setWunschkader({ targets: snapshotData.wunschkader_targets ?? [] });
         }
 
         setLoadState("ready");
@@ -158,7 +150,7 @@ Neu:
             <WunschkaderTab
               data={data}
               wunschkader={wunschkader}
-              onSaved={(targets, formation) => setWunschkader({ targets, formation })}
+              onSaved={(targets) => setWunschkader({ targets })}
             />
           </div>
         )}
@@ -194,7 +186,7 @@ git commit -m "App.tsx: wunschkader/current live per eigenem getDoc gelesen stat
 - Modify: `frontend/src/components/EigenesTeamTab.tsx`
 
 **Interfaces:**
-- Consumes: `wunschkader: { targets: RawWunschkaderTarget[]; formation: string | null }` (Task 1).
+- Consumes: `wunschkader: { targets: RawWunschkaderTarget[] }` (Task 1).
 - Produces: nichts, das Task 3 braucht (eigenständiger Tab).
 
 - [ ] **Step 1: Import ergänzen**
@@ -214,7 +206,7 @@ export default function EigenesTeamTab({
   wunschkader,
 }: {
   data: DashboardSnapshot;
-  wunschkader: { targets: RawWunschkaderTarget[]; formation: string | null };
+  wunschkader: { targets: RawWunschkaderTarget[] };
 }) {
 ```
 
@@ -287,8 +279,10 @@ git commit -m "EigenesTeamTab: liest Wunschkader-Ziele jetzt aus der live wunsch
 - Modify: `frontend/src/components/WunschkaderTab.tsx`
 
 **Interfaces:**
-- Consumes: `wunschkader: { targets: RawWunschkaderTarget[]; formation: string | null }`, `onSaved: (targets: RawWunschkaderTarget[], formation: FormationKey) => void` (beide Task 1).
+- Consumes: `wunschkader: { targets: RawWunschkaderTarget[] }`, `onSaved: (targets: RawWunschkaderTarget[]) => void` (beide Task 1).
 - Produces: nichts, das andere Tasks brauchen.
+
+`formation`/die Formation-Combobox sind NICHT Teil dieses Tasks — bleiben exakt wie heute (`data.wunschkader_formation`, lokales `useState<FormationKey>`), nur die `targets`-Initialisierung wechselt auf die neue `wunschkader`-Prop.
 
 - [ ] **Step 1: Komponentensignatur — neue Props `wunschkader`/`onSaved`**
 
@@ -312,11 +306,11 @@ export default function WunschkaderTab({
   onSaved,
 }: {
   data: DashboardSnapshot;
-  wunschkader: { targets: RawWunschkaderTarget[]; formation: string | null };
-  onSaved: (targets: RawWunschkaderTarget[], formation: FormationKey) => void;
+  wunschkader: { targets: RawWunschkaderTarget[] };
+  onSaved: (targets: RawWunschkaderTarget[]) => void;
 }) {
   const [formation, setFormation] = useState<FormationKey>(
-    isFormationKey(wunschkader.formation) ? wunschkader.formation : DEFAULT_FORMATION
+    isFormationKey(data.wunschkader_formation) ? data.wunschkader_formation : DEFAULT_FORMATION
   );
   let nextUid = 0;
   const [editState, setEditState] = useState<EditTarget[]>(() =>
@@ -324,7 +318,9 @@ export default function WunschkaderTab({
   );
 ```
 
-- [ ] **Step 2: `handleSave()` — Callback aufrufen + Bestätigungstext korrigieren**
+(`formation` bleibt bewusst bei `data.wunschkader_formation` — NICHT auf `wunschkader.formation` umstellen, das Feld existiert im neuen `wunschkader`-State gar nicht, siehe Interfaces oben.)
+
+- [ ] **Step 2: `handleSave()` — Callback aufrufen (nur `targets`) + Bestätigungstext korrigieren**
 
 Alt:
 ```typescript
@@ -347,13 +343,15 @@ Neu:
       const updatedAt = new Date().toISOString().slice(0, 10);
       const targets = editState.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
       await setDoc(doc(db, "wunschkader", "current"), { targets, formation, updated_at: updatedAt }, { merge: true });
-      onSaved(targets, formation);
+      onSaved(targets);
       setSaveStatus("Gespeichert - überall sofort sichtbar (auch Eigenes Team), kein Reload nötig. Andere Werte wie Marktwerte/ML-Prognosen für ggf. neu hinzugefügte Spieler folgen weiterhin erst mit dem nächsten Pipeline-Lauf.");
     } catch (err) {
       setSaveStatus("Fehler beim Speichern: " + (err as Error).message);
     }
   }
 ```
+
+(`formation` wird weiterhin unverändert mit nach Firestore geschrieben — nur nicht mehr Teil des live gesyncten `onSaved`-Callbacks, da `EigenesTeamTab` es ohnehin nie gebraucht hat.)
 
 - [ ] **Step 3: `tsc` — Projekt muss jetzt komplett 0 Fehler zeigen**
 
@@ -454,7 +452,7 @@ git push origin main
 
 ## Self-Review-Notiz (bereits durchgeführt)
 
-- **Spec-Abdeckung**: alle Abschnitte der Spec (neuer App-Level-State, gemeinsam mit dem Snapshot-Fetch aufgelöst, Fallback auf Snapshot-Kopie bei Cold-Start/Fehler, `EigenesTeamTab`/`WunschkaderTab`-Prop-Umstellung, `onSaved`-Callback, korrigierter Speichertext, Verification inkl. Feedback-Item+HANDOFF) sind auf Task 1–4 abgebildet.
+- **Spec-Abdeckung**: alle Abschnitte der Spec (neuer App-Level-State NUR für `targets`, gemeinsam mit dem Snapshot-Fetch aufgelöst, Fallback auf Snapshot-Kopie bei Cold-Start/Fehler, `EigenesTeamTab`/`WunschkaderTab`-Prop-Umstellung, `onSaved`-Callback, korrigierter Speichertext, Verification inkl. Feedback-Item+HANDOFF) sind auf Task 1–4 abgebildet. `formation` bewusst NICHT mit angefasst (separates Vorhaben, siehe Spec-Kontext) — vermeidet, dass dieser Plan etwas aufbaut, das der Formations-Umbau gleich wieder abreißen müsste.
 - **Platzhalter-Scan**: keine TBD gefunden. Die einzigen bewusst offenen Werte (`COMMIT_TASK1`–`COMMIT_TASK3` in Task 4/Step 4) sind Commit-Hashes, die erst beim tatsächlichen Committen entstehen — exakter Einfügeort vorgegeben, kein Implementierungs-Placeholder.
-- **Typ-Konsistenz geprüft**: `wunschkader: { targets: RawWunschkaderTarget[]; formation: string | null }` heißt in App.tsx (State-Typ), `EigenesTeamTab` (Prop-Typ) und `WunschkaderTab` (Prop-Typ) exakt gleich benannt und gleich typisiert. `onSaved(targets: RawWunschkaderTarget[], formation: FormationKey)` — Task 1 (Callback-Aufruf `onSaved={(targets, formation) => setWunschkader({ targets, formation })}`) und Task 3 (`onSaved(targets, formation)`-Aufruf in `handleSave()`) nutzen exakt dieselbe Signatur; `formation` ist überall `FormationKey`, nicht generisches `string` (wichtig, da `wunschkader.formation` selbst `string | null` ist — die beiden Typen NICHT verwechseln, siehe `isFormationKey()`-Aufruf in Task 3/Step 1, der genau diese Umwandlung leistet).
-- **Gegen den echten Code verifiziert**: `App.tsx` (kompletter Lade-Effect + beide Tab-Render-Aufrufe, Zeilen 1–30 und 108–240), `EigenesTeamTab.tsx`, `WunschkaderTab.tsx` wurden für diesen Plan frisch gelesen — insbesondere bestätigt, dass `SpekulationTab`/`TransfermarktTab`-Aufrufe in `App.tsx` NOCH im alten, unveränderten Zustand sind (der andere, noch nicht umgesetzte 3T-Anzeige-Plan hat dort noch nichts verändert) — dieser Plan zitiert deshalb bewusst nur die tatsächlich betroffenen Zeilen, nicht spekulativ den Zielzustand eines anderen Plans. `formations.ts` (`FormationKey`/`isFormationKey`/`DEFAULT_FORMATION`) wurde gelesen, um die exakte Callback-Signatur (`FormationKey`, nicht `string`) korrekt zu setzen.
+- **Typ-Konsistenz geprüft**: `wunschkader: { targets: RawWunschkaderTarget[] }` heißt in App.tsx (State-Typ), `EigenesTeamTab` (Prop-Typ) und `WunschkaderTab` (Prop-Typ) exakt gleich benannt und gleich typisiert. `onSaved(targets: RawWunschkaderTarget[])` — Task 1 (Callback-Aufruf `onSaved={(targets) => setWunschkader({ targets })}`) und Task 3 (`onSaved(targets)`-Aufruf in `handleSave()`) nutzen exakt dieselbe Signatur. `formation`/`FormationKey` tauchen in KEINER neuen Prop/keinem neuen State auf — `WunschkaderTab`s lokales `formation`-`useState` bleibt unverändert an `data.wunschkader_formation` hängen (Task 3, Step 1 zitiert das explizit unverändert), kein `FormationKey`-Import in App.tsx nötig.
+- **Gegen den echten Code verifiziert**: `App.tsx` (kompletter Lade-Effect + beide Tab-Render-Aufrufe, Zeilen 1–30 und 108–240), `EigenesTeamTab.tsx`, `WunschkaderTab.tsx` wurden für diesen Plan frisch gelesen — insbesondere bestätigt, dass `SpekulationTab`/`TransfermarktTab`-Aufrufe in `App.tsx` NOCH im alten, unveränderten Zustand sind (der andere, noch nicht umgesetzte 3T-Anzeige-Plan hat dort noch nichts verändert) — dieser Plan zitiert deshalb bewusst nur die tatsächlich betroffenen Zeilen, nicht spekulativ den Zielzustand eines anderen Plans.
