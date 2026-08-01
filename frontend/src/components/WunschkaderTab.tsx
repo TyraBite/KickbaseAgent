@@ -268,7 +268,7 @@ export default function WunschkaderTab({
           Formation:{" "}
           <span className="font-medium text-slate-900 dark:text-slate-100">
             {matchedFormation(startingCounts) ??
-              `noch nicht komplett (${POSITIONS.reduce((sum, p) => sum + startingCounts[p], 0)}/11 Feldspieler)`}
+              `noch nicht komplett (${POSITIONS.reduce((sum, p) => sum + startingCounts[p], 0)}/11 Spieler inkl. Torwart)`}
           </span>
         </span>
         {totalCount > MAX_SQUAD_SIZE && (
