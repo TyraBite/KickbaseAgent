@@ -86,13 +86,21 @@ function searchAnyPosition(alleSpieler: AlleSpielerRow[], excludePlayerId: strin
     .slice(0, 20);
 }
 
-export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
+export default function WunschkaderTab({
+  data,
+  wunschkader,
+  onSaved,
+}: {
+  data: DashboardSnapshot;
+  wunschkader: { targets: RawWunschkaderTarget[] };
+  onSaved: (targets: RawWunschkaderTarget[]) => void;
+}) {
   const [formation, setFormation] = useState<FormationKey>(
     isFormationKey(data.wunschkader_formation) ? data.wunschkader_formation : DEFAULT_FORMATION
   );
   let nextUid = 0;
   const [editState, setEditState] = useState<EditTarget[]>(() =>
-    (data.wunschkader_targets ?? []).map((t) => ({ ...t, _uid: nextUid++ }))
+    (wunschkader.targets ?? []).map((t) => ({ ...t, _uid: nextUid++ }))
   );
   const [selected, setSelected] = useState<EditTarget | null>(null);
   const [addDialog, setAddDialog] = useState<{ presetPosition: Position | null } | null>(null);
@@ -230,7 +238,8 @@ export default function WunschkaderTab({ data }: { data: DashboardSnapshot }) {
       const updatedAt = new Date().toISOString().slice(0, 10);
       const targets = editState.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
       await setDoc(doc(db, "wunschkader", "current"), { targets, formation, updated_at: updatedAt }, { merge: true });
-      setSaveStatus("Gespeichert - hier sofort sichtbar. In anderen Ansichten/nach einem Reload erst nach dem nächsten Pipeline-Lauf (kann verzögert sein, siehe HANDOFF.md).");
+      onSaved(targets);
+      setSaveStatus("Gespeichert - überall sofort sichtbar (auch Eigenes Team), kein Reload nötig. Andere Werte wie Marktwerte/ML-Prognosen für ggf. neu hinzugefügte Spieler folgen weiterhin erst mit dem nächsten Pipeline-Lauf.");
     } catch (err) {
       setSaveStatus("Fehler beim Speichern: " + (err as Error).message);
     }
