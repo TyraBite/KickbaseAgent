@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BidPremiumEntry, DashboardSnapshot, PlayerRecord, PositionNeed } from "../types";
-import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, momentumAssessment, suggestBid, type TransfermarktRow } from "../lib/derive";
+import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type TransfermarktRow } from "../lib/derive";
 import { Badge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
@@ -18,7 +18,7 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "price", label: "Preis" },
   { value: "signal", label: "Signal" },
   { value: "trend", label: "Trend 7T" },
-  { value: "ml", label: "ML-Prognose" },
+  { value: "ml", label: "Prognose 1T" },
   { value: "name", label: "Spieler (A-Z)" },
 ];
 
@@ -64,6 +64,7 @@ export default function TransfermarktTab({
 }) {
   const thresholds = data.signal_thresholds;
   const mae = liveModelMae(data.ml_metrics);
+  const mae3d = liveModelMae(data.ml_metrics_3d ?? null);
 
   const [position, setPosition] = useState("all");
   const [anbieter, setAnbieter] = useState<Anbieter>("kickbase");
@@ -99,7 +100,7 @@ export default function TransfermarktTab({
     { key: "price", label: "Preis", align: "right", sortValue: (r) => r.price, render: (r) => fmtNum(r.price) },
     {
       key: "ml_prediction",
-      label: "ML-Prognose",
+      label: "Prognose 1T",
       align: "right",
       sortValue: (r) => r.ml_prediction,
       render: (r) => (
@@ -107,6 +108,13 @@ export default function TransfermarktTab({
           {trendArrow(r.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(r.ml_prediction)}
         </span>
       ),
+    },
+    {
+      key: "ml_prediction_3d",
+      label: "Prognose 3T",
+      align: "right",
+      sortValue: (r) => r.ml_prediction_3d,
+      render: (r) => fmtSigned(r.ml_prediction_3d),
     },
     {
       key: "market_value_change_7d",
@@ -221,7 +229,7 @@ export default function TransfermarktTab({
         <TransfermarktDetailModal
           row={selected}
           mae={mae}
-          player={data.players[selected.player_id]}
+          mae3d={mae3d}
           bidHistory={data.bid_premium_history ?? []}
           positionNeed={data.position_need ?? {}}
           onClose={() => setSelected(null)}
@@ -237,14 +245,14 @@ const selectClass =
 function TransfermarktDetailModal({
   row,
   mae,
-  player,
+  mae3d,
   bidHistory,
   positionNeed,
   onClose,
 }: {
   row: TransfermarktRow;
   mae: number | null;
-  player: PlayerRecord | undefined;
+  mae3d: number | null;
   bidHistory: BidPremiumEntry[];
   positionNeed: PositionNeed;
   onClose: () => void;
@@ -283,16 +291,16 @@ function TransfermarktDetailModal({
           </button>
         </div>
         <dl className="space-y-2 text-sm">
-          <Row label="ML-Prognose">
+          <Row label="Prognose 1T">
             <span className={trendClass(row.ml_prediction)}>
               {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
             </span>
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
-          {(() => {
-            const assessment = momentumAssessment(row.ml_prediction, player?.ml_prediction_3d ?? null, mae);
-            return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
-          })()}
+          <Row label="Prognose 3T">
+            {fmtSigned(row.ml_prediction_3d)}
+            {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
+          </Row>
           <Row label="Trend 7T">
             <span className={trendClass(row.market_value_change_7d)}>
               {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
