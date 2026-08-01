@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
-import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, momentumAssessment, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
+import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
-import { fmtNum } from "../format";
+import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerCompareModal from "./PlayerCompareModal";
 
+const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 const MAX_SQUAD_SIZE = 17;
 
 export type EditTarget = RawWunschkaderTarget & { _uid: number };
@@ -111,6 +112,7 @@ export default function WunschkaderTab({
   );
   const thresholds = data.signal_thresholds;
   const liveMae = liveModelMae(data.ml_metrics);
+  const liveMae3d = liveModelMae(data.ml_metrics_3d ?? null);
 
   const ownSquadIds = useMemo(() => new Set(data.own_squad_ids), [data.own_squad_ids]);
   const listingsByPlayerId = useMemo(
@@ -343,6 +345,7 @@ export default function WunschkaderTab({
           plannedPrice={selectedPlannedPrice}
           thresholds={thresholds}
           mae={liveMae}
+          mae3d={liveMae3d}
           alleSpieler={alleSpieler}
           players={data.players}
           calibration={data.calibration}
@@ -435,6 +438,7 @@ function DetailModal({
   plannedPrice,
   thresholds,
   mae,
+  mae3d,
   alleSpieler,
   players,
   calibration,
@@ -450,6 +454,7 @@ function DetailModal({
   plannedPrice: number | null;
   thresholds: DashboardSnapshot["signal_thresholds"];
   mae: number | null;
+  mae3d: number | null;
   alleSpieler: AlleSpielerRow[];
   players: DashboardSnapshot["players"];
   calibration: DashboardSnapshot["calibration"];
@@ -509,14 +514,17 @@ function DetailModal({
           <Row label="Signal">
             <SignalBadge signal={computed.signal} thresholds={thresholds} />
           </Row>
-          {(() => {
-            const assessment = momentumAssessment(
-              players[target.player_id]?.ml_prediction ?? null,
-              players[target.player_id]?.ml_prediction_3d ?? null,
-              mae
-            );
-            return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
-          })()}
+          <Row label="Prognose 1T">
+            <span className={trendClass(players[target.player_id]?.ml_prediction ?? null)}>
+              {trendArrow(players[target.player_id]?.ml_prediction ?? null, ML_PREDICTION_THRESHOLDS)}{" "}
+              {fmtSigned(players[target.player_id]?.ml_prediction ?? null)}
+            </span>
+            {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
+          </Row>
+          <Row label="Prognose 3T">
+            {fmtSigned(players[target.player_id]?.ml_prediction_3d ?? null)}
+            {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
+          </Row>
           <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
           {ownSquadIds.has(target.player_id) ? (
             <Row label="Tatsächlicher Kaufpreis">
