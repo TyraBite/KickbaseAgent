@@ -13,7 +13,7 @@ import WunschkaderTab from "./components/WunschkaderTab";
 import FeedbackTab from "./components/FeedbackTab";
 import { buildSpekulationRows, buildTransfermarktRows, formatRelativeTime } from "./lib/derive";
 import { isAnyModalOpen } from "./lib/modalOpenTracker";
-import type { DashboardSnapshot } from "./types";
+import type { DashboardSnapshot, RawWunschkaderTarget } from "./types";
 
 // Gemeinsamer Ticker fuer SpekulationTab + TransfermarktTab (vormals in beiden
 // Tabs dupliziert, siehe HANDOFF.md Task 17). Restzeiten werden clientseitig
@@ -110,6 +110,7 @@ export default function App() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [data, setData] = useState<DashboardSnapshot | null>(null);
+  const [wunschkader, setWunschkader] = useState<{ targets: RawWunschkaderTarget[] } | null>(null);
   const [activeTab, setActiveTab] = useState(readStoredActiveTab);
   const now = useNow(60_000);
   // data.players kann fehlen, wenn der Firestore-Snapshot noch im alten Schema
@@ -136,13 +137,34 @@ export default function App() {
     if (!user) return;
     setLoadState("loading");
     getDoc(doc(db, "dashboard_snapshot", "latest"))
-      .then((snap) => {
+      .then(async (snap) => {
         if (!snap.exists()) {
           setErrorMessage("Noch kein Dashboard-Snapshot vorhanden. Bitte später erneut versuchen.");
           setLoadState("error");
           return;
         }
-        setData(snap.data() as DashboardSnapshot);
+        const snapshotData = snap.data() as DashboardSnapshot;
+        setData(snapshotData);
+
+        // Live-Stand bevorzugt (wird von WunschkaderTab.handleSave() sofort
+        // beschrieben, ohne auf den naechsten Pipeline-Lauf zu warten) -
+        // eigenstaendig abgefangen: ein Wunschkader-Lesefehler darf NICHT den
+        // gesamten Dashboard-Ladevorgang scheitern lassen, deshalb kein
+        // gemeinsames Promise.all() mit dem Snapshot-Read oben. Fallback auf
+        // die Snapshot-Kopie, wenn das Dokument noch nie gespeichert wurde
+        // oder der Read fehlschlaegt.
+        try {
+          const wunschkaderSnap = await getDoc(doc(db, "wunschkader", "current"));
+          if (wunschkaderSnap.exists()) {
+            const raw = wunschkaderSnap.data() as { targets?: RawWunschkaderTarget[] };
+            setWunschkader({ targets: raw.targets ?? [] });
+          } else {
+            setWunschkader({ targets: snapshotData.wunschkader_targets ?? [] });
+          }
+        } catch {
+          setWunschkader({ targets: snapshotData.wunschkader_targets ?? [] });
+        }
+
         setLoadState("ready");
       })
       .catch((err) => {
@@ -228,14 +250,18 @@ export default function App() {
             />
           </div>
         )}
-        {loadState === "ready" && data && data.players && (
+        {loadState === "ready" && data && data.players && wunschkader && (
           <div className={activeTab === "wunschkader" ? "" : "hidden"}>
-            <WunschkaderTab data={data} />
+            <WunschkaderTab
+              data={data}
+              wunschkader={wunschkader}
+              onSaved={(targets) => setWunschkader({ targets })}
+            />
           </div>
         )}
-        {loadState === "ready" && data && data.players && (
+        {loadState === "ready" && data && data.players && wunschkader && (
           <div className={activeTab === "team" ? "" : "hidden"}>
-            <EigenesTeamTab data={data} />
+            <EigenesTeamTab data={data} wunschkader={wunschkader} />
           </div>
         )}
         {loadState === "ready" && data && data.players && (
