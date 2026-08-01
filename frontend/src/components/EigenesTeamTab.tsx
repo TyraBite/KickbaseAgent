@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
-import { buildEigenesTeamSplit, liveModelMae, momentumAssessment, type EigenesTeamRow } from "../lib/derive";
+import { buildEigenesTeamSplit, liveModelMae, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import { Badge, CARD_TONE_CLASSES, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -22,7 +22,7 @@ const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 // ResolvedTarget (Task 14) hat kein ml_prediction-Feld - das bleibt bewusst so
 // (wunschkaderResolve.ts ist bereits reviewt/approved), daher hier lokal um das
 // Feld erweitert, damit MlPredictionRow (unveraendert) weiter funktioniert.
-type WatchlistRow = ResolvedTarget & { ml_prediction: number | null };
+type WatchlistRow = ResolvedTarget & { ml_prediction: number | null; ml_prediction_3d: number | null };
 
 type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; row: WatchlistRow } | null;
 
@@ -34,6 +34,7 @@ export default function EigenesTeamTab({
   wunschkader: { targets: RawWunschkaderTarget[] };
 }) {
   const liveMae = liveModelMae(data.ml_metrics);
+  const liveMae3d = liveModelMae(data.ml_metrics_3d ?? null);
   const split = useMemo(
     () => buildEigenesTeamSplit(data.players, data.own_squad_ids, wunschkader.targets, data.calibration, liveMae),
     [data.players, data.own_squad_ids, wunschkader.targets, data.calibration, liveMae]
@@ -51,6 +52,7 @@ export default function EigenesTeamTab({
         .map((t) => ({
           ...resolveTarget(t.player_id, data.players, ownSquadIdSet, listingsByPlayerId, data.owned_by, data.calibration),
           ml_prediction: data.players[t.player_id]?.ml_prediction ?? null,
+          ml_prediction_3d: data.players[t.player_id]?.ml_prediction_3d ?? null,
         })),
     [wunschkader.targets, ownSquadIdSet, data.players, listingsByPlayerId, data.owned_by, data.calibration]
   );
@@ -100,6 +102,7 @@ export default function EigenesTeamTab({
           row={selected.row}
           thresholds={thresholds}
           mae={liveMae}
+          mae3d={liveMae3d}
           players={data.players}
           calibration={data.calibration}
           onClose={() => setSelected(null)}
@@ -110,6 +113,7 @@ export default function EigenesTeamTab({
           row={selected.row}
           thresholds={thresholds}
           mae={liveMae}
+          mae3d={liveMae3d}
           players={data.players}
           calibration={data.calibration}
           onClose={() => setSelected(null)}
@@ -164,14 +168,30 @@ function CardShell({
   );
 }
 
-function MlPredictionRow({ value, mae }: { value: number | null; mae?: number | null }) {
+function MlPredictionRow({
+  value1d,
+  mae1d,
+  value3d,
+  mae3d,
+}: {
+  value1d: number | null;
+  mae1d?: number | null;
+  value3d: number | null;
+  mae3d?: number | null;
+}) {
   return (
-    <Row label="ML-Prognose">
-      <span className={trendClass(value)}>
-        {trendArrow(value, ML_PREDICTION_THRESHOLDS)} {fmtSigned(value)}
-      </span>
-      {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
-    </Row>
+    <>
+      <Row label="Prognose 1T">
+        <span className={trendClass(value1d)}>
+          {trendArrow(value1d, ML_PREDICTION_THRESHOLDS)} {fmtSigned(value1d)}
+        </span>
+        {mae1d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae1d)})</span>}
+      </Row>
+      <Row label="Prognose 3T">
+        {fmtSigned(value3d)}
+        {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
+      </Row>
+    </>
   );
 }
 
@@ -209,7 +229,7 @@ function PlayerCard({
         </div>
       }
     >
-      <MlPredictionRow value={row.ml_prediction} />
+      <MlPredictionRow value1d={row.ml_prediction} value3d={row.ml_prediction_3d} />
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
       <StatusLabelRow value={row.status_label} />
       <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
@@ -239,7 +259,7 @@ function WunschkaderWatchlistCard({
         </div>
       }
     >
-      <MlPredictionRow value={row.ml_prediction} />
+      <MlPredictionRow value1d={row.ml_prediction} value3d={row.ml_prediction_3d} />
       <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
       <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
       <StatusLabelRow value={row.status_label} />
@@ -299,6 +319,7 @@ function PlayerDetailModal({
   row,
   thresholds,
   mae,
+  mae3d,
   players,
   calibration,
   onClose,
@@ -306,6 +327,7 @@ function PlayerDetailModal({
   row: EigenesTeamRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
   mae: number | null;
+  mae3d: number | null;
   players: DashboardSnapshot["players"];
   calibration: DashboardSnapshot["calibration"];
   onClose: () => void;
@@ -348,11 +370,7 @@ function PlayerDetailModal({
             </Badge>
           </Row>
         )}
-        <MlPredictionRow value={row.ml_prediction} mae={mae} />
-        {(() => {
-          const assessment = momentumAssessment(row.ml_prediction, players[row.player_id]?.ml_prediction_3d ?? null, mae);
-          return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
-        })()}
+        <MlPredictionRow value1d={row.ml_prediction} mae1d={mae} value3d={row.ml_prediction_3d} mae3d={mae3d} />
         <Row label="Trend 7T">
           <span className={trendClass(row.market_value_change_7d)}>
             {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
@@ -384,6 +402,7 @@ function WatchlistDetailModal({
   row,
   thresholds,
   mae,
+  mae3d,
   players,
   calibration,
   onClose,
@@ -391,6 +410,7 @@ function WatchlistDetailModal({
   row: WatchlistRow;
   thresholds: DashboardSnapshot["signal_thresholds"];
   mae: number | null;
+  mae3d: number | null;
   players: DashboardSnapshot["players"];
   calibration: DashboardSnapshot["calibration"];
   onClose: () => void;
@@ -430,11 +450,7 @@ function WatchlistDetailModal({
         <Row label="Signal">
           <SignalBadge signal={row.signal} thresholds={thresholds} />
         </Row>
-        <MlPredictionRow value={row.ml_prediction} mae={mae} />
-        {(() => {
-          const assessment = momentumAssessment(row.ml_prediction, players[row.player_id]?.ml_prediction_3d ?? null, mae);
-          return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
-        })()}
+        <MlPredictionRow value1d={row.ml_prediction} mae1d={mae} value3d={row.ml_prediction_3d} mae3d={mae3d} />
         <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
         <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
         <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
