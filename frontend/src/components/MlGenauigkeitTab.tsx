@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlModelType } from "../types";
+import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlMetrics, MlModelType } from "../types";
 import { POSITIONS } from "../lib/formations";
 import { Badge } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -31,6 +31,8 @@ function fmtAccPct(v: number | null | undefined): string {
 export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) {
   const metrics = data.ml_metrics;
   const trend = data.ml_accuracy_trend ?? [];
+  const metrics3d = data.ml_metrics_3d ?? null;
+  const trend3d = data.ml_accuracy_trend_3d ?? [];
   const outcomeCounts: BidPremiumOutcomeCounts = data.bid_premium_outcome_counts ?? {};
 
   // Unabhaengig von ml_metrics (kommt aus market_predictor, kann bei einem
@@ -70,57 +72,75 @@ export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) 
     );
   }
 
+  return (
+    <div>
+      <HeadToHeadBlock metrics={metrics} heading="Kopf-an-Kopf (1-Tages-Horizont)" />
+      {metrics3d && <HeadToHeadBlock metrics={metrics3d} heading="Kopf-an-Kopf (3-Tages-Horizont)" />}
+
+      {bidPremiumSection}
+
+      <TrendSection heading="Trend: Richtungs-Genauigkeit über die Zeit (1-Tages-Horizont)" trend={trend} />
+      {metrics3d && (
+        <TrendSection heading="Trend: Richtungs-Genauigkeit über die Zeit (3-Tages-Horizont)" trend={trend3d} />
+      )}
+    </div>
+  );
+}
+
+function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: string }) {
   const reasonLabel = metrics.selection_reason
     ? SELECTION_REASON_LABELS[metrics.selection_reason] ?? metrics.selection_reason
     : "unbekannt";
 
   return (
-    <div>
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">Kopf-an-Kopf</h3>
-        <p className="mb-1 text-sm text-slate-700 dark:text-slate-300">
-          Aktuell live: <b>{MODEL_LABELS[metrics.model_type] ?? metrics.model_type}</b>
-        </p>
-        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-          Auswahlgrund: {reasonLabel} · Kartenwerte unten = 30-Tage-Fenster für die Modellauswahl, unabhängig vom
-          Betrachtungszeitraum im Chart weiter unten (komplette Historie).
-        </p>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-          {MODEL_ORDER.map((name) => {
-            const isLive = metrics.model_type === name;
-            const realized = metrics.realized_by_model?.[name]?.realized_30d;
-            return (
-              <div key={name} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-                <div className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-50">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ background: MODEL_COLORS[name].light }}
-                  />
-                  {MODEL_LABELS[name]}
-                  {isLive && <Badge tone="good">Live</Badge>}
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {realized ? (
-                    <>
-                      Richtung korrekt <b>{fmtAccPct(realized.sign_accuracy)}</b> · MAE <b>{fmtNum(realized.mae)}</b> · n={realized.n}
-                    </>
-                  ) : (
-                    "Noch keine abgeschlossenen Prognosen im 30-Tage-Fenster"
-                  )}
-                </div>
+    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">{heading}</h3>
+      <p className="mb-1 text-sm text-slate-700 dark:text-slate-300">
+        Aktuell live: <b>{MODEL_LABELS[metrics.model_type] ?? metrics.model_type}</b>
+      </p>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+        Auswahlgrund: {reasonLabel} · Kartenwerte unten = 30-Tage-Fenster für die Modellauswahl, unabhängig vom
+        Betrachtungszeitraum im Chart weiter unten (komplette Historie).
+      </p>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+        {MODEL_ORDER.map((name) => {
+          const isLive = metrics.model_type === name;
+          const realized = metrics.realized_by_model?.[name]?.realized_30d;
+          return (
+            <div key={name} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+              <div className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-50">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ background: MODEL_COLORS[name].light }}
+                />
+                {MODEL_LABELS[name]}
+                {isLive && <Badge tone="good">Live</Badge>}
               </div>
-            );
-          })}
-        </div>
-        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          MAE = mittlere Abweichung der Prognose vom tatsächlichen Marktwert, unabhängig von der Richtung (zu hoch
-          und zu niedrig zählen beide gleich) – ein grobes Maß fürs "Rauschen" der Prognose.
-        </p>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                {realized ? (
+                  <>
+                    Richtung korrekt <b>{fmtAccPct(realized.sign_accuracy)}</b> · MAE <b>{fmtNum(realized.mae)}</b> · n={realized.n}
+                  </>
+                ) : (
+                  "Noch keine abgeschlossenen Prognosen im 30-Tage-Fenster"
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
+      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+        MAE = mittlere Abweichung der Prognose vom tatsächlichen Marktwert, unabhängig von der Richtung (zu hoch
+        und zu niedrig zählen beide gleich) – ein grobes Maß fürs "Rauschen" der Prognose.
+      </p>
+    </div>
+  );
+}
 
-      {bidPremiumSection}
-
-      <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">Trend: Richtungs-Genauigkeit über die Zeit</h3>
+function TrendSection({ heading, trend }: { heading: string; trend: MlAccuracyTrendEntry[] }) {
+  return (
+    <div className="mb-6">
+      <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">{heading}</h3>
       <TrendChart trend={trend} />
     </div>
   );
