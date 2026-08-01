@@ -555,7 +555,6 @@ def export() -> dict:
         own_squad_ids=[r["player_id"] for r in own_squad],
         owned_by=heavy["owned_by"],
         wunschkader_targets=wunschkader_targets,
-        wunschkader_formation=wunschkader_config.get("formation") if wunschkader_config else None,
         ligaanalyse_rows=ligaanalyse_result["rows"],
         position_need=ligaanalyse_result["position_need"],
     )
@@ -581,7 +580,6 @@ def _assemble_snapshot(
     own_squad_ids,
     owned_by,
     wunschkader_targets,
-    wunschkader_formation,
     ligaanalyse_rows,
     position_need,
 ) -> dict:
@@ -608,7 +606,6 @@ def _assemble_snapshot(
         "own_squad_ids": own_squad_ids,
         "owned_by": owned_by,
         "wunschkader_targets": wunschkader_targets,
-        "wunschkader_formation": wunschkader_formation,
         "ligaanalyse": ligaanalyse_rows,
         "position_need": position_need,
     }

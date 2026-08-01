@@ -779,7 +779,7 @@ class AssembleSnapshotContractTests(unittest.TestCase):
         "fetched_at", "generated_at", "own_available_budget", "own_budget_exact", "calibration",
         "ml_metrics", "ml_accuracy_trend", "ml_metrics_3d", "ml_accuracy_trend_3d", "signal_thresholds", "players",
         "bid_premium_history", "bid_premium_outcome_counts", "transfermarkt_listings",
-        "own_squad_ids", "owned_by", "wunschkader_targets", "wunschkader_formation",
+        "own_squad_ids", "owned_by", "wunschkader_targets",
         "ligaanalyse", "position_need",
     }
 
@@ -801,7 +801,6 @@ class AssembleSnapshotContractTests(unittest.TestCase):
             own_squad_ids=[],
             owned_by={},
             wunschkader_targets=[],
-            wunschkader_formation=None,
             ligaanalyse_rows=[],
             position_need={},
         )

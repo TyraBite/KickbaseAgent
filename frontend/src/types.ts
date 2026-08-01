@@ -153,7 +153,6 @@ export interface DashboardSnapshot {
   own_squad_ids: string[];
   owned_by: Record<string, string>;
   wunschkader_targets: RawWunschkaderTarget[];
-  wunschkader_formation: string | null;
   ligaanalyse: LigaanalyseRow[];
   ml_metrics: MlMetrics | null;
   ml_accuracy_trend: MlAccuracyTrendEntry[] | null;
