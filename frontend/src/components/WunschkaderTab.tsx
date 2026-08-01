@@ -267,8 +267,18 @@ export default function WunschkaderTab({
         <span className="text-sm text-slate-600 dark:text-slate-300">
           Formation:{" "}
           <span className="font-medium text-slate-900 dark:text-slate-100">
-            {matchedFormation(startingCounts) ??
-              `noch nicht komplett (${POSITIONS.reduce((sum, p) => sum + startingCounts[p], 0)}/11 Spieler inkl. Torwart)`}
+            {(() => {
+              const matched = matchedFormation(startingCounts);
+              if (matched) return matched;
+              const filled = POSITIONS.reduce((sum, p) => sum + startingCounts[p], 0);
+              // "In Startelf verschieben" (toggleBench) prueft die Formations-Machbarkeit
+              // nicht - eine ungueltige Kombination (z.B. 2 Torwaerter) kann daher trotz
+              // filled>=11 keine Formation matchen. Ohne diese Unterscheidung wuerde
+              // "noch nicht komplett" hier faelschlich weitere Ziele nahelegen.
+              return filled >= 11
+                ? `ungültige Aufstellung (${filled}/11 Spieler inkl. Torwart)`
+                : `noch nicht komplett (${filled}/11 Spieler inkl. Torwart)`;
+            })()}
           </span>
         </span>
         {totalCount > MAX_SQUAD_SIZE && (
