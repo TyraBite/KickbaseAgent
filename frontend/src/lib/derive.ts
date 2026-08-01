@@ -9,59 +9,6 @@ export function liveModelMae(metrics: MlMetrics | null): number | null {
   return metrics?.realized_by_model?.[metrics.model_type]?.realized_30d?.mae ?? null;
 }
 
-export type MomentumConfidence = "sicher" | "wahrscheinlich" | "unsicher";
-
-export interface MomentumAssessment {
-  confidence: MomentumConfidence;
-  direction: "steigend" | "fallend";
-  agreesWith3d: boolean | null;
-  label: string;
-}
-
-// Reine Ableitung aus bereits vorhandenen Zahlen (1-Tages-Prognose, primaer;
-// 3-Tages-Prognose als Relativierer; MAE des 1-Tages-Modells als
-// Unsicherheits-Mass) - kein neues Training noetig. Konfidenz-Schwellen
-// beziehen sich bewusst NUR auf die 1-Tages-Prognose (der primaere
-// Indikator), die 3-Tages-Prognose beeinflusst nur den Text, nicht die
-// Konfidenz-Stufe selbst.
-export function momentumAssessment(
-  prediction1d: number | null,
-  prediction3d: number | null,
-  mae: number | null
-): MomentumAssessment | null {
-  if (prediction1d === null) return null;
-
-  const direction: "steigend" | "fallend" = prediction1d > 0 ? "steigend" : "fallend";
-  let confidence: MomentumConfidence;
-  if (mae === null) {
-    confidence = "wahrscheinlich";
-  } else if (Math.abs(prediction1d) > 2 * mae) {
-    confidence = "sicher";
-  } else if (Math.abs(prediction1d) > mae) {
-    confidence = "wahrscheinlich";
-  } else {
-    // Schwelle identisch zu sellSignal()s "unklar"-Trigger - bewusst, siehe dort
-    confidence = "unsicher";
-  }
-
-  const confidenceLabel = confidence.charAt(0).toUpperCase() + confidence.slice(1);
-  let label = `${confidenceLabel} ${direction} (${fmtSigned(prediction1d)}`;
-  label += mae !== null ? `, Modell-Ungenauigkeit ±${fmtNum(mae)})` : ")";
-
-  let agreesWith3d: boolean | null = null;
-  if (prediction3d !== null) {
-    agreesWith3d = Math.sign(prediction3d) === Math.sign(prediction1d) || prediction3d === 0;
-    if (agreesWith3d) {
-      label += ` — 3-Tage-Trend bestätigt (${fmtSigned(prediction3d)})`;
-    } else {
-      const dir3d = prediction3d > 0 ? "steigend" : "fallend";
-      label += ` — 3-Tage-Trend zeigt aber ${dir3d} (${fmtSigned(prediction3d)}), evtl. nur kurzfristiges Rauschen`;
-    }
-  }
-
-  return { confidence, direction, agreesWith3d, label };
-}
-
 // 1:1 Port von player_valuation.py::k_for_position()
 export function kForPosition(calibration: Calibration | null, position: string): number | null {
   if (!calibration) return null;
@@ -254,7 +201,9 @@ export function sellSignal(
   mae: number | null
 ): "halten" | "verkaufen" | "unklar" {
   const pred = mlPrediction ?? 0;
-  // Schwelle identisch zu momentumAssessment()s "unsicher"-Stufe - bewusst, siehe dort
+  // "unklar", wenn die Prognose betragsmaessig innerhalb der Modell-Ungenauigkeit
+  // (MAE) liegt - dann ist die Richtung nicht verlaesslich genug fuer eine klare
+  // Kauf/Verkauf-Aussage.
   if (mae !== null && Math.abs(pred) <= mae) return "unklar";
   return pred > 0 ? "halten" : "verkaufen";
 }
@@ -265,7 +214,8 @@ export interface PlayerRow {
   market_value: number | null; market_value_change_7d: number | null;
   market_value_low_92d: number | null; market_value_high_92d: number | null;
   average_points: number | null;
-  fairwert: number | null; signal: number | null; ml_prediction: number | null;
+  fairwert: number | null; signal: number | null;
+  ml_prediction: number | null; ml_prediction_3d: number | null;
 }
 
 export function buildPlayerRow(player: PlayerRecord, calibration: Calibration | null): PlayerRow {
@@ -278,7 +228,9 @@ export function buildPlayerRow(player: PlayerRecord, calibration: Calibration | 
     market_value_low_92d: player.market_value_low_92d ?? null,
     market_value_high_92d: player.market_value_high_92d ?? null,
     average_points: player.average_points,
-    fairwert, signal, ml_prediction: player.ml_prediction ?? null,
+    fairwert, signal,
+    ml_prediction: player.ml_prediction ?? null,
+    ml_prediction_3d: player.ml_prediction_3d ?? null,
   };
 }
 
@@ -316,7 +268,8 @@ export interface SpekulationRow {
   market_value: number | null;
   roi_pct: number; average_points: number | null; market_value_change_7d: number | null;
   market_value_low_92d: number | null; market_value_high_92d: number | null;
-  ml_prediction: number | null; auction_status: string | null; auction_urgent: boolean; auction_critical: boolean;
+  ml_prediction: number | null; ml_prediction_3d: number | null;
+  auction_status: string | null; auction_urgent: boolean; auction_critical: boolean;
   auction_remaining_seconds: number | null; auction_expires_at: string | null;
 }
 
@@ -332,7 +285,7 @@ export function buildSpekulationRows(transfermarktRows: TransfermarktRow[]): Spe
       market_value: r.market_value,
       roi_pct: roiPct(r.ml_prediction, r.price)!,
       average_points: r.average_points, market_value_change_7d: r.market_value_change_7d,
-      ml_prediction: r.ml_prediction,
+      ml_prediction: r.ml_prediction, ml_prediction_3d: r.ml_prediction_3d,
       auction_status: r.auction_status, auction_remaining_seconds: r.auction_remaining_seconds,
       auction_urgent: r.auction_urgent, auction_critical: r.auction_critical, auction_expires_at: r.auction_expires_at,
       market_value_low_92d: r.market_value_low_92d, market_value_high_92d: r.market_value_high_92d,
