@@ -1,4 +1,4 @@
-import { fmtNum, fmtSigned, formatDurationMs } from "../format";
+import { formatDurationMs } from "../format";
 import type { BidPremiumEntry, Calibration, MlMetrics, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
 
 // MAE des aktuell LIVE geschalteten Modells (nicht pauschal irgendein

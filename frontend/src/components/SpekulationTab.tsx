@@ -10,7 +10,7 @@ type SortKey = "auction" | "ml" | "roi" | "price" | "trend" | "name";
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "auction", label: "Auktion (Standard)" },
-  { value: "ml", label: "ML-Prognose" },
+  { value: "ml", label: "Prognose 1T" },
   { value: "roi", label: "Rendite%" },
   { value: "price", label: "Preis" },
   { value: "trend", label: "Trend 7T" },
@@ -24,8 +24,8 @@ const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 
 // Methodik-Hinweis 1:1 aus der bestehenden index.html übernommen (mit Umlauten).
 const HINT =
-  "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive ML-Prognose. " +
-  "ML-Prognose ist nur eine 1-Tages-Vorhersage – Spekulation stützt sich auf den laufenden Trend, nicht allein aufs Modell. Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Update ab, ⏰ zusätzlich wenn nur noch bis zu 60 Minuten bleiben.";
+  "Kauf-und-Wiederverkauf-Kandidaten, nur Systemangebote (Festpreis = Marktwert, kein Mitspieler-Aufschlag), positive Prognose 1T. " +
+  "Prognose 1T ist nur eine 1-Tages-Vorhersage – Spekulation stützt sich auf den laufenden Trend, nicht allein aufs Modell. Prognose 3T ist rein informativ, fließt nicht in Auswahl/Sortierung ein. Rot markierte Auktionen laufen vor dem nächsten 22-Uhr-Update ab, ⏰ zusätzlich wenn nur noch bis zu 60 Minuten bleiben.";
 
 function sortRows(rows: SpekulationRow[], key: SortKey): SpekulationRow[] {
   const sorted = [...rows];
@@ -93,7 +93,7 @@ export default function SpekulationTab({
   if (!rows.length) {
     return (
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        Aktuell keine Spekulations-Kandidaten mit positiver ML-Prognose auf dem Markt.
+        Aktuell keine Spekulations-Kandidaten mit positiver Prognose 1T auf dem Markt.
       </p>
     );
   }

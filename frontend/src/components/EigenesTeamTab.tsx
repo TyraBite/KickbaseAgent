@@ -14,14 +14,14 @@ import PlayerCompareModal from "./PlayerCompareModal";
 // nicht "eigenen Spieler halten/verkaufen"). Trend 7T/Signal/Status-Text
 // zusaetzlich aus der Kachel raus in die Detailansicht verschoben (User-
 // Feedback nach erstem Feld-Audit 2026-07-29) - Kachel zeigt nur noch
-// Marktwert/Schnitt/ML-Prognose/Startelf-Rang, Status als kompaktes Badge
+// Marktwert/Schnitt/Prognose 1T+3T/Startelf-Rang, Status als kompaktes Badge
 // statt Text-Zeile.
 const TREND_7D_THRESHOLDS = { flat: 200_000, strong: 1_500_000 };
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 
 // ResolvedTarget (Task 14) hat kein ml_prediction-Feld - das bleibt bewusst so
 // (wunschkaderResolve.ts ist bereits reviewt/approved), daher hier lokal um das
-// Feld erweitert, damit MlPredictionRow (unveraendert) weiter funktioniert.
+// Feld erweitert, damit MlPredictionRow weiter funktioniert.
 type WatchlistRow = ResolvedTarget & { ml_prediction: number | null; ml_prediction_3d: number | null };
 
 type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; row: WatchlistRow } | null;
