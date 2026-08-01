@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { DashboardSnapshot } from "../types";
+import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildEigenesTeamSplit, liveModelMae, momentumAssessment, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
@@ -26,11 +26,17 @@ type WatchlistRow = ResolvedTarget & { ml_prediction: number | null };
 
 type Selected = { kind: "player"; row: EigenesTeamRow } | { kind: "watchlist"; row: WatchlistRow } | null;
 
-export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
+export default function EigenesTeamTab({
+  data,
+  wunschkader,
+}: {
+  data: DashboardSnapshot;
+  wunschkader: { targets: RawWunschkaderTarget[] };
+}) {
   const liveMae = liveModelMae(data.ml_metrics);
   const split = useMemo(
-    () => buildEigenesTeamSplit(data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration, liveMae),
-    [data.players, data.own_squad_ids, data.wunschkader_targets, data.calibration, liveMae]
+    () => buildEigenesTeamSplit(data.players, data.own_squad_ids, wunschkader.targets, data.calibration, liveMae),
+    [data.players, data.own_squad_ids, wunschkader.targets, data.calibration, liveMae]
   );
 
   const ownSquadIdSet = useMemo(() => new Set(data.own_squad_ids), [data.own_squad_ids]);
@@ -40,13 +46,13 @@ export default function EigenesTeamTab({ data }: { data: DashboardSnapshot }) {
   );
   const watchlist: WatchlistRow[] = useMemo(
     () =>
-      data.wunschkader_targets
+      wunschkader.targets
         .filter((t) => !ownSquadIdSet.has(t.player_id))
         .map((t) => ({
           ...resolveTarget(t.player_id, data.players, ownSquadIdSet, listingsByPlayerId, data.owned_by, data.calibration),
           ml_prediction: data.players[t.player_id]?.ml_prediction ?? null,
         })),
-    [data.wunschkader_targets, ownSquadIdSet, data.players, listingsByPlayerId, data.owned_by, data.calibration]
+    [wunschkader.targets, ownSquadIdSet, data.players, listingsByPlayerId, data.owned_by, data.calibration]
   );
   const thresholds = data.signal_thresholds;
   const [selected, setSelected] = useState<Selected>(null);
