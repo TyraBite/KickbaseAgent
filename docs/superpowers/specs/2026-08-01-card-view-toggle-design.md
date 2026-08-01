@@ -15,7 +15,7 @@ Feedback-Eintrag (`feedback/current`, 2026-08-01): "Transfermarkt und Alle Spiel
 - Karten-Klick ruft denselben `onSelect`/`setSelected`-Callback auf, der heute schon per Zeilen-Klick das bestehende Detail-Modal öffnet — keine neue Modal-Logik in diesem Vorhaben.
 
 **Kartenfelder — kuratiert, nicht 1:1 alle Tabellenspalten** (Vorbild `SpekulationCard`: 5 von ~8 Tabellenspalten):
-- `TransfermarktCard`: Preis, ML-Prognose, Signal, Trend 7T, Auktion, Gebotsempfehlung.
+- `TransfermarktCard`: Preis, ML-Prognose (1T UND 3T — beide Daten existieren bereits über `PlayerRecord.ml_prediction_3d`, siehe `momentumAssessment()`-Nutzung in dieser Datei), Signal, Trend 7T, Auktion, Gebotsempfehlung.
 - `AlleSpielerCard`: Verfügbarkeit, Fitness, Schnitt, Signal, Marktwert.
 - Beide Karten übernehmen den bestehenden Karten-Header-Stil (Vereinswappen + Name + Positions-Badge, siehe `SpekulationCard`s `CardHeader`) und dieselben Tailwind-Klassen für Karte/Grid (`rounded-2xl border ... hover:-translate-y-0.5 ...`, Grid `grid-cols-[repeat(auto-fill,minmax(260px,1fr))]`).
 

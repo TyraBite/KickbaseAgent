@@ -166,6 +166,7 @@ ersetzen durch:
             <TransfermarktCard
               key={r.player_id}
               row={r}
+              player={data.players[r.player_id]}
               bidHistory={data.bid_premium_history ?? []}
               thresholds={thresholds}
               onSelect={() => setSelected(r)}
@@ -184,11 +185,13 @@ Am Ende der Datei ergänzen (nach der bestehenden `TransfermarktDetailModal`-Fun
 ```tsx
 function TransfermarktCard({
   row,
+  player,
   bidHistory,
   thresholds,
   onSelect,
 }: {
   row: TransfermarktRow;
+  player: PlayerRecord | undefined;
   bidHistory: BidPremiumEntry[];
   thresholds: DashboardSnapshot["signal_thresholds"];
   onSelect: () => void;
@@ -221,6 +224,15 @@ function TransfermarktCard({
             {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
           </span>
         </Row>
+        <Row label="ML-Prognose 3T">
+          {player?.ml_prediction_3d != null ? (
+            <span className={trendClass(player.ml_prediction_3d)}>
+              {trendArrow(player.ml_prediction_3d, ML_PREDICTION_THRESHOLDS)} {fmtSigned(player.ml_prediction_3d)}
+            </span>
+          ) : (
+            <span className="text-slate-400 dark:text-slate-500">n/v</span>
+          )}
+        </Row>
         <Row label="Signal">
           <SignalBadge signal={row.signal} thresholds={thresholds} />
         </Row>
@@ -251,7 +263,7 @@ function TransfermarktCard({
 }
 ```
 
-(`TransfermarktRow`, `BidPremiumEntry`, `DashboardSnapshot`, `Badge`, `PositionBadge`, `Row`, `SignalBadge`, `TeamCrest`, `fmtNum`, `fmtSigned`, `trendArrow`, `trendClass`, `suggestBid`, `TREND_7D_THRESHOLDS`, `ML_PREDICTION_THRESHOLDS` sind alle schon oben in der Datei importiert/definiert — keine neuen Imports nötig.)
+(`TransfermarktRow`, `PlayerRecord`, `BidPremiumEntry`, `DashboardSnapshot`, `Badge`, `PositionBadge`, `Row`, `SignalBadge`, `TeamCrest`, `fmtNum`, `fmtSigned`, `trendArrow`, `trendClass`, `suggestBid`, `TREND_7D_THRESHOLDS`, `ML_PREDICTION_THRESHOLDS` sind alle schon oben in der Datei importiert/definiert — `PlayerRecord` insbesondere schon für `TransfermarktDetailModal`s `player`-Prop genutzt, `player?.ml_prediction_3d` ist derselbe Zugriffspfad wie in `momentumAssessment(row.ml_prediction, player?.ml_prediction_3d ?? null, mae)` weiter unten in derselben Datei — keine neuen Imports nötig.)
 
 - [ ] **Step 5: Verify**
 
