@@ -7,6 +7,7 @@ import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import PlayerNamePicker from "./PlayerNamePicker";
 import PlayerCompareModal from "./PlayerCompareModal";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
+import { useViewMode } from "../lib/useViewMode";
 
 const POSITIONS = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
 type Verfuegbarkeit = "all" | "frei" | "eigen" | "andere";
@@ -49,6 +50,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
   const marketValueMax = marketValueMaxInput.trim() === "" ? maxMarketValue : Number(marketValueMaxInput) || maxMarketValue;
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
+  const [viewMode, setViewMode] = useViewMode("kickbaseagent_view_alle_spieler");
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -147,8 +149,32 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
         <span className="text-xs text-slate-500 dark:text-slate-400">
           {visible.length} von {allRows.length} Spielern sichtbar
         </span>
+        <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setViewMode("cards")}
+            className={`px-3 py-2 ${viewMode === "cards" ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"}`}
+          >
+            Karten
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            className={`px-3 py-2 ${viewMode === "table" ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"}`}
+          >
+            Liste
+          </button>
+        </div>
       </div>
-      <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} onRowClick={setSelected} />
+      {viewMode === "cards" ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
+          {visible.map((r) => (
+            <AlleSpielerCard key={r.player_id} row={r} thresholds={thresholds} onSelect={() => setSelected(r)} />
+          ))}
+        </div>
+      ) : (
+        <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} onRowClick={setSelected} />
+      )}
       {selected && (
         <AlleSpielerDetailModal
           row={selected}
@@ -211,6 +237,50 @@ function RankFilter({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function AlleSpielerCard({
+  row,
+  thresholds,
+  onSelect,
+}: {
+  row: AlleSpielerRow;
+  thresholds: DashboardSnapshot["signal_thresholds"];
+  onSelect: () => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-600"
+    >
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <TeamCrest teamName={row.team_name} />
+        <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+        <PositionBadge position={row.position} />
+      </div>
+      <dl className="space-y-1.5 text-sm">
+        <Row label="Verfügbarkeit">
+          <Badge tone={ownerTone(row.owner)}>{row.owner}</Badge>
+        </Row>
+        <Row label="Fitness">
+          <FitnessBadge label={row.status_label} />
+        </Row>
+        <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+        <Row label="Signal">
+          <SignalBadge signal={row.signal} thresholds={thresholds} />
+        </Row>
+        <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+      </dl>
     </div>
   );
 }
