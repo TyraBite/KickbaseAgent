@@ -2,11 +2,19 @@ name: Dashboard Update (Heavy, Marktwerte + ML)
 
 on:
   schedule:
-    # einmal/Tag um 22:05 Europe/Berlin (CET-Basis/Winterzeit-Aequivalent:
-    # 21:05 UTC). Waehrend CEST (Sommerzeit) verschiebt sich das lokal auf
-    # ca. 23:05 Uhr - Drift zwischen CET/CEST akzeptiert, wie bisher bei
-    # dashboard.yml (kein DST-Erkennungs-Code, bewusst einfach gehalten).
-    - cron: '7 21 * * *' # 21:07 statt 21:05 UTC - nur knapp verschoben, um der :05-Lastspitze auszuweichen; User will neue Marktwerte so frueh wie moeglich, deshalb kein grosser Sprung wie bei dashboard.yml
+    # Ziel: realer Lauf so nah wie moeglich an 22:07 Europe/Berlin (Kickbase
+    # aktualisiert Marktwerte dort ca. 22 Uhr). GitHub Actions' schedule-
+    # Trigger ist nur "best effort" - 3 live gemessene Laeufe (2026-07-29
+    # bis -31) zeigten 59-66min Verzoegerung ggue. der Cron-Zeit. Deshalb
+    # NICHT auf die Zielzeit selbst gelegt, sondern um die durchschnittliche
+    # Verzoegerung (~63min) vorverlegt: 20:07 UTC (Ziel, CEST) - 63min =
+    # 19:04 UTC. Aktuell auf CEST (Sommerzeit, UTC+2) beruhend - MUSS beim
+    # DST-Wechsel im Herbst auf CET (UTC+1) neu justiert werden (dann waere
+    # die Zielzeit 21:07 UTC, Cron entsprechend auf ca. 20:04 UTC), sonst
+    # wandert der reale Lauf wieder eine Stunde zu spaet. Der Guard-Schritt
+    # unten haelt trotzdem hart an "nicht vor 22 Uhr Berlin" fest, falls die
+    # Verzoegerung an einem Tag kleiner ausfaellt als die 3 Messwerte.
+    - cron: '4 19 * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -16,19 +24,40 @@ jobs:
   dashboard-marktwerte:
     runs-on: ubuntu-latest
     steps:
+      - name: Guard - nicht vor 22 Uhr Berlin ausfuehren
+        id: gate
+        run: |
+          hour=$(TZ='Europe/Berlin' date +%H)
+          hour=$((10#$hour))
+          # Block nur im Nachmittags-/Abendfenster VOR dem Kickbase-Update
+          # (12-21 Uhr). 0-11 Uhr bewusst erlaubt, falls ein GH-Ausfall den
+          # Lauf erst weit nach Mitternacht nachholt (siehe Warnings) - sonst
+          # wuerde so ein Nachhol-Lauf faelschlich als "zu frueh" geblockt.
+          if (( hour >= 12 && hour < 22 )); then
+            echo "Berlin-Zeit ${hour}:xx - vor 22 Uhr, Kickbase hat Marktwerte vermutlich noch nicht aktualisiert. Lauf wird uebersprungen."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.proceed == 'true'
 
       - uses: actions/setup-python@v5
+        if: steps.gate.outputs.proceed == 'true'
         with:
           python-version: '3.11'
 
       - name: Install dependencies
+        if: steps.gate.outputs.proceed == 'true'
         run: pip install -r requirements.txt
 
       - name: Write Firebase service account key
+        if: steps.gate.outputs.proceed == 'true'
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/firebase-service-account.json"
 
       - name: Fetch data, build dashboard (voller Marktwert-Lauf)
+        if: steps.gate.outputs.proceed == 'true'
         env:
           KICKBASE_EMAIL: ${{ secrets.KICKBASE_EMAIL }}
           KICKBASE_PASSWORD: ${{ secrets.KICKBASE_PASSWORD }}
