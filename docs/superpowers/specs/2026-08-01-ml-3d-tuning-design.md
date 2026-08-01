@@ -25,10 +25,32 @@ User-Vermutung: das 3-Tages-Modell könnte andere Hyperparameter brauchen (ander
 
 **Setup identisch zum letzten Mal**: `.venv-tuning/` (schon in `.gitignore`) mit `pip install lightgbm xgboost` zusätzlich zu den Projekt-Requirements, `tuning-results/` (schon in `.gitignore`) für optionale Log-Umleitung.
 
+## Nebenprodukt: 3T-Trend-Pfeil-Schwellen fürs Frontend
+
+Unabhängig davon, ob die Hyperparameter-Suche einen Gewinner findet: die parallel entstandene Frontend-Spec
+`docs/superpowers/specs/2026-08-01-ml-horizonte-frontend-anzeige-design.md` (Prognose 1T/3T sichtbar machen) zeigt
+die 3-Tages-Prognose vorerst OHNE Trend-Pfeil-Einfärbung, weil dafür kalibrierte Schwellenwerte fehlen — die
+bestehende `ML_PREDICTION_THRESHOLDS`-Konstante (`{flat: 20_000, strong: 100_000}`) ist aus der 1-Tages-Verteilung
+abgelesen (`kickbase.db`/`ml_prediction_log.jsonl`, siehe Commit `d888431`) und für die strukturell größeren
+3-Tages-Werte nicht direkt übertragbar.
+
+**Direkt nach dem "Kurzen Check"** (siehe Plan, unabhängig vom Tuning-Ergebnis) wird deshalb zusätzlich die reale
+Verteilung der bereits geloggten `ml_prediction_3d`/`horizon_days:3`-Werte gesichtet (Datenbasis: der bereits
+gelaufene 90-Tage-Backfill in der `ml_prediction_log`-Collection, siehe HANDOFF.md, 176 Tages-Aggregate, plus was
+der tägliche Heavy-Cron seither ergänzt hat) und daraus eine `ML_PREDICTION_3D_THRESHOLDS`-Konstante (`flat`/
+`strong`, gerundet, analog zur bestehenden Vorgehensweise) abgeleitet. Kein neues Skript nötig — ein kurzer,
+einmaliger Pandas-Quantile-Schnipsel reicht, kein Teil von `experiment_target3d_tuning.py` selbst (andere
+Datenquelle: geloggte Live-Prognosen statt Trainings-Historie).
+
+Sobald die Werte feststehen, ist das Nachziehen im Frontend ein kleiner, eigenständiger Folge-Schritt (Konstante
+ergänzen, `trendArrow`/`trendClass` für Prognose 3T aktivieren) — nicht Teil dieses Vorhabens, aber hier vermerkt,
+damit es nicht zwischen den beiden Specs verloren geht.
+
 ## Verification / Nächste Schritte
 
 - Das Skript selbst hat keine automatisierten Tests (einmaliges Experiment, kein Produktionscode — etabliertes Muster, siehe alle vorherigen `experiment_*.py`).
 - Manuelle Verifikation beim Ausführen: `BASELINE`-Zeilen müssen erscheinen, bevor die Suche beginnt; `ERGEBNIS`-Zeilen laufend während der Suche; `ENDERGEBNIS`-Bestenliste am Ende, nach MAE sortiert.
 - **Falls ein Gewinner gefunden wird** (schlägt die 3-Tage-Baseline nach obigem Kriterium): eigener Folge-Task, NICHT Teil dieses Plans — `_build_candidates()` bekäme eine horizon-abhängige Signatur (z.B. `target_col`-Parameter, der die HistGradientBoosting-Parameter umschaltet), inkl. Anpassung von `_walk_forward_backtest()`/`_train_and_evaluate()`-Aufrufstellen und Tests.
 - **Falls kein Gewinner gefunden wird**: Ergebnis dokumentieren (HANDOFF.md, analog zu den bisherigen "Failed Approaches"-Einträgen) — die geteilte Config bleibt bestehen, mit jetzt echtem Beleg, dass sie auch für `TARGET_3D` ein guter Punkt ist.
+- 3T-Trend-Pfeil-Schwellen (siehe oben) unabhängig vom Tuning-Ausgang ableiten und in die Frontend-Spec einpflegen.
 - Skript nach dem Lauf wieder löschen (etabliertes Muster).

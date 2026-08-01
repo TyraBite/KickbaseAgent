@@ -32,8 +32,10 @@ Entschieden im Brainstorming (siehe Chat, 2026-08-01):
   `momentumAssessment()`, nutzt weiterhin nur die 1-Tages-Prognose + MAE.
 - Keine neuen Backend-/Firestore-Felder — `ml_prediction_3d`/`ml_metrics_3d`/`ml_accuracy_trend_3d` existieren
   bereits (seit dem ML-Horizonte-Feature), dieses Vorhaben ist rein Frontend-Anzeige.
-- Keine eigene 3T-Kalibrierung der Trend-Pfeil-Schwellen (`ML_PREDICTION_THRESHOLDS`) in diesem Vorhaben — siehe
-  Abschnitt "Trend-Pfeil für Prognose 3T" unten.
+- Keine eigene 3T-Kalibrierung der Trend-Pfeil-Schwellen (`ML_PREDICTION_THRESHOLDS`) in diesem Vorhaben — das
+  passiert als Nebenprodukt der 3-Tage-Hyperparameter-Suche (siehe
+  `docs/superpowers/specs/2026-08-01-ml-3d-tuning-design.md`, Abschnitt "Nebenprodukt: 3T-Trend-Pfeil-Schwellen
+  fürs Frontend") und ist dort verfolgt, nicht hier. Siehe Abschnitt "Trend-Pfeil für Prognose 3T" unten.
 
 ## Datenmodell: `PlayerRow` um `ml_prediction_3d` erweitern
 
@@ -59,9 +61,11 @@ gelöschte Funktion).
 der 1-Tages-Verteilung kalibriert. Eine 3-Tage-Prognose ist strukturell größer (kumulierte Bewegung über 3 Tage),
 dieselben Schwellen würden sie zu oft als "stark" markieren. Da das 3-Tage-Signal erst seit 2026-07-31 läuft, gibt
 es noch keine belastbare eigene Verteilung. Prognose 3T wird deshalb vorerst **ohne** `trendArrow`/`trendClass`
-dargestellt — reine Zahl mit Vorzeichen (`fmtSigned`), optional MAE in Klammern, kein Pfeil/keine Farbe. Sobald
-genug 3T-Historie vorliegt, kann eine eigene `ML_PREDICTION_3D_THRESHOLDS`-Konstante nachgezogen werden (nicht Teil
-dieses Vorhabens).
+dargestellt — reine Zahl mit Vorzeichen (`fmtSigned`), optional MAE in Klammern, kein Pfeil/keine Farbe. Die
+`ML_PREDICTION_3D_THRESHOLDS`-Konstante wird als Teil der 3-Tage-Hyperparameter-Suche abgeleitet (siehe
+`docs/superpowers/specs/2026-08-01-ml-3d-tuning-design.md`) — sobald sie feststeht, ist das Nachziehen hier ein
+kleiner eigenständiger Folge-Schritt (Konstante ergänzen, `trendArrow`/`trendClass` für Prognose 3T aktivieren),
+nicht Teil dieses Vorhabens.
 
 ## Pro-Tab-Änderungen
 
@@ -124,7 +128,7 @@ bestehender Kommentar im Code, warum das nicht hinter dem `!metrics`-Guard häng
 
 ## Out of Scope (bewusst)
 
-- Eigene 3T-Trend-Pfeil-Schwellen (siehe oben).
+- Eigene 3T-Trend-Pfeil-Schwellen (siehe oben — läuft als Nebenprodukt der 3-Tage-Hyperparameter-Suche).
 - Änderung an `sellSignal()`/Kauf-Verkauf-Logik.
 - Die separate, bereits als eigene Spec existierende 3-Tage-Hyperparameter-Suche
   (`docs/superpowers/specs/2026-08-01-ml-3d-tuning-design.md`, unabhängiges Vorhaben, nicht Teil dieser Session).
