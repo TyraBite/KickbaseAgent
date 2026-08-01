@@ -4,6 +4,7 @@ import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type Transfermar
 import { Badge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
+import { useViewMode } from "../lib/useViewMode";
 
 // cost_per_point bewusst weggelassen (redundant zu Signal, schneller Port
 // s. Plan - echter Feld-Audit folgt spaeter).
@@ -71,6 +72,7 @@ export default function TransfermarktTab({
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
   const [selected, setSelected] = useState<TransfermarktRow | null>(null);
+  const [viewMode, setViewMode] = useViewMode("kickbaseagent_view_transfermarkt");
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -222,8 +224,38 @@ export default function TransfermarktTab({
         <span className="text-xs text-slate-500 dark:text-slate-400">
           {visible.length} von {rows.length} Angeboten
         </span>
+        <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setViewMode("cards")}
+            className={`px-3 py-2 ${viewMode === "cards" ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"}`}
+          >
+            Karten
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            className={`px-3 py-2 ${viewMode === "table" ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"}`}
+          >
+            Liste
+          </button>
+        </div>
       </div>
-      <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} onRowClick={setSelected} />
+      {viewMode === "cards" ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
+          {visible.map((r) => (
+            <TransfermarktCard
+              key={r.player_id}
+              row={r}
+              bidHistory={data.bid_premium_history ?? []}
+              thresholds={thresholds}
+              onSelect={() => setSelected(r)}
+            />
+          ))}
+        </div>
+      ) : (
+        <SortableTable columns={columns} rows={visible} rowKey={(r) => r.player_id} onRowClick={setSelected} />
+      )}
       <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
       {selected && (
         <TransfermarktDetailModal
@@ -341,6 +373,75 @@ function TransfermarktDetailModal({
           {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
         </dl>
       </div>
+    </div>
+  );
+}
+
+function TransfermarktCard({
+  row,
+  bidHistory,
+  thresholds,
+  onSelect,
+}: {
+  row: TransfermarktRow;
+  bidHistory: BidPremiumEntry[];
+  thresholds: DashboardSnapshot["signal_thresholds"];
+  onSelect: () => void;
+}) {
+  const suggestion = row.is_system_offer ? suggestBid(row, bidHistory) : null;
+  const hasValidSuggestion = !!suggestion && suggestion.p75 > 0;
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-600"
+    >
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <TeamCrest teamName={row.team_name} />
+        <span className="font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+        <PositionBadge position={row.position} />
+      </div>
+      <dl className="space-y-1.5 text-sm">
+        <Row label="Preis">{fmtNum(row.price)}</Row>
+        <Row label="Prognose 1T">
+          <span className={trendClass(row.ml_prediction)}>
+            {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
+          </span>
+        </Row>
+        <Row label="Prognose 3T">{fmtSigned(row.ml_prediction_3d)}</Row>
+        <Row label="Signal">
+          <SignalBadge signal={row.signal} thresholds={thresholds} />
+        </Row>
+        <Row label="Trend 7T">
+          <span className={trendClass(row.market_value_change_7d)}>
+            {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
+          </span>
+        </Row>
+        <Row label="Auktion">
+          {row.auction_critical ? (
+            <Badge tone="crit">⏰ {row.auction_status}</Badge>
+          ) : row.auction_urgent ? (
+            <Badge tone="crit">{row.auction_status}</Badge>
+          ) : (
+            row.auction_status ?? <span className="text-slate-400 dark:text-slate-500">unbekannt</span>
+          )}
+        </Row>
+        <Row label="Gebotsempfehlung">
+          {row.is_system_offer && hasValidSuggestion && suggestion ? (
+            `${fmtNum(suggestion.p75)} (n=${suggestion.n})`
+          ) : (
+            <span className="text-slate-400 dark:text-slate-500">n/v</span>
+          )}
+        </Row>
+      </dl>
     </div>
   );
 }
