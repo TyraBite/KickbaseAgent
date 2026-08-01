@@ -4,7 +4,7 @@ import { db } from "../firebase";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
-import { DEFAULT_FORMATION, FORMATION_KEYS, type FormationKey, POSITIONS, type Position, isFormationKey, slotsFor } from "../lib/formations";
+import { canAddStarter, matchedFormation, POSITIONS, type Position, type PositionCounts } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
@@ -96,9 +96,6 @@ export default function WunschkaderTab({
   wunschkader: { targets: RawWunschkaderTarget[] };
   onSaved: (targets: RawWunschkaderTarget[]) => void;
 }) {
-  const [formation, setFormation] = useState<FormationKey>(
-    isFormationKey(data.wunschkader_formation) ? data.wunschkader_formation : DEFAULT_FORMATION
-  );
   let nextUid = 0;
   const [editState, setEditState] = useState<EditTarget[]>(() =>
     (wunschkader.targets ?? []).map((t) => ({ ...t, _uid: nextUid++ }))
@@ -166,6 +163,21 @@ export default function WunschkaderTab({
     }
     return groups;
   }, [editState, resolvedByPlayerId]);
+
+  // Live-Zaehlung pro Position (nur Starter, kein Bank/Backup) - Basis
+  // fuer canAddStarter()/matchedFormation() statt einer vorab gewaehlten
+  // Formation. Direkt aus byPosition abgeleitet statt eigenstaendig neu
+  // ueber editState zu iterieren - eine einzige Quelle fuer "wie viele
+  // Starter stehen pro Position".
+  const startingCounts: PositionCounts = useMemo(
+    () => ({
+      Torwart: byPosition.Torwart.length,
+      Abwehr: byPosition.Abwehr.length,
+      Mittelfeld: byPosition.Mittelfeld.length,
+      Sturm: byPosition.Sturm.length,
+    }),
+    [byPosition]
+  );
 
   const bench = useMemo(() => editState.filter(isBench), [editState]);
 
@@ -239,7 +251,7 @@ export default function WunschkaderTab({
     try {
       const updatedAt = new Date().toISOString().slice(0, 10);
       const targets = editState.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
-      await setDoc(doc(db, "wunschkader", "current"), { targets, formation, updated_at: updatedAt }, { merge: true });
+      await setDoc(doc(db, "wunschkader", "current"), { targets, updated_at: updatedAt }, { merge: true });
       onSaved(targets);
       setSaveStatus("Gespeichert - überall sofort sichtbar (auch Eigenes Team), kein Reload nötig. Andere Werte wie Marktwerte/ML-Prognosen für ggf. neu hinzugefügte Spieler folgen weiterhin erst mit dem nächsten Pipeline-Lauf.");
     } catch (err) {
@@ -252,20 +264,13 @@ export default function WunschkaderTab({
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          Formation
-          <select
-            value={formation}
-            onChange={(e) => setFormation(e.target.value as FormationKey)}
-            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          >
-            {FORMATION_KEYS.map((key) => (
-              <option key={key} value={key}>
-                {key}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          Formation:{" "}
+          <span className="font-medium text-slate-900 dark:text-slate-100">
+            {matchedFormation(startingCounts) ??
+              `noch nicht komplett (${POSITIONS.reduce((sum, p) => sum + startingCounts[p], 0)}/11 Feldspieler)`}
+          </span>
+        </span>
         {totalCount > MAX_SQUAD_SIZE && (
           <Badge tone="warn">
             {totalCount}/{MAX_SQUAD_SIZE} Kadergröße überschritten
@@ -286,11 +291,11 @@ export default function WunschkaderTab({
 
       {POSITIONS.map((position) => {
         const targets = byPosition[position];
-        const slots = slotsFor(formation, position);
+        const canAdd = canAddStarter(startingCounts, position);
         return (
           <div key={position} className="mb-6">
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              {position} · {targets.length}/{slots} belegt
+              {position} · {targets.length} belegt
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
               {targets.map((t) => {
@@ -306,9 +311,7 @@ export default function WunschkaderTab({
                   />
                 );
               })}
-              {Array.from({ length: Math.max(slots - targets.length, 0) }).map((_, i) => (
-                <EmptySlotCard key={`empty-${position}-${i}`} onClick={() => setAddDialog({ presetPosition: position })} />
-              ))}
+              {canAdd && <EmptySlotCard onClick={() => setAddDialog({ presetPosition: position })} />}
             </div>
           </div>
         );
