@@ -244,9 +244,9 @@ export default function App() {
               rows={spekulationRows}
               now={now}
               mlMetrics={data.ml_metrics}
+              mlMetrics3d={data.ml_metrics_3d ?? null}
               bidHistory={data.bid_premium_history ?? []}
               positionNeed={data.position_need ?? {}}
-              players={data.players}
             />
           </div>
         )}

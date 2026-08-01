@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BidPremiumEntry, MlMetrics, PlayerRecord, PositionNeed } from "../types";
-import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, momentumAssessment, suggestBid, type SpekulationRow } from "../lib/derive";
+import type { BidPremiumEntry, MlMetrics, PositionNeed } from "../types";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, PositionBadge, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -66,18 +66,19 @@ export default function SpekulationTab({
   rows,
   now,
   mlMetrics,
+  mlMetrics3d,
   bidHistory,
   positionNeed,
-  players,
 }: {
   rows: SpekulationRow[];
   now: number;
   mlMetrics: MlMetrics | null;
+  mlMetrics3d: MlMetrics | null;
   bidHistory: BidPremiumEntry[];
   positionNeed: PositionNeed;
-  players: Record<string, PlayerRecord>;
 }) {
   const mae = liveModelMae(mlMetrics);
+  const mae3d = liveModelMae(mlMetrics3d);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("auction");
   const [selected, setSelected] = useState<SpekulationRow | null>(null);
@@ -153,7 +154,7 @@ export default function SpekulationTab({
           row={selected}
           now={now}
           mae={mae}
-          player={players[selected.player_id]}
+          mae3d={mae3d}
           bidHistory={bidHistory}
           positionNeed={positionNeed}
           onClose={() => setSelected(null)}
@@ -187,11 +188,12 @@ function SpekulationCard({
     >
       <CardHeader row={row} />
       <dl className="space-y-1.5 text-sm">
-        <Row label="ML-Prognose">
+        <Row label="Prognose 1T">
           <span className={trendClass(row.ml_prediction)}>
             {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
           </span>
         </Row>
+        <Row label="Prognose 3T">{fmtSigned(row.ml_prediction_3d)}</Row>
         <Row label="Preis">{fmtNum(row.price)}</Row>
         <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
         <Row label="Trend 7T">
@@ -232,7 +234,7 @@ function SpekulationTable({
     },
     {
       key: "ml_prediction",
-      label: "ML-Prognose",
+      label: "Prognose 1T",
       align: "right",
       sortValue: (r) => r.ml_prediction,
       render: (r) => (
@@ -240,6 +242,13 @@ function SpekulationTable({
           {trendArrow(r.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(r.ml_prediction)}
         </span>
       ),
+    },
+    {
+      key: "ml_prediction_3d",
+      label: "Prognose 3T",
+      align: "right",
+      sortValue: (r) => r.ml_prediction_3d,
+      render: (r) => fmtSigned(r.ml_prediction_3d),
     },
     { key: "price", label: "Preis", align: "right", sortValue: (r) => r.price, render: (r) => fmtNum(r.price) },
     { key: "roi_pct", label: "Rendite%", align: "right", sortValue: (r) => r.roi_pct, render: (r) => `${r.roi_pct.toFixed(1)}%` },
@@ -269,7 +278,7 @@ function SpekulationDetailModal({
   row,
   now,
   mae,
-  player,
+  mae3d,
   bidHistory,
   positionNeed,
   onClose,
@@ -277,7 +286,7 @@ function SpekulationDetailModal({
   row: SpekulationRow;
   now: number;
   mae: number | null;
-  player: PlayerRecord | undefined;
+  mae3d: number | null;
   bidHistory: BidPremiumEntry[];
   positionNeed: PositionNeed;
   onClose: () => void;
@@ -316,16 +325,16 @@ function SpekulationDetailModal({
           </button>
         </div>
         <dl className="space-y-2 text-sm">
-          <Row label="ML-Prognose">
+          <Row label="Prognose 1T">
             <span className={trendClass(row.ml_prediction)}>
               {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
             </span>
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
-          {(() => {
-            const assessment = momentumAssessment(row.ml_prediction, player?.ml_prediction_3d ?? null, mae);
-            return assessment ? <Row label="Einschätzung">{assessment.label}</Row> : null;
-          })()}
+          <Row label="Prognose 3T">
+            {fmtSigned(row.ml_prediction_3d)}
+            {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
+          </Row>
           <Row label="Trend 7T">
             <span className={trendClass(row.market_value_change_7d)}>
               {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)}{" "}
