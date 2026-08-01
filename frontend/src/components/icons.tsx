@@ -159,3 +159,13 @@ export function IconActionTrash(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function IconMenu(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Menü" {...props}>
+      <path d="M3.5 5.5 H20.5 V7 H3.5 Z" />
+      <path d="M3.5 11.25 H20.5 V12.75 H3.5 Z" />
+      <path d="M3.5 17 H20.5 V18.5 H3.5 Z" />
+    </svg>
+  );
+}

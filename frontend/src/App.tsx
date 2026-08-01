@@ -11,8 +11,9 @@ import SpekulationTab from "./components/SpekulationTab";
 import TransfermarktTab from "./components/TransfermarktTab";
 import WunschkaderTab from "./components/WunschkaderTab";
 import FeedbackTab from "./components/FeedbackTab";
+import { IconMenu } from "./components/icons";
 import { buildSpekulationRows, buildTransfermarktRows, formatRelativeTime } from "./lib/derive";
-import { isAnyModalOpen } from "./lib/modalOpenTracker";
+import { isAnyModalOpen, useModalOpenTracking } from "./lib/modalOpenTracker";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "./types";
 
 // Gemeinsamer Ticker fuer SpekulationTab + TransfermarktTab (vormals in beiden
@@ -105,6 +106,78 @@ function useSwipeTabs(activeTab: string, setActiveTab: (key: string) => void) {
   return { onTouchStart, onTouchEnd };
 }
 
+// Mobile Ersatz fuer die horizontale Tab-Leiste (die bleibt ab `sm:` sichtbar,
+// siehe <nav> oben) - registriert sich per useModalOpenTracking() wie jedes
+// andere Modal, damit isAnyModalOpen() ein Wischen ueber dem offenen Menue
+// nicht versehentlich als Tab-Swipe im Hintergrund interpretiert (siehe
+// useSwipeTabs oben). Swipe selbst bleibt dadurch unangetastet - Oeffnen
+// dieses Menues blockt es nur temporaer, wie bei jedem Detail-Modal.
+function MobileTabMenu({
+  activeTab,
+  onSelect,
+  onClose,
+}: {
+  activeTab: string;
+  onSelect: (key: string) => void;
+  onClose: () => void;
+}) {
+  useModalOpenTracking();
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-20 bg-slate-950/50 sm:hidden" onClick={onClose}>
+      <nav
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-full w-72 max-w-[80vw] flex-col gap-1 overflow-y-auto bg-white p-3 shadow-xl dark:bg-slate-950"
+      >
+        <div className="mb-2 flex items-center justify-between px-1">
+          <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">Menü</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Schließen"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            ✕
+          </button>
+        </div>
+        {TABS.map((tab) => {
+          const isActive = ACTIVE_TABS.has(tab.key);
+          const isSelected = tab.key === activeTab;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              disabled={!isActive}
+              onClick={() => {
+                if (!isActive) return;
+                onSelect(tab.key);
+                onClose();
+              }}
+              className={`rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+                isSelected
+                  ? "bg-brand-50 font-semibold text-brand-800 dark:bg-brand-950 dark:text-brand-300"
+                  : isActive
+                    ? "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                    : "cursor-not-allowed text-slate-400 dark:text-slate-600"
+              }`}
+            >
+              {tab.label}
+              {!isActive && <span className="ml-1 text-xs">(bald)</span>}
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -112,6 +185,7 @@ export default function App() {
   const [data, setData] = useState<DashboardSnapshot | null>(null);
   const [wunschkader, setWunschkader] = useState<{ targets: RawWunschkaderTarget[] } | null>(null);
   const [activeTab, setActiveTab] = useState(readStoredActiveTab);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const now = useNow(60_000);
   // data.players kann fehlen, wenn der Firestore-Snapshot noch im alten Schema
   // vorliegt (Deploy-Zeitfenster zwischen Frontend-Push und naechstem Backend-
@@ -180,10 +254,20 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
-        <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
-          <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="h-6 w-6" />
-          KickbaseAgent
-        </h1>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            aria-label="Menü öffnen"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 sm:hidden dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            <IconMenu className="h-5 w-5" />
+          </button>
+          <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
+            <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="h-6 w-6" />
+            KickbaseAgent
+          </h1>
+        </div>
         {data?.generated_at && (
           <p
             className="text-xs text-slate-400 dark:text-slate-500"
@@ -193,7 +277,7 @@ export default function App() {
           </p>
         )}
       </header>
-      <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 dark:border-slate-800 dark:bg-slate-950">
+      <nav className="hidden gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 sm:flex dark:border-slate-800 dark:bg-slate-950">
         {TABS.map((tab) => {
           const isActive = ACTIVE_TABS.has(tab.key);
           const isSelected = tab.key === activeTab;
@@ -217,6 +301,13 @@ export default function App() {
           );
         })}
       </nav>
+      {mobileMenuOpen && (
+        <MobileTabMenu
+          activeTab={activeTab}
+          onSelect={setActiveTab}
+          onClose={() => setMobileMenuOpen(false)}
+        />
+      )}
       <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {loadState === "loading" && activeTab !== "feedback" && (
           <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
