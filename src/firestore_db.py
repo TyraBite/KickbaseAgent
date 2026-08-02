@@ -20,6 +20,8 @@ Config, Schreibpfad ist der Browser). Mehrzeilige Writes nutzen Firestore-
 WriteBatch (max. 500 Operationen/Batch - siehe _write_in_batches).
 """
 
+from typing import Callable
+
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
@@ -201,40 +203,49 @@ def get_unsold_log(client: firestore.Client) -> list[dict]:
     return [doc.to_dict() for doc in client.collection("bid_premium_unsold_log").stream()]
 
 
-def upsert_fitness_history_entries(client: firestore.Client, entries: list[dict]) -> None:
-    """Ein Dokument pro Status-Wechsel (siehe
-    dashboard_export._detect_status_changes), Doc-Id `{date}_{player_id}`
+def upsert_history_entries(
+    client: firestore.Client,
+    collection: str,
+    entries: list[dict],
+    doc_id_fn: Callable[[dict], str] = lambda e: f"{e['date']}_{e['player_id']}",
+) -> None:
+    """Generalisierte Fassung von upsert_fitness_history_entries (ersetzt
+    sie) - EIN Dokument pro Eintrag, Doc-Id per Default `{date}_{player_id}`
     macht einen erneuten Heavy-Lauf am selben Tag idempotent (ueberschreibt
-    statt zu duplizieren)."""
-    docs = {f"{e['date']}_{e['player_id']}": e for e in entries}
-    _write_in_batches(client, "fitness_history_log", docs)
+    statt zu duplizieren) - passt fuer fitness_history_log UND
+    starting_rank_history_log (siehe dashboard_export.py,
+    docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md),
+    die beide GENAU EIN Change-Event pro Spieler/Tag kennen. `doc_id_fn` ist
+    ueberschreibbar fuer Collections mit MEHREREN Dokumenten pro Spieler/Tag
+    (z.B. player_news_log, mehrere Artikel moeglich - siehe
+    docs/superpowers/specs/2026-08-02-news-sentiment-design.md), ohne eine
+    dritte, fast identische Kopie dieser Funktion zu brauchen."""
+    docs = {doc_id_fn(e): e for e in entries}
+    _write_in_batches(client, collection, docs)
 
 
-def get_fitness_history(client: firestore.Client) -> list[dict]:
-    """Liest die komplette fitness_history_log-Collection - bleibt klein
-    (nur echte Statuswechsel, deutlich unter 450/Tag), analog
-    get_bid_premium_history. Wird einmal pro ML-Lauf gelesen, nicht pro
-    Spieler."""
-    return [doc.to_dict() for doc in client.collection("fitness_history_log").stream()]
+def get_history(client: firestore.Client, collection: str) -> list[dict]:
+    """Generalisierte Fassung von get_fitness_history (ersetzt sie) - liest
+    die komplette angegebene Collection, bleibt klein (nur echte Wechsel,
+    deutlich unter 450/Tag), analog get_bid_premium_history. Wird einmal
+    pro ML-Lauf gelesen, nicht pro Spieler."""
+    return [doc.to_dict() for doc in client.collection(collection).stream()]
 
 
-def upsert_fitness_status_baseline(client: firestore.Client, status_by_player: dict[str, int]) -> None:
-    """Baseline NUR der status_codes (player_id -> status_code), komplett
-    unabhaengig vom dashboard_snapshot/latest-Dokument und damit unberuehrt
-    vom stuendlichen Light-Cron (der dashboard_snapshot/latest ueberschreibt
-    und dabei status_code fuer own_squad/market_listings-Spieler aktualisiert -
-    genau das wuerde die Diff-Baseline korrumpieren, wenn sie stattdessen aus
-    dashboard_snapshot/latest gelesen wuerde). Wird JEDEN Heavy-Lauf komplett
-    ueberschrieben (kein Merge - immer der volle all_players-Stand von JETZT),
-    Diff-Quelle fuer den naechsten Heavy-Lauf (siehe _detect_status_changes in
-    dashboard_export.py)."""
-    client.collection("fitness_status_baseline").document("latest").set(status_by_player)
+def upsert_baseline(client: firestore.Client, collection: str, doc_id: str, data: dict) -> None:
+    """Generalisierte Fassung von upsert_fitness_status_baseline (ersetzt
+    sie) - collection/doc_id als Parameter statt hardcoded
+    "fitness_status_baseline"/"latest". Komplett unabhaengig vom
+    dashboard_snapshot/latest-Dokument (siehe dessen Docstring-Historie) -
+    wird JEDEN Heavy-Lauf komplett ueberschrieben (kein merge=True - immer
+    der volle Ist-Stand von JETZT), Diff-Quelle fuer den naechsten Lauf."""
+    client.collection(collection).document(doc_id).set(data)
 
 
-def get_fitness_status_baseline(client: firestore.Client) -> dict[str, int]:
-    """Leeres Dict beim allerersten Lauf (Cold Start, noch kein Dokument
-    vorhanden) - _detect_status_changes() behandelt das korrekt (kein
-    Vorwert fuer irgendeinen Spieler -> keine Events, dann wird die Baseline
-    zum ersten Mal geschrieben)."""
-    doc = client.collection("fitness_status_baseline").document("latest").get()
+def get_baseline(client: firestore.Client, collection: str, doc_id: str) -> dict:
+    """Generalisierte Fassung von get_fitness_status_baseline (ersetzt sie)
+    - leeres Dict beim allerersten Lauf (Cold Start, noch kein Dokument
+    vorhanden) - der jeweilige _detect_field_changes()-Aufruf behandelt das
+    korrekt (kein Vorwert fuer irgendeinen Spieler -> keine Events)."""
+    doc = client.collection(collection).document(doc_id).get()
     return doc.to_dict() if doc.exists else {}

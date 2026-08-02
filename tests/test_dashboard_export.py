@@ -269,9 +269,9 @@ class ExportActivityFeedGuardTests(unittest.TestCase):
         ), patch(
             "src.dashboard_export.firestore_db.get_dashboard_snapshot", return_value=None
         ), patch(
-            "src.dashboard_export.firestore_db.get_fitness_status_baseline", return_value={}
+            "src.dashboard_export.firestore_db.get_baseline", return_value={}
         ), patch(
-            "src.dashboard_export.firestore_db.upsert_fitness_status_baseline"
+            "src.dashboard_export.firestore_db.upsert_baseline"
         ), patch(
             "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
         ), patch("src.dashboard_export._load_wunschkader", return_value=None
@@ -290,7 +290,9 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
     letzteres wird vom stuendlichen Light-Cron ueberschrieben, der status_code fuer
     own_squad/market_listings-Spieler frisch ueberlagert - ein zwischenzeitlicher
     Statuswechsel waere im naechsten Heavy-Diff schon 'alt == neu' und damit
-    dauerhaft verloren (Fund im finalen Review)."""
+    dauerhaft verloren (Fund im finalen Review). Nutzt jetzt die generalisierten
+    firestore_db.get_baseline/upsert_baseline/upsert_history_entries - noch mit
+    genau EINEM Aufruf pro Funktion (starting_rank-Block folgt in Task 3)."""
 
     def _run_export_with(self, baseline_status_by_player, fresh_all_players):
         with patch.dict(
@@ -304,13 +306,13 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
         ), patch(
-            "src.dashboard_export.firestore_db.get_fitness_status_baseline",
+            "src.dashboard_export.firestore_db.get_baseline",
             return_value=baseline_status_by_player,
         ), patch(
-            "src.dashboard_export.firestore_db.upsert_fitness_status_baseline"
+            "src.dashboard_export.firestore_db.upsert_baseline"
         ) as mock_upsert_baseline, patch(
-            "src.dashboard_export.firestore_db.upsert_fitness_history_entries"
-        ) as mock_upsert_fitness, patch(
+            "src.dashboard_export.firestore_db.upsert_history_entries"
+        ) as mock_upsert_history, patch(
             "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
         ), patch("src.dashboard_export._load_wunschkader", return_value=None
         ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
@@ -318,7 +320,7 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
         ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
             export()
-        return mock_upsert_fitness, mock_upsert_baseline
+        return mock_upsert_history, mock_upsert_baseline
 
     def test_status_change_in_heavy_mode_is_written_to_fitness_history(self):
         fresh_all_players = [
@@ -326,10 +328,11 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
              "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        mock_upsert_fitness, _mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
+        mock_upsert_history, _mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
 
-        mock_upsert_fitness.assert_called_once()
-        written_entries = mock_upsert_fitness.call_args.args[1]
+        mock_upsert_history.assert_called_once()
+        self.assertEqual(mock_upsert_history.call_args.args[1], "fitness_history_log")
+        written_entries = mock_upsert_history.call_args.args[2]
         self.assertEqual(len(written_entries), 1)
         self.assertEqual(written_entries[0]["player_id"], "p1")
         self.assertEqual(written_entries[0]["from_status_code"], 0)
@@ -344,9 +347,9 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
              "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        _mock_upsert_fitness, mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
+        _mock_upsert_history, mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
 
-        mock_upsert_baseline.assert_called_once_with(ANY, {"p1": 1})
+        mock_upsert_baseline.assert_called_once_with(ANY, "fitness_status_baseline", "latest", {"p1": 1})
 
     def test_no_status_change_writes_nothing(self):
         unchanged_all_players = [
@@ -354,9 +357,9 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
              "status_code": 0, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        mock_upsert_fitness, _mock_upsert_baseline = self._run_export_with({"p1": 0}, unchanged_all_players)
+        mock_upsert_history, _mock_upsert_baseline = self._run_export_with({"p1": 0}, unchanged_all_players)
 
-        mock_upsert_fitness.assert_not_called()
+        mock_upsert_history.assert_not_called()
 
     def test_fitness_history_write_error_does_not_abort_export(self):
         """Analog zu ExportActivityFeedGuardTests.test_activity_feed_error_does_not_abort_export:
@@ -381,11 +384,11 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
         ), patch(
-            "src.dashboard_export.firestore_db.get_fitness_status_baseline", return_value={"p1": 0}
+            "src.dashboard_export.firestore_db.get_baseline", return_value={"p1": 0}
         ), patch(
-            "src.dashboard_export.firestore_db.upsert_fitness_status_baseline"
+            "src.dashboard_export.firestore_db.upsert_baseline"
         ), patch(
-            "src.dashboard_export.firestore_db.upsert_fitness_history_entries",
+            "src.dashboard_export.firestore_db.upsert_history_entries",
             side_effect=RuntimeError("Firestore down"),
         ), patch(
             "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")

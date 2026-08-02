@@ -323,7 +323,7 @@ class GetBidPremiumHistoryTests(unittest.TestCase):
         self.assertEqual(result, [{"activity_id": "act_1"}, {"activity_id": "act_2"}])
 
 
-class UpsertFitnessHistoryEntriesTests(unittest.TestCase):
+class UpsertHistoryEntriesTests(unittest.TestCase):
     def test_writes_docs_keyed_by_date_and_player_id(self):
         client = MagicMock()
         entries = [
@@ -331,20 +331,50 @@ class UpsertFitnessHistoryEntriesTests(unittest.TestCase):
             {"player_id": "p2", "date": "2026-07-31", "from_status_code": 2, "to_status_code": 0, "recorded_at": "2026-07-31T21:07:00+00:00"},
         ]
 
-        firestore_db.upsert_fitness_history_entries(client, entries)
+        firestore_db.upsert_history_entries(client, "fitness_history_log", entries)
 
         client.collection.assert_any_call("fitness_history_log")
         self.assertEqual(_doc_ids(client), ["2026-07-31_p1", "2026-07-31_p2"])
         batch = client.batch.return_value
         batch.commit.assert_called_once()
 
+    def test_collection_name_is_a_parameter_not_hardcoded(self):
+        client = MagicMock()
+        entries = [{"player_id": "p1", "date": "2026-08-02", "from_starting_rank": 3, "to_starting_rank": 1}]
+
+        firestore_db.upsert_history_entries(client, "starting_rank_history_log", entries)
+
+        client.collection.assert_any_call("starting_rank_history_log")
+
     def test_empty_entries_writes_nothing(self):
         client = MagicMock()
-        firestore_db.upsert_fitness_history_entries(client, [])
+        firestore_db.upsert_history_entries(client, "fitness_history_log", [])
         client.batch.assert_not_called()
 
+    def test_doc_id_fn_override_allows_multiple_docs_per_player_per_day(self):
+        """Regressionsschutz fuer genau das Problem, das eine hardcodierte
+        {date}_{player_id}-Formel haette: player_news_log (Phase B) braucht
+        mehrere Dokumente pro Spieler UND Tag (ein Artikel-Hash pro Dokument),
+        nicht nur eines. Ohne ueberschreibbaren doc_id_fn wuerde der zweite
+        Eintrag hier den ersten stillschweigend overschreiben."""
+        client = MagicMock()
+        entries = [
+            {"player_id": "p1", "date": "2026-08-02", "article_hash": "aaa111"},
+            {"player_id": "p1", "date": "2026-08-02", "article_hash": "bbb222"},
+        ]
 
-class GetFitnessHistoryTests(unittest.TestCase):
+        firestore_db.upsert_history_entries(
+            client, "player_news_log", entries,
+            doc_id_fn=lambda e: f"{e['date']}_{e['player_id']}_{e['article_hash']}",
+        )
+
+        self.assertEqual(
+            _doc_ids(client),
+            ["2026-08-02_p1_aaa111", "2026-08-02_p1_bbb222"],
+        )
+
+
+class GetHistoryTests(unittest.TestCase):
     def test_returns_all_docs_as_dicts(self):
         client = MagicMock()
         doc1, doc2 = MagicMock(), MagicMock()
@@ -352,47 +382,72 @@ class GetFitnessHistoryTests(unittest.TestCase):
         doc2.to_dict.return_value = {"player_id": "p2", "date": "2026-07-31"}
         client.collection.return_value.stream.return_value = [doc1, doc2]
 
-        result = firestore_db.get_fitness_history(client)
+        result = firestore_db.get_history(client, "fitness_history_log")
 
         client.collection.assert_any_call("fitness_history_log")
         self.assertEqual(result, [{"player_id": "p1", "date": "2026-07-31"}, {"player_id": "p2", "date": "2026-07-31"}])
 
+    def test_collection_name_is_a_parameter_not_hardcoded(self):
+        client = MagicMock()
+        client.collection.return_value.stream.return_value = []
 
-class FitnessStatusBaselineTests(unittest.TestCase):
+        firestore_db.get_history(client, "starting_rank_history_log")
+
+        client.collection.assert_any_call("starting_rank_history_log")
+
+
+class BaselineTests(unittest.TestCase):
     """Eigenes Dokument als Diff-Baseline (analog BidPremiumPointerTests) -
     absichtlich NICHT dashboard_snapshot/latest, das der stuendliche
-    Light-Cron ueberschreibt (siehe upsert_fitness_status_baseline)."""
+    Light-Cron ueberschreibt (siehe upsert_baseline). Generalisierte
+    Fassung von FitnessStatusBaselineTests - collection/doc_id sind jetzt
+    Parameter statt hardcoded 'fitness_status_baseline'/'latest'."""
 
     def test_get_baseline_returns_empty_dict_when_no_doc(self):
         client = MagicMock()
         client.collection.return_value.document.return_value.get.return_value.exists = False
 
-        self.assertEqual(firestore_db.get_fitness_status_baseline(client), {})
+        self.assertEqual(firestore_db.get_baseline(client, "fitness_status_baseline", "latest"), {})
 
-    def test_get_baseline_returns_stored_status_codes(self):
+    def test_get_baseline_returns_stored_values(self):
         client = MagicMock()
         doc_snapshot = client.collection.return_value.document.return_value.get.return_value
         doc_snapshot.exists = True
         doc_snapshot.to_dict.return_value = {"p1": 0, "p2": 2}
 
-        self.assertEqual(firestore_db.get_fitness_status_baseline(client), {"p1": 0, "p2": 2})
+        self.assertEqual(firestore_db.get_baseline(client, "fitness_status_baseline", "latest"), {"p1": 0, "p2": 2})
+
+    def test_get_baseline_uses_collection_and_doc_id_parameters(self):
+        client = MagicMock()
+        client.collection.return_value.document.return_value.get.return_value.exists = False
+
+        firestore_db.get_baseline(client, "starting_rank_baseline", "latest")
+
+        client.collection.assert_called_with("starting_rank_baseline")
+        client.collection.return_value.document.assert_called_with("latest")
 
     def test_upsert_baseline_writes_expected_doc(self):
         client = MagicMock()
 
-        firestore_db.upsert_fitness_status_baseline(client, {"p1": 0, "p2": 2})
+        firestore_db.upsert_baseline(client, "fitness_status_baseline", "latest", {"p1": 0, "p2": 2})
 
         client.collection.assert_called_with("fitness_status_baseline")
         client.collection.return_value.document.assert_called_with("latest")
         client.collection.return_value.document.return_value.set.assert_called_once_with({"p1": 0, "p2": 2})
 
-    def test_upsert_baseline_replaces_instead_of_merging(self):
-        """Kein merge=True: verschwundene Spieler muessen aus der Baseline
-        fallen, sonst wuerde ein alter status_code ewig als Vorwert
-        weiterleben."""
+    def test_upsert_baseline_uses_collection_and_doc_id_parameters(self):
         client = MagicMock()
 
-        firestore_db.upsert_fitness_status_baseline(client, {"p1": 0})
+        firestore_db.upsert_baseline(client, "starting_rank_baseline", "latest", {"p1": 1})
+
+        client.collection.assert_called_with("starting_rank_baseline")
+
+    def test_upsert_baseline_replaces_instead_of_merging(self):
+        """Kein merge=True: verschwundene Spieler muessen aus der Baseline
+        fallen, sonst wuerde ein alter Wert ewig als Vorwert weiterleben."""
+        client = MagicMock()
+
+        firestore_db.upsert_baseline(client, "fitness_status_baseline", "latest", {"p1": 0})
 
         _args, kwargs = client.collection.return_value.document.return_value.set.call_args
         self.assertNotIn("merge", kwargs)

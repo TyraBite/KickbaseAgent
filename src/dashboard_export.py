@@ -490,7 +490,7 @@ def export() -> dict:
             p["player_id"]: p["status_code"] for p in heavy["all_players"] if p.get("player_id")
         }
         try:
-            baseline_status_by_player = firestore_db.get_fitness_status_baseline(fs_client)
+            baseline_status_by_player = firestore_db.get_baseline(fs_client, "fitness_status_baseline", "latest")
         except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
             print(
                 f"Warnung: fitness_status_baseline-Lesezugriff fehlgeschlagen, Fitness-Diff uebersprungen: {exc}",
@@ -512,7 +512,7 @@ def export() -> dict:
                     for change in status_changes
                 ]
                 try:
-                    firestore_db.upsert_fitness_history_entries(fs_client, fitness_entries)
+                    firestore_db.upsert_history_entries(fs_client, "fitness_history_log", fitness_entries)
                 except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
                     print(f"Warnung: fitness_history_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
 
@@ -520,7 +520,7 @@ def export() -> dict:
         # keine Wechsel gab): sie wird immer auf den heutigen Ist-Stand gesetzt, damit
         # der naechste Heavy-Lauf eine korrekte, selbstheilende Startbasis hat.
         try:
-            firestore_db.upsert_fitness_status_baseline(fs_client, current_status_by_player)
+            firestore_db.upsert_baseline(fs_client, "fitness_status_baseline", "latest", current_status_by_player)
         except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
             print(f"Warnung: fitness_status_baseline-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
 
