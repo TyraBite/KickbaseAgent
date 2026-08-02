@@ -81,7 +81,7 @@ copy .env.example .env  # Secrets lokal eintragen, .env nie committen
 
 `src/news_sentiment.py` (News/Sentiment-Ingestion) braucht zusaetzlich
 `pip install -r requirements-news.txt` (germansentiment/transformers/torch,
-bewusst nicht im geteilten `requirements.txt`, siehe Kommentar dort).
+bewusst nicht im geteilten `requirements.txt`, siehe Kommentar in `requirements-news.txt`).
 
 **Frontend:**
 
