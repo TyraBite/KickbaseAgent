@@ -217,6 +217,7 @@ def _change_recency_features(
 def _fetch_player_training_frame(
     token: str, league_id: str, competition_id: str, player_id: str, team_id: str,
     fitness_events_by_player: dict[str, list[dict]],
+    starting_rank_events_by_player: dict[str, list[dict]],
 ) -> pd.DataFrame | None:
     """Holt Marktwert- und Performance-Historie eines Spielers und merged sie
     zu einer Zeitreihe. Faengt Fehler selbst ab (Resilienz-Pattern analog
@@ -257,11 +258,27 @@ def _fetch_player_training_frame(
     merged["days_since_last_status_change"] = fitness_features.apply(lambda f: f["days_since_last_status_change"])
     merged["status_change_count_90d"] = fitness_features.apply(lambda f: f["status_change_count_90d"])
 
+    rank_events = starting_rank_events_by_player.get(player_id, [])
+    rank_features = merged["date"].apply(
+        lambda ts: _change_recency_features(
+            rank_events, ts.date(),
+            "days_since_last_starting_rank_change", "starting_rank_change_count_90d",
+        )
+    )
+    merged["days_since_last_starting_rank_change"] = rank_features.apply(
+        lambda f: f["days_since_last_starting_rank_change"]
+    )
+    merged["starting_rank_change_count_90d"] = rank_features.apply(
+        lambda f: f["starting_rank_change_count_90d"]
+    )
+
     return merged
 
 
 def _build_corpus(
-    token: str, league_id: str, competition_id: str, fitness_events_by_player: dict[str, list[dict]]
+    token: str, league_id: str, competition_id: str,
+    fitness_events_by_player: dict[str, list[dict]],
+    starting_rank_events_by_player: dict[str, list[dict]],
 ) -> pd.DataFrame:
     player_to_team = _fetch_competition_player_ids(token, competition_id)
     if not player_to_team:
@@ -273,7 +290,11 @@ def _build_corpus(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=_max_workers()) as executor:
         futures = {
-            executor.submit(_fetch_player_training_frame, token, league_id, competition_id, pid, tid, fitness_events_by_player): pid
+            executor.submit(
+                _fetch_player_training_frame,
+                token, league_id, competition_id, pid, tid,
+                fitness_events_by_player, starting_rank_events_by_player,
+            ): pid
             for pid, tid in player_to_team.items()
         }
         for future in concurrent.futures.as_completed(futures):
@@ -617,7 +638,7 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
     me = get_me(token, league_id)
     competition_id = me.get("cpi") or "1"
     fitness_events_by_player = _load_fitness_events_by_player()
-    corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player)
+    corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player, {})
     history_df, _today_df = _engineer_features(corpus)
 
     dates = sorted(history_df["date"].unique())
@@ -983,7 +1004,7 @@ def predict_market_value_changes() -> dict | None:
         competition_id = me.get("cpi") or "1"
 
         fitness_events_by_player = _load_fitness_events_by_player()
-        corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player)
+        corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player, {})
         history_df, today_df = _engineer_features(corpus)
 
         # Spieler ohne verwertbaren "naechster Spieltag" (kein Spiel seit

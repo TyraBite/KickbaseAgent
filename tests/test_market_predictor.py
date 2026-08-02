@@ -22,6 +22,7 @@ from src.market_predictor import (
     _performance_frame,
     _change_recency_features,
     _fetch_player_training_frame,
+    _build_corpus,
     _load_fitness_events_by_player,
     _engineer_features,
     NO_HISTORY_DAYS_PLACEHOLDER,
@@ -544,7 +545,7 @@ class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
             "p1": [{"player_id": "p1", "date": "2026-07-20", "from_status_code": 0, "to_status_code": 1}],
         }
 
-        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", fitness_events_by_player)
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", fitness_events_by_player, {})
 
         self.assertEqual(list(result["days_since_last_status_change"]), [5, 11])
         self.assertEqual(list(result["status_change_count_90d"]), [1, 1])
@@ -555,9 +556,61 @@ class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
         mock_mv_frame.return_value = pd.DataFrame({"date": pd.to_datetime(["2026-07-31"]), "mv": [10_000_000]})
         mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
 
-        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {})
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {}, {})
 
         self.assertEqual(list(result["days_since_last_status_change"]), [NO_HISTORY_DAYS_PLACEHOLDER])
+
+
+class FetchPlayerTrainingFrameStartingRankColumnsTests(unittest.TestCase):
+    """Spiegelt FetchPlayerTrainingFrameFitnessColumnsTests 1:1 fuer
+    starting_rank - beweist, dass die zweite Event-Quelle unabhaengig von
+    der ersten funktioniert (leeres fitness_events_by_player daneben, kein
+    Cross-Contamination zwischen den beiden Feature-Paaren)."""
+
+    @patch("src.market_predictor._performance_frame")
+    @patch("src.market_predictor._market_value_frame")
+    def test_adds_starting_rank_columns_computed_as_of_each_row_date(self, mock_mv_frame, mock_perf_frame):
+        mock_mv_frame.return_value = pd.DataFrame({
+            "date": pd.to_datetime(["2026-07-25", "2026-07-31"]),
+            "mv": [10_000_000, 10_200_000],
+        })
+        mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
+        starting_rank_events_by_player = {
+            "p1": [{"player_id": "p1", "date": "2026-07-20", "from_starting_rank": 3, "to_starting_rank": 1}],
+        }
+
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", {}, starting_rank_events_by_player)
+
+        self.assertEqual(list(result["days_since_last_starting_rank_change"]), [5, 11])
+        self.assertEqual(list(result["starting_rank_change_count_90d"]), [1, 1])
+        self.assertEqual(
+            list(result["days_since_last_status_change"]), [NO_HISTORY_DAYS_PLACEHOLDER, NO_HISTORY_DAYS_PLACEHOLDER]
+        )
+
+    @patch("src.market_predictor._performance_frame")
+    @patch("src.market_predictor._market_value_frame")
+    def test_player_without_any_starting_rank_events_gets_placeholder(self, mock_mv_frame, mock_perf_frame):
+        mock_mv_frame.return_value = pd.DataFrame({"date": pd.to_datetime(["2026-07-31"]), "mv": [10_000_000]})
+        mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
+
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {}, {})
+
+        self.assertEqual(list(result["days_since_last_starting_rank_change"]), [NO_HISTORY_DAYS_PLACEHOLDER])
+
+
+class BuildCorpusStartingRankThreadingTests(unittest.TestCase):
+    @patch("src.market_predictor._fetch_player_training_frame")
+    @patch("src.market_predictor._fetch_competition_player_ids", return_value={"p1": "t1"})
+    def test_starting_rank_events_by_player_passed_through_to_training_frame(
+        self, mock_fetch_ids, mock_fetch_frame
+    ):
+        mock_fetch_frame.return_value = pd.DataFrame({"player_id": ["p1"], "mv": [1_000_000]})
+        fitness_events = {"p1": [{"date": "2026-07-20"}]}
+        starting_rank_events = {"p1": [{"date": "2026-07-25"}]}
+
+        _build_corpus("tok", "l1", "c1", fitness_events, starting_rank_events)
+
+        mock_fetch_frame.assert_called_once_with("tok", "l1", "c1", "p1", "t1", fitness_events, starting_rank_events)
 
 
 class EngineerFeatures3dTargetTests(unittest.TestCase):
