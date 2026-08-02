@@ -1,0 +1,42 @@
+name: Player News Sentiment (taeglich, unabhaengig vom Dashboard-Cron)
+
+on:
+  schedule:
+    # Taeglich 05:47 UTC - bewusst versetzt zum stuendlichen Light-Cron
+    # (Minute 17, dashboard.yml) und zum Heavy-Marktwert-Cron (~19:04 UTC,
+    # dashboard-marktwerte.yml), rein um GitHub-Actions-Ressourcen-
+    # Ueberlappung zu vermeiden - kein funktionaler Zeitbezug zu Kickbase
+    # noetig, dieser Lauf liest nur dashboard_snapshot/latest aus
+    # Firestore, macht keinen eigenen Kickbase-API-Call (siehe
+    # docs/superpowers/specs/2026-08-02-news-sentiment-design.md,
+    # Abschnitt 'Scheduling').
+    - cron: '47 5 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  player-news-sentiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install torch (CPU-only, vermeidet ~5GB CUDA-Download von germansentiment)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write Firebase service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/firebase-service-account.json"
+
+      - name: News fetchen, Sentiment klassifizieren, player_news_log schreiben
+        env:
+          FIRESTORE_ENABLED: '1'
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: python -m src.news_sentiment
