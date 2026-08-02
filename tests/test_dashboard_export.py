@@ -284,43 +284,64 @@ class ExportActivityFeedGuardTests(unittest.TestCase):
         self.assertEqual(data["bid_premium_history"], [])
 
 
+def _run_export_with_baselines(
+    fresh_all_players, fitness_baseline_by_player=None, starting_rank_baseline_by_player=None,
+):
+    """Gemeinsamer Test-Helper fuer die Fitness- UND Startelf-Rang-Diff-Bloecke
+    in export() (siehe docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md).
+    get_baseline wird jetzt fuer ZWEI Collections aufgerufen
+    (fitness_status_baseline UND starting_rank_baseline) ueber dieselbe
+    generalisierte Funktion - ein flaches return_value= wuerde beide Aufrufe
+    denselben Wert liefern lassen und den jeweils ANDEREN Diff-Block
+    verunreinigen. side_effect keyed nach collection haelt beide Faelle
+    strikt getrennt; nicht angegebene Baselines defaulten auf {} (Cold
+    Start - kein Diff fuer dieses Feld in diesem Testlauf)."""
+    fitness_baseline_by_player = fitness_baseline_by_player if fitness_baseline_by_player is not None else {}
+    starting_rank_baseline_by_player = (
+        starting_rank_baseline_by_player if starting_rank_baseline_by_player is not None else {}
+    )
+
+    def _get_baseline_side_effect(_client, collection, _doc_id):
+        if collection == "fitness_status_baseline":
+            return fitness_baseline_by_player
+        if collection == "starting_rank_baseline":
+            return starting_rank_baseline_by_player
+        raise AssertionError(f"unerwarteter Baseline-Collection-Name: {collection!r}")
+
+    with patch.dict(
+        os.environ,
+        {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
+        clear=True,
+    ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+        "src.dashboard_export.get_me", return_value={"cpi": "1"}
+    ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-31"), patch(
+        "src.dashboard_export._load_snapshot", return_value=([], [], [], [])
+    ), patch("src.dashboard_export.firestore_db.connect"), patch(
+        "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
+    ), patch(
+        "src.dashboard_export.firestore_db.get_baseline", side_effect=_get_baseline_side_effect,
+    ), patch(
+        "src.dashboard_export.firestore_db.upsert_baseline"
+    ) as mock_upsert_baseline, patch(
+        "src.dashboard_export.firestore_db.upsert_history_entries"
+    ) as mock_upsert_history, patch(
+        "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
+    ), patch("src.dashboard_export._load_wunschkader", return_value=None
+    ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
+    ), patch("src.dashboard_export.player_valuation.fetch_all_players", return_value=fresh_all_players
+    ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
+    ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
+        export()
+    return mock_upsert_history, mock_upsert_baseline
+
+
 class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
     """Diff-Baseline ist bewusst das eigene fitness_status_baseline/latest-Dokument
     (flaches player_id -> status_code-Dict) und NICHT dashboard_snapshot/latest:
     letzteres wird vom stuendlichen Light-Cron ueberschrieben, der status_code fuer
     own_squad/market_listings-Spieler frisch ueberlagert - ein zwischenzeitlicher
     Statuswechsel waere im naechsten Heavy-Diff schon 'alt == neu' und damit
-    dauerhaft verloren (Fund im finalen Review). Nutzt jetzt die generalisierten
-    firestore_db.get_baseline/upsert_baseline/upsert_history_entries - noch mit
-    genau EINEM Aufruf pro Funktion (starting_rank-Block folgt in Task 3)."""
-
-    def _run_export_with(self, baseline_status_by_player, fresh_all_players):
-        with patch.dict(
-            os.environ,
-            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
-            clear=True,
-        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
-            "src.dashboard_export.get_me", return_value={"cpi": "1"}
-        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-31"), patch(
-            "src.dashboard_export._load_snapshot", return_value=([], [], [], [])
-        ), patch("src.dashboard_export.firestore_db.connect"), patch(
-            "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
-        ), patch(
-            "src.dashboard_export.firestore_db.get_baseline",
-            return_value=baseline_status_by_player,
-        ), patch(
-            "src.dashboard_export.firestore_db.upsert_baseline"
-        ) as mock_upsert_baseline, patch(
-            "src.dashboard_export.firestore_db.upsert_history_entries"
-        ) as mock_upsert_history, patch(
-            "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
-        ), patch("src.dashboard_export._load_wunschkader", return_value=None
-        ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
-        ), patch("src.dashboard_export.player_valuation.fetch_all_players", return_value=fresh_all_players
-        ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
-        ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
-            export()
-        return mock_upsert_history, mock_upsert_baseline
+    dauerhaft verloren (Fund im finalen Review)."""
 
     def test_status_change_in_heavy_mode_is_written_to_fitness_history(self):
         fresh_all_players = [
@@ -328,7 +349,9 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
              "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        mock_upsert_history, _mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
+        mock_upsert_history, _mock_upsert_baseline = _run_export_with_baselines(
+            fresh_all_players, fitness_baseline_by_player={"p1": 0},
+        )
 
         mock_upsert_history.assert_called_once()
         self.assertEqual(mock_upsert_history.call_args.args[1], "fitness_history_log")
@@ -341,15 +364,21 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
 
     def test_baseline_is_refreshed_to_current_status(self):
         """Der Baseline-Write laeuft in JEDEM Heavy-Lauf auf den Ist-Stand von
-        heute - sonst wuerde derselbe Wechsel morgen erneut als Event gemeldet."""
+        heute - sonst wuerde derselbe Wechsel morgen erneut als Event gemeldet.
+        assert_any_call statt assert_called_once_with: upsert_baseline wird
+        jetzt ZWEIMAL pro Lauf aufgerufen (fitness UND starting_rank, siehe
+        Modul-Docstring von _run_export_with_baselines) - nur der konkrete
+        Fitness-Aufruf wird hier geprueft."""
         fresh_all_players = [
             {"player_id": "p1", "name": "Krauss", "position": "Sturm", "team_name": "Bremen",
              "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        _mock_upsert_history, mock_upsert_baseline = self._run_export_with({"p1": 0}, fresh_all_players)
+        _mock_upsert_history, mock_upsert_baseline = _run_export_with_baselines(
+            fresh_all_players, fitness_baseline_by_player={"p1": 0},
+        )
 
-        mock_upsert_baseline.assert_called_once_with(ANY, "fitness_status_baseline", "latest", {"p1": 1})
+        mock_upsert_baseline.assert_any_call(ANY, "fitness_status_baseline", "latest", {"p1": 1})
 
     def test_no_status_change_writes_nothing(self):
         unchanged_all_players = [
@@ -357,7 +386,9 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
              "status_code": 0, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
-        mock_upsert_history, _mock_upsert_baseline = self._run_export_with({"p1": 0}, unchanged_all_players)
+        mock_upsert_history, _mock_upsert_baseline = _run_export_with_baselines(
+            unchanged_all_players, fitness_baseline_by_player={"p1": 0},
+        )
 
         mock_upsert_history.assert_not_called()
 
@@ -373,6 +404,9 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
              "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
         ]
 
+        def _get_baseline_side_effect(_client, collection, _doc_id):
+            return {"p1": 0} if collection == "fitness_status_baseline" else {}
+
         with patch.dict(
             os.environ,
             {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
@@ -384,7 +418,7 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.firestore_db.connect"), patch(
             "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
         ), patch(
-            "src.dashboard_export.firestore_db.get_baseline", return_value={"p1": 0}
+            "src.dashboard_export.firestore_db.get_baseline", side_effect=_get_baseline_side_effect,
         ), patch(
             "src.dashboard_export.firestore_db.upsert_baseline"
         ), patch(
@@ -399,6 +433,151 @@ class ExportWritesFitnessHistoryOnStatusChangeTests(unittest.TestCase):
         ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
             data = export()
 
+        self.assertEqual(data["bid_premium_history"], [])
+
+
+class ExportWritesStartingRankHistoryOnRankChangeTests(unittest.TestCase):
+    """Spiegelt ExportWritesFitnessHistoryOnStatusChangeTests 1:1 fuer
+    starting_rank (siehe
+    docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md) -
+    eigene Baseline-Collection (starting_rank_baseline/latest), eigene
+    History-Collection (starting_rank_history_log), aber ueber dieselben
+    generalisierten firestore_db-Funktionen wie Fitness."""
+
+    def test_rank_change_in_heavy_mode_is_written_to_starting_rank_history(self):
+        fresh_all_players = [
+            {"player_id": "p1", "name": "Amiri", "position": "Mittelfeld", "team_name": "Frankfurt",
+             "status_code": 0, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        mock_upsert_history, _mock_upsert_baseline = _run_export_with_baselines(
+            fresh_all_players, starting_rank_baseline_by_player={"p1": 3},
+        )
+
+        mock_upsert_history.assert_called_once()
+        self.assertEqual(mock_upsert_history.call_args.args[1], "starting_rank_history_log")
+        written_entries = mock_upsert_history.call_args.args[2]
+        self.assertEqual(len(written_entries), 1)
+        self.assertEqual(written_entries[0]["player_id"], "p1")
+        self.assertEqual(written_entries[0]["from_starting_rank"], 3)
+        self.assertEqual(written_entries[0]["to_starting_rank"], 1)
+        self.assertEqual(written_entries[0]["date"], "2026-07-31")
+
+    def test_baseline_is_refreshed_to_current_rank(self):
+        fresh_all_players = [
+            {"player_id": "p1", "name": "Amiri", "position": "Mittelfeld", "team_name": "Frankfurt",
+             "status_code": 0, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        _mock_upsert_history, mock_upsert_baseline = _run_export_with_baselines(
+            fresh_all_players, starting_rank_baseline_by_player={"p1": 3},
+        )
+
+        mock_upsert_baseline.assert_any_call(ANY, "starting_rank_baseline", "latest", {"p1": 1})
+
+    def test_no_rank_change_writes_nothing(self):
+        unchanged_all_players = [
+            {"player_id": "p1", "name": "Amiri", "position": "Mittelfeld", "team_name": "Frankfurt",
+             "status_code": 0, "starting_rank": 3, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        mock_upsert_history, _mock_upsert_baseline = _run_export_with_baselines(
+            unchanged_all_players, starting_rank_baseline_by_player={"p1": 3},
+        )
+
+        mock_upsert_history.assert_not_called()
+
+    def test_starting_rank_history_write_error_does_not_abort_export(self):
+        fresh_all_players = [
+            {"player_id": "p1", "name": "Amiri", "position": "Mittelfeld", "team_name": "Frankfurt",
+             "status_code": 0, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        def _get_baseline_side_effect(_client, collection, _doc_id):
+            return {"p1": 3} if collection == "starting_rank_baseline" else {}
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+            "src.dashboard_export.get_me", return_value={"cpi": "1"}
+        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-31"), patch(
+            "src.dashboard_export._load_snapshot", return_value=([], [], [], [])
+        ), patch("src.dashboard_export.firestore_db.connect"), patch(
+            "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
+        ), patch(
+            "src.dashboard_export.firestore_db.get_baseline", side_effect=_get_baseline_side_effect,
+        ), patch(
+            "src.dashboard_export.firestore_db.upsert_baseline"
+        ), patch(
+            "src.dashboard_export.firestore_db.upsert_history_entries",
+            side_effect=RuntimeError("Firestore down"),
+        ), patch(
+            "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
+        ), patch("src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
+        ), patch("src.dashboard_export.player_valuation.fetch_all_players", return_value=fresh_all_players
+        ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
+        ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
+            data = export()
+
+        self.assertEqual(data["bid_premium_history"], [])
+
+    def test_fitness_baseline_read_error_does_not_affect_starting_rank_or_the_unconditional_baseline_write(self):
+        """Fehlerfall aus der Spec ('Baseline-Lesefehler', siehe
+        docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md,
+        Abschnitt Fehlerfaelle) - fuer den urspruenglichen Fitness-Code gab
+        es dafuer NIE einen dedizierten Test (siehe Implementierungsplan-
+        Recherche); mit zwei Feldern ueber dieselben generalisierten
+        Firestore-Funktionen wird er sicherheitsrelevant: ein fehlschlagender
+        get_baseline-Read fuer EIN Feld darf weder das ANDERE Feld noch
+        dessen eigenen, unbedingten Baseline-Write beeinflussen."""
+        fresh_all_players = [
+            {"player_id": "p1", "name": "Amiri", "position": "Mittelfeld", "team_name": "Frankfurt",
+             "status_code": 1, "starting_rank": 1, "market_value": 5_000_000, "average_points": 100},
+        ]
+
+        def _get_baseline_side_effect(_client, collection, _doc_id):
+            if collection == "fitness_status_baseline":
+                raise RuntimeError("Firestore down")
+            return {"p1": 3}
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ), patch("src.dashboard_export.login", return_value=("tok", {}, [{"id": "l1"}])), patch(
+            "src.dashboard_export.get_me", return_value={"cpi": "1"}
+        ), patch("src.dashboard_export.fetcher.run", return_value="2026-07-31"), patch(
+            "src.dashboard_export._load_snapshot", return_value=([], [], [], [])
+        ), patch("src.dashboard_export.firestore_db.connect"), patch(
+            "src.dashboard_export.firestore_db.upsert_dashboard_snapshot"
+        ), patch(
+            "src.dashboard_export.firestore_db.get_baseline", side_effect=_get_baseline_side_effect,
+        ), patch(
+            "src.dashboard_export.firestore_db.upsert_baseline"
+        ) as mock_upsert_baseline, patch(
+            "src.dashboard_export.firestore_db.upsert_history_entries"
+        ) as mock_upsert_history, patch(
+            "src.dashboard_export.get_activities_feed", side_effect=KickbaseError("API down")
+        ), patch("src.dashboard_export._load_wunschkader", return_value=None
+        ), patch("src.dashboard_export._build_ligaanalyse", return_value={"rows": [], "position_need": {}}
+        ), patch("src.dashboard_export.player_valuation.fetch_all_players", return_value=fresh_all_players
+        ), patch("src.dashboard_export.market_predictor.predict_market_value_changes", return_value=None
+        ), patch("src.dashboard_export.player_valuation.load_calibration", return_value=None):
+            data = export()
+
+        # Fitness-Diff wurde uebersprungen (Read schlug fehl) - kein Fitness-History-Write.
+        history_collections_written = [c.args[1] for c in mock_upsert_history.call_args_list]
+        self.assertNotIn("fitness_history_log", history_collections_written)
+        # Startelf-Rang-Diff lief normal (p1: 3 -> 1 ist ein Wechsel, unbeeinflusst vom Fitness-Fehler).
+        self.assertIn("starting_rank_history_log", history_collections_written)
+        # Beide Baseline-Writes laufen trotzdem unbedingt (Fitness self-healing trotz Lesefehler,
+        # Startelf-Rang ohnehin unbeeinflusst).
+        mock_upsert_baseline.assert_any_call(ANY, "fitness_status_baseline", "latest", {"p1": 1})
+        mock_upsert_baseline.assert_any_call(ANY, "starting_rank_baseline", "latest", {"p1": 1})
+        # Der kritische dashboard_snapshot-Write lief trotz des Fitness-Lesefehlers durch.
         self.assertEqual(data["bid_premium_history"], [])
 
 

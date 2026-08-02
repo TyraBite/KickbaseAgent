@@ -524,6 +524,47 @@ def export() -> dict:
         except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
             print(f"Warnung: fitness_status_baseline-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
 
+        # Startelf-Status-Historie (NEU, siehe
+        # docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md) -
+        # identischer Ablauf wie der Fitness-Block oben, bewusst NICHT in eine
+        # gemeinsame Schleife gepresst: eigene Baseline-Dokumente, eigene
+        # Warnmeldungstexte, ein Fehler in einem Feld darf das andere nicht
+        # mitreissen.
+        current_rank_by_player = {
+            p["player_id"]: p["starting_rank"] for p in heavy["all_players"] if p.get("player_id")
+        }
+        try:
+            baseline_rank_by_player = firestore_db.get_baseline(fs_client, "starting_rank_baseline", "latest")
+        except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
+            print(
+                f"Warnung: starting_rank_baseline-Lesezugriff fehlgeschlagen, Startelf-Rang-Diff uebersprungen: {exc}",
+                file=sys.stderr,
+            )
+            baseline_rank_by_player = None
+
+        if baseline_rank_by_player is not None:
+            previous_players_for_rank_diff = {
+                pid: {"starting_rank": rank} for pid, rank in baseline_rank_by_player.items()
+            }
+            starting_rank_changes = [
+                {"player_id": c["player_id"], "from_starting_rank": c["from"], "to_starting_rank": c["to"]}
+                for c in _detect_field_changes(previous_players_for_rank_diff, heavy["all_players"], "starting_rank")
+            ]
+            if starting_rank_changes:
+                starting_rank_entries = [
+                    {**change, "date": fetched_at, "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                    for change in starting_rank_changes
+                ]
+                try:
+                    firestore_db.upsert_history_entries(fs_client, "starting_rank_history_log", starting_rank_entries)
+                except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
+                    print(f"Warnung: starting_rank_history_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
+
+        try:
+            firestore_db.upsert_baseline(fs_client, "starting_rank_baseline", "latest", current_rank_by_player)
+        except Exception as exc:  # sekundaeres Feature - darf den kritischen dashboard_snapshot-Write nicht verhindern
+            print(f"Warnung: starting_rank_baseline-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
+
     activity_feed_ok = True
     if fs_client:
         try:
