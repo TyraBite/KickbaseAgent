@@ -4,13 +4,14 @@ gegen gemockte requests/germansentiment-Aufrufe (kein echter Netzwerk-
 docs/superpowers/specs/2026-08-02-news-sentiment-design.md."""
 
 import datetime
+import os
 import unittest
 from email.utils import format_datetime
 from unittest.mock import MagicMock, patch
 
 import requests
 
-from src.news_sentiment import _build_query, fetch_news_for_player
+from src.news_sentiment import _build_query, _max_workers, classify_sentiment, fetch_news_for_player
 
 
 class BuildQueryTests(unittest.TestCase):
@@ -163,3 +164,38 @@ class FetchNewsForPlayerTests(unittest.TestCase):
         self.assertIn("Artikel mit -0000 Zonen-Marker", titles)
         article = next(a for a in result if a["title"] == "Artikel mit -0000 Zonen-Marker")
         self.assertEqual(article["pub_date"], recent.date().isoformat())
+
+
+class MaxWorkersTests(unittest.TestCase):
+    def test_defaults_to_eight(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_max_workers(), 8)
+
+    def test_reads_env_override(self):
+        with patch.dict(os.environ, {"NEWS_SENTIMENT_MAX_WORKERS": "3"}):
+            self.assertEqual(_max_workers(), 3)
+
+
+class ClassifySentimentTests(unittest.TestCase):
+    def test_empty_texts_returns_empty_list_without_calling_model(self):
+        model = MagicMock()
+        self.assertEqual(classify_sentiment(model, []), [])
+        model.predict_sentiment.assert_not_called()
+
+    def test_batch_call_maps_label_and_matching_probability(self):
+        model = MagicMock()
+        model.predict_sentiment.return_value = (
+            ["positive", "negative"],
+            [
+                [["positive", 0.9761], ["negative", 0.0235], ["neutral", 0.0003]],
+                [["positive", 0.01], ["negative", 0.95], ["neutral", 0.04]],
+            ],
+        )
+
+        result = classify_sentiment(model, ["Text A", "Text B"])
+
+        self.assertEqual(result, [
+            {"label": "positive", "score": 0.9761},
+            {"label": "negative", "score": 0.95},
+        ])
+        model.predict_sentiment.assert_called_once_with(["Text A", "Text B"], output_probabilities=True)

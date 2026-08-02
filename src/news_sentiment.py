@@ -25,15 +25,25 @@ genutzt, siehe fetch_news_for_player(). Sentiment-Klassifikation nutzt
 deshalb ausschliesslich den Titel als Input."""
 
 import datetime
+import os
 import sys
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
 import requests
+from germansentiment import SentimentModel
 
 NEWS_LOOKBACK_DAYS = 7
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
 RSS_REQUEST_TIMEOUT_SECONDS = 15
+
+
+def _max_workers() -> int:
+    """Analog market_predictor._max_workers() - begrenzte Parallelitaet
+    fuer die RSS-Fetches statt unbegrenzter Parallelitaet, um ein Blocken
+    durch Google bei ~450 taeglichen Requests zu vermeiden (siehe Design-
+    Spec, Abschnitt 'Google-News-Rate-Limiting')."""
+    return int(os.environ.get("NEWS_SENTIMENT_MAX_WORKERS", 8))
 
 
 def _build_query(player_name: str, team_name: str | None) -> str:
@@ -99,3 +109,21 @@ def fetch_news_for_player(player_name: str, team_name: str | None) -> list[dict]
             "pub_date": pub_date.date().isoformat(),
         })
     return articles
+
+
+def classify_sentiment(model: "SentimentModel", texts: list[str]) -> list[dict]:
+    """Batch-Klassifikation ueber germansentiment - gibt pro Text
+    {label: 'positive'|'negative'|'neutral', score: float} zurueck. Batch
+    statt Einzelaufruf pro Artikel, da germansentiment.predict_sentiment()
+    nativ Listen akzeptiert - spart Modell-Overhead pro Aufruf. score ist
+    die Wahrscheinlichkeit DES vorhergesagten Labels (nicht z.B. immer die
+    von 'positive'), aus der von output_probabilities=True zurueckgegebenen
+    Liste aller drei Klassen-Wahrscheinlichkeiten herausgesucht."""
+    if not texts:
+        return []
+    labels, probabilities = model.predict_sentiment(texts, output_probabilities=True)
+    results = []
+    for label, probs in zip(labels, probabilities):
+        score = next((float(p[1]) for p in probs if p[0] == label), None)
+        results.append({"label": label, "score": score})
+    return results
