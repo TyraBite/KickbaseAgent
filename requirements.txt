@@ -4,4 +4,13 @@ scikit-learn==1.9.0
 pandas==3.0.5
 numpy==2.4.6
 google-cloud-firestore==2.28.0
+# germansentiment zieht torch+transformers transitiv - Standard-PyPI-Install
+# holt auf Linux die volle CUDA-Variante (~5GB, verifiziert 2026-08-02), nicht
+# die "paar hundert MB" der urspruenglichen Design-Annahme. In CI (siehe
+# .github/workflows/player-news-sentiment.yml) torch VOR dieser Zeile separat
+# ueber den CPU-only-Index installieren:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# damit `pip install -r requirements.txt` die bereits installierte CPU-Version
+# vorfindet statt die CUDA-Variante nachzuladen. Lokal (Sandbox) unkritisch
+# (viel freier Speicher), nur fuer den CI-Workflow relevant.
 germansentiment==1.1.0
