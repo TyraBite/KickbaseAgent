@@ -18,6 +18,7 @@ import PlayerCompareModal from "./PlayerCompareModal";
 // statt Text-Zeile.
 const TREND_7D_THRESHOLDS = { flat: 200_000, strong: 1_500_000 };
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
 
 // ResolvedTarget (Task 14) hat kein ml_prediction-Feld - das bleibt bewusst so
 // (wunschkaderResolve.ts ist bereits reviewt/approved), daher hier lokal um das
@@ -188,7 +189,9 @@ function MlPredictionRow({
         {mae1d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae1d)})</span>}
       </Row>
       <Row label="Prognose 3T">
-        {fmtSigned(value3d)}
+        <span className={trendClass(value3d)}>
+          {trendArrow(value3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(value3d)}
+        </span>
         {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
       </Row>
     </>

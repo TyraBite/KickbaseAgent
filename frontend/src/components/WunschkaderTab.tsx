@@ -12,6 +12,7 @@ import PlayerCompareModal from "./PlayerCompareModal";
 import { IconActionBank, IconActionField, IconActionSwap, IconActionTrash } from "./icons";
 
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
 const MAX_SQUAD_SIZE = 17;
 
 export type EditTarget = RawWunschkaderTarget & { _uid: number };
@@ -536,7 +537,10 @@ function DetailModal({
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
           <Row label="Prognose 3T">
-            {fmtSigned(players[target.player_id]?.ml_prediction_3d ?? null)}
+            <span className={trendClass(players[target.player_id]?.ml_prediction_3d ?? null)}>
+              {trendArrow(players[target.player_id]?.ml_prediction_3d ?? null, ML_PREDICTION_3D_THRESHOLDS)}{" "}
+              {fmtSigned(players[target.player_id]?.ml_prediction_3d ?? null)}
+            </span>
             {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
           </Row>
           <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>

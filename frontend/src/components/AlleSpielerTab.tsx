@@ -286,6 +286,7 @@ function AlleSpielerCard({
 }
 
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
 
 function AlleSpielerDetailModal({
   row,
@@ -353,7 +354,11 @@ function AlleSpielerDetailModal({
                 {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
               </span>
             </Row>
-            <Row label="Prognose 3T">{fmtSigned(row.ml_prediction_3d)}</Row>
+            <Row label="Prognose 3T">
+              <span className={trendClass(row.ml_prediction_3d)}>
+                {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+              </span>
+            </Row>
           </dl>
           <button
             type="button"

@@ -22,6 +22,7 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 // siehe HANDOFF.md), keine geratenen Werte.
 const TREND_7D_THRESHOLDS = { flat: 200_000, strong: 1_500_000 };
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
 
 // Methodik-Hinweis 1:1 aus der bestehenden index.html übernommen (mit Umlauten).
 const HINT =
@@ -193,7 +194,11 @@ function SpekulationCard({
             {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
           </span>
         </Row>
-        <Row label="Prognose 3T">{fmtSigned(row.ml_prediction_3d)}</Row>
+        <Row label="Prognose 3T">
+          <span className={trendClass(row.ml_prediction_3d)}>
+            {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+          </span>
+        </Row>
         <Row label="Preis">{fmtNum(row.price)}</Row>
         <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
         <Row label="Trend 7T">
@@ -248,7 +253,11 @@ function SpekulationTable({
       label: "Prognose 3T",
       align: "right",
       sortValue: (r) => r.ml_prediction_3d,
-      render: (r) => fmtSigned(r.ml_prediction_3d),
+      render: (r) => (
+        <span className={trendClass(r.ml_prediction_3d)}>
+          {trendArrow(r.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(r.ml_prediction_3d)}
+        </span>
+      ),
     },
     { key: "price", label: "Preis", align: "right", sortValue: (r) => r.price, render: (r) => fmtNum(r.price) },
     { key: "roi_pct", label: "Rendite%", align: "right", sortValue: (r) => r.roi_pct, render: (r) => `${r.roi_pct.toFixed(1)}%` },
@@ -332,7 +341,9 @@ function SpekulationDetailModal({
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
           <Row label="Prognose 3T">
-            {fmtSigned(row.ml_prediction_3d)}
+            <span className={trendClass(row.ml_prediction_3d)}>
+              {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+            </span>
             {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
           </Row>
           <Row label="Trend 7T">

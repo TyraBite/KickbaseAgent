@@ -7,6 +7,7 @@ import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerNamePicker from "./PlayerNamePicker";
 
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
 
 type Side = "a" | "b";
 type Winner = Side | null;
@@ -162,8 +163,8 @@ export default function PlayerCompareModal({
           />
           <CompareRow
             label="Prognose 3T"
-            valueA={fmtSigned(rowA.ml_prediction_3d)}
-            valueB={fmtSigned(rowB.ml_prediction_3d)}
+            valueA={<span className={trendClass(rowA.ml_prediction_3d)}>{trendArrow(rowA.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowA.ml_prediction_3d)}</span>}
+            valueB={<span className={trendClass(rowB.ml_prediction_3d)}>{trendArrow(rowB.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowB.ml_prediction_3d)}</span>}
             winner={better(rowA.ml_prediction_3d, rowB.ml_prediction_3d)}
           />
           <CompareRow

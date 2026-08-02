@@ -10,6 +10,7 @@ import { useViewMode } from "../lib/useViewMode";
 // s. Plan - echter Feld-Audit folgt spaeter).
 const TREND_7D_THRESHOLDS = { flat: 200_000, strong: 1_500_000 };
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
+const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
 const POSITIONS = ["Torwart", "Abwehr", "Mittelfeld", "Sturm"];
 type Anbieter = "all" | "kickbase" | "mitspieler";
 type SortKey = "auction" | "price" | "signal" | "trend" | "ml" | "name";
@@ -116,7 +117,11 @@ export default function TransfermarktTab({
       label: "Prognose 3T",
       align: "right",
       sortValue: (r) => r.ml_prediction_3d,
-      render: (r) => fmtSigned(r.ml_prediction_3d),
+      render: (r) => (
+        <span className={trendClass(r.ml_prediction_3d)}>
+          {trendArrow(r.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(r.ml_prediction_3d)}
+        </span>
+      ),
     },
     {
       key: "market_value_change_7d",
@@ -330,7 +335,9 @@ function TransfermarktDetailModal({
             {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
           </Row>
           <Row label="Prognose 3T">
-            {fmtSigned(row.ml_prediction_3d)}
+            <span className={trendClass(row.ml_prediction_3d)}>
+              {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+            </span>
             {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
           </Row>
           <Row label="Trend 7T">
@@ -416,7 +423,11 @@ function TransfermarktCard({
             {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
           </span>
         </Row>
-        <Row label="Prognose 3T">{fmtSigned(row.ml_prediction_3d)}</Row>
+        <Row label="Prognose 3T">
+          <span className={trendClass(row.ml_prediction_3d)}>
+            {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+          </span>
+        </Row>
         <Row label="Signal">
           <SignalBadge signal={row.signal} thresholds={thresholds} />
         </Row>
