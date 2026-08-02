@@ -309,6 +309,9 @@ export default function App() {
         />
       )}
       <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <h1 className="mb-4 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
+          {TABS.find((t) => t.key === activeTab)?.label}
+        </h1>
         {loadState === "loading" && activeTab !== "feedback" && (
           <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
         )}
