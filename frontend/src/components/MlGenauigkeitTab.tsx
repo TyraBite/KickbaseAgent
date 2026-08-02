@@ -74,7 +74,7 @@ export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) 
 
   return (
     <div>
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+      <div className={`mb-6 grid gap-4 ${metrics3d ? "lg:grid-cols-2" : ""}`}>
         <HeadToHeadBlock metrics={metrics} heading="Kopf-an-Kopf (1-Tages-Horizont)" />
         {metrics3d && <HeadToHeadBlock metrics={metrics3d} heading="Kopf-an-Kopf (3-Tages-Horizont)" />}
       </div>

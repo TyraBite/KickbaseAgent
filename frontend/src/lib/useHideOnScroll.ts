@@ -15,6 +15,7 @@ export function useHideOnScroll(): boolean {
   const lastY = useRef(0);
 
   useEffect(() => {
+    lastY.current = window.scrollY;
     function onScroll() {
       const currentY = window.scrollY;
       setVisible((prev) => nextHeaderVisible(lastY.current, currentY, prev));

@@ -256,7 +256,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header
-        className={`sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:!translate-y-0 ${
+        className={`sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:static sm:!translate-y-0 ${
           headerVisible ? "translate-y-0" : "-translate-y-full"
         }`}
       >
@@ -315,9 +315,9 @@ export default function App() {
         />
       )}
       <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <h1 className="mb-4 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
+        <h2 className="mb-4 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
           {TABS.find((t) => t.key === activeTab)?.label}
-        </h1>
+        </h2>
         {loadState === "loading" && activeTab !== "feedback" && (
           <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
         )}
