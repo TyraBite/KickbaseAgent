@@ -93,6 +93,9 @@ BACKTEST_MIN_TRAIN_ROWS = MIN_TRAINING_ROWS
 NO_HISTORY_DAYS_PLACEHOLDER = 9999  # Platzhalter: kein Wechsel-Ereignis vor diesem Datum bekannt (Cold-Start oder Spieler noch nie in der jeweiligen History-Collection) - feldneutral, siehe _change_recency_features()
 CHANGE_COUNT_WINDOW_DAYS = 90
 
+SENTIMENT_LABEL_SCORE = {"positive": 1, "neutral": 0, "negative": -1}
+SENTIMENT_WINDOW_DAYS = 7
+
 # Aggregierter Sicherheits-Check: schlagen zu viele der ersten Abrufe fehl,
 # lieber den ganzen Corpus-Aufbau abbrechen als auf degradierten Daten zu
 # trainieren (Rate-Limit? API-Aenderung?).
@@ -216,6 +219,30 @@ def _change_recency_features(
     cutoff = as_of_date - datetime.timedelta(days=window_days)
     count = sum(1 for e in relevant if datetime.date.fromisoformat(e["date"]) > cutoff)
     return {days_feature: days_since, count_feature: count}
+
+
+def _sentiment_features_as_of(articles: list[dict], as_of_date: datetime.date) -> dict:
+    """articles: EIN Spielers Eintraege aus player_news_log (jeweils
+    {'pub_date': 'YYYY-MM-DD', 'sentiment_label': 'positive'|'neutral'|'negative', ...}).
+    Nur Artikel mit pub_date im (as_of_date - SENTIMENT_WINDOW_DAYS, as_of_date]-Fenster
+    fliessen ein - kein Lookahead in die Zukunft dieser Trainings-Zeile (identisches
+    Prinzip wie _change_recency_features, hier aber ueber ein rollierendes Fenster
+    statt "Tage seit letztem Ereignis", da es bei Nachrichten kein einzelnes
+    diskretes 'Ereignis' wie einen Status-Wechsel gibt, sondern eine variable
+    Anzahl Artikel pro Tag). Siehe
+    docs/superpowers/specs/2026-08-02-sentiment-ml-integration-design.md.
+    Absichtlich EIGENE Funktion statt Wiederverwendung der Recency-Feature-
+    Funktion - andere Aggregationssemantik (Fenster-Durchschnitt statt
+    Tage-seit-letztem-Ereignis)."""
+    cutoff = as_of_date - datetime.timedelta(days=SENTIMENT_WINDOW_DAYS)
+    relevant = [
+        a for a in articles
+        if cutoff < datetime.date.fromisoformat(a["pub_date"]) <= as_of_date
+    ]
+    if not relevant:
+        return {"avg_sentiment_7d": 0, "news_volume_7d": 0}
+    avg_sentiment = sum(SENTIMENT_LABEL_SCORE[a["sentiment_label"]] for a in relevant) / len(relevant)
+    return {"avg_sentiment_7d": avg_sentiment, "news_volume_7d": len(relevant)}
 
 
 def _fetch_player_training_frame(

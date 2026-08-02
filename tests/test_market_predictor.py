@@ -21,11 +21,13 @@ from src.market_predictor import (
     _infer_today,
     _performance_frame,
     _change_recency_features,
+    _sentiment_features_as_of,
     _fetch_player_training_frame,
     _build_corpus,
     _load_change_events_by_player,
     _engineer_features,
     NO_HISTORY_DAYS_PLACEHOLDER,
+    SENTIMENT_WINDOW_DAYS,
     _train_and_evaluate,
     _walk_forward_backtest,
     _train_and_track_horizon,
@@ -506,6 +508,60 @@ class ChangeRecencyFeaturesTests(unittest.TestCase):
         )
         self.assertEqual(result["days_since_last_starting_rank_change"], NO_HISTORY_DAYS_PLACEHOLDER)
         self.assertEqual(result["starting_rank_change_count_90d"], 0)
+
+
+class SentimentFeaturesAsOfTests(unittest.TestCase):
+    def test_no_articles_returns_neutral_placeholder(self):
+        result = _sentiment_features_as_of([], datetime.date(2026, 8, 2))
+        self.assertEqual(result["avg_sentiment_7d"], 0)
+        self.assertEqual(result["news_volume_7d"], 0)
+
+    def test_only_positive_articles_averages_to_one(self):
+        articles = [
+            {"pub_date": "2026-08-01", "sentiment_label": "positive"},
+            {"pub_date": "2026-07-30", "sentiment_label": "positive"},
+        ]
+        result = _sentiment_features_as_of(articles, datetime.date(2026, 8, 2))
+        self.assertEqual(result["avg_sentiment_7d"], 1)
+        self.assertEqual(result["news_volume_7d"], 2)
+
+    def test_mixed_sentiment_averages_correctly(self):
+        articles = [
+            {"pub_date": "2026-08-01", "sentiment_label": "positive"},
+            {"pub_date": "2026-08-01", "sentiment_label": "negative"},
+            {"pub_date": "2026-07-31", "sentiment_label": "neutral"},
+        ]
+        result = _sentiment_features_as_of(articles, datetime.date(2026, 8, 2))
+        self.assertEqual(result["avg_sentiment_7d"], 0)
+        self.assertEqual(result["news_volume_7d"], 3)
+
+    def test_article_older_than_window_is_excluded(self):
+        as_of = datetime.date(2026, 8, 2)
+        too_old = (as_of - datetime.timedelta(days=8)).isoformat()
+        articles = [{"pub_date": too_old, "sentiment_label": "positive"}]
+        result = _sentiment_features_as_of(articles, as_of)
+        self.assertEqual(result["news_volume_7d"], 0)
+        self.assertEqual(result["avg_sentiment_7d"], 0)
+
+    def test_article_exactly_on_window_boundary_is_excluded(self):
+        as_of = datetime.date(2026, 8, 2)
+        boundary_date = (as_of - datetime.timedelta(days=SENTIMENT_WINDOW_DAYS)).isoformat()
+        articles = [{"pub_date": boundary_date, "sentiment_label": "positive"}]
+        result = _sentiment_features_as_of(articles, as_of)
+        self.assertEqual(result["news_volume_7d"], 0)
+
+    def test_article_published_after_as_of_date_is_excluded_lookahead_guard(self):
+        as_of = datetime.date(2026, 8, 2)
+        future_date = (as_of + datetime.timedelta(days=1)).isoformat()
+        articles = [{"pub_date": future_date, "sentiment_label": "negative"}]
+        result = _sentiment_features_as_of(articles, as_of)
+        self.assertEqual(result["news_volume_7d"], 0)
+        self.assertEqual(result["avg_sentiment_7d"], 0)
+
+    def test_unknown_sentiment_label_raises_key_error(self):
+        articles = [{"pub_date": "2026-08-01", "sentiment_label": "surprised"}]
+        with self.assertRaises(KeyError):
+            _sentiment_features_as_of(articles, datetime.date(2026, 8, 2))
 
 
 class LoadChangeEventsByPlayerTests(unittest.TestCase):
