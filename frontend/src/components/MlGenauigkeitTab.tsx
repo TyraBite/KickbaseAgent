@@ -74,8 +74,10 @@ export default function MlGenauigkeitTab({ data }: { data: DashboardSnapshot }) 
 
   return (
     <div>
-      <HeadToHeadBlock metrics={metrics} heading="Kopf-an-Kopf (1-Tages-Horizont)" />
-      {metrics3d && <HeadToHeadBlock metrics={metrics3d} heading="Kopf-an-Kopf (3-Tages-Horizont)" />}
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        <HeadToHeadBlock metrics={metrics} heading="Kopf-an-Kopf (1-Tages-Horizont)" />
+        {metrics3d && <HeadToHeadBlock metrics={metrics3d} heading="Kopf-an-Kopf (3-Tages-Horizont)" />}
+      </div>
 
       {bidPremiumSection}
 
@@ -93,7 +95,7 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
     : "unbekannt";
 
   return (
-    <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-50">{heading}</h3>
       <p className="mb-1 text-sm text-slate-700 dark:text-slate-300">
         Aktuell live: <b>{MODEL_LABELS[metrics.model_type] ?? metrics.model_type}</b>
