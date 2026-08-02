@@ -1,8 +1,8 @@
-# Handoff: KickbaseAgent Dashboard — Session-Ende, viel geplant, wenig gepusht
+# Handoff: KickbaseAgent Dashboard
 
-**Generated**: 2026-07-29, zuletzt aktualisiert 2026-08-01 (Cron-Fix gepusht, drei neue Spec+Plan-Paare committed aber NICHT umgesetzt, Rest der 2026-07-31-Überarbeitung unverändert gültig, siehe unten)
+**Generated**: 2026-07-29, zuletzt komplett überarbeitet 2026-08-02 (Resume Instructions neu strukturiert nach Quick-Win/Need-Planning/Backlog, veraltete Push-/Worktree-Hinweise korrigiert — siehe unten)
 **Branch**: main
-**Status (2026-08-01)**: Neue Session. Ein echter Fix umgesetzt+gepusht (Heavy-Cron-Timing). Danach ausschließlich **Planungsarbeit** (Feedback-Backlog aus `feedback/current` durchgesprochen, drei komplette Spec+Plan-Paare geschrieben, KEINS davon implementiert — User wollte explizit "erstmal nur Pläne"). Siehe eigenen Abschnitt "Session 2026-08-01" weiter unten für Details, der Rest dieses Dokuments (unten) ist der unveränderte Stand vom 2026-07-31.
+**Status (2026-08-02)**: `main` und `origin/main` sind **synchron** (0 ahead/0 behind, HEAD `3238602`) — nichts Ungepushtes, keine Push-Entscheidung mehr offen (der alte Hinweis dazu unten ist überholt). Alle 4 großen Feature-Wünsche der Session 2026-08-01 (Prognose 1T/3T im Frontend, Live-Sync-Bugfix Eigenes-Team/Wunschkader, Wunschkader-Formationen, 3T-Trend-Pfeil-Einfärbung) sind umgesetzt, gemerged und live. Die 3-Tage-Hyperparameter-Suche ist abgeschlossen (kein echter Gewinner, Daten-Leck-Fund dokumentiert, siehe Failed Approaches). **Aktuell offen**: 14 `status:"open"`-Items in `feedback/current`, kategorisiert unter Resume Instructions — das ist jetzt der Standard-Einstiegspunkt für jede neue Session, siehe dort.
 
 ## Session 2026-08-01 (neu, oben angehängt)
 
@@ -155,13 +155,13 @@ KickbaseAgent-Dashboard von 5 parallelen, namensverknüpften Firestore-Arrays au
 
 **Working**: Backend-Tests 226/226 grün (`python3 -m unittest discover -s tests`, Stand 2026-07-31 nach ML-Horizonte-Final-Review + `backfill_prediction_log()`-Generalisierung). Frontend `tsc` 0 Fehler. **8 Tabs** (nicht mehr 7, siehe Completed: Feedback-Tab dazugekommen) auf `players`-Map umgestellt, DST-sicherer Auktions-Countdown verifiziert, Budget-Logik konsistent. Cron-Kadenz: Light stündlich zu **`:17`** (`17 * * * *`, verschoben wegen beobachteter Lastspitzen-Ausfälle rund um volle Stunden), Heavy täglich **`19:04 UTC`** (`4 19 * * *` — **2026-08-01 nochmal verschoben** von `21:07 UTC`, siehe Session 2026-08-01 oben: kompensiert gemessenen GH-Actions-Delay, Ziel ~22:07 Berlin, plus neuer 12-21-Uhr-Guard-Step).
 
-**2026-08-01: `main` ist NICHT mehr gleich `origin/main`** — lokal **14 Commits voraus** (`origin/main` steht bei `b53b131`, dem gepushten Cron-Fix). Alle 14 sind reine Markdown-Commits (Specs/Pläne, keiner davon implementiert Code) — sowohl von dieser Session (3 Spec+Plan-Paare) als auch von parallelen Agenten/Sessions (Card-View-Toggle, ML-3D-Tuning-Ergänzung, Wunschkader-Action-Icons-Spec, siehe Session-2026-08-01-Abschnitt oben). Push wurde in dieser Session bewusst nicht ausgelöst (kein Auftrag dazu) — nächste Session sollte mit dem User klären, ob/wann gepusht werden soll, bevor mit einem der offenen Pläne weitergearbeitet wird (sonst laufen lokale Spec/Plan-Stände zwischen mehreren Sessions/Rechnern auseinander).
+**2026-08-02: `main` ist wieder synchron mit `origin/main`** (verifiziert per `git rev-list --left-right --count origin/main...HEAD` → `0	0`, HEAD `3238602`). Der frühere Hinweis hier ("14 Commits voraus, Push-Entscheidung offen") ist überholt — alle damals lokalen Markdown-Commits und alles, was seitdem dazukam (Frontend-Coloring, Tuning-Ergebnis-Doku), ist längst gepusht. Keine Push-Entscheidung mehr nötig, bevor an einem der offenen Punkte weitergearbeitet wird.
 
 **Broken**: Nichts Bekanntes.
 
 **Uncommitted Changes**: `git status` zeigt weiterhin unstaged Änderungen an `MDs/codes.md`/`datencheck.md`/`liga-kontext.md`/`methodik.md`/`spieler-bewertung.md` + `frontend/package-lock.json` — **nicht von dieser Session, vermutlich User-eigener WIP-Stand**, bewusst nicht angefasst/gestasht, seit mehreren HANDOFF-Updates unverändert. `data/ml_prediction_log.jsonl` war zwischenzeitlich ebenfalls uncommitted (echter Nebeneffekt eines Live-Smoke-Tests von `predict_market_value_changes()` während der ML-Horizonte-Implementierung dieser Session, NICHT User-WIP wie hier zuvor fälschlich vermerkt) — per Commit `a3363a6` (2026-08-01) als Snapshot-Refresh eingecheckt, folgt damit dem etablierten Muster früherer Commits dieser Art für exakt diese Datei.
 
-**Worktrees** (`git worktree list`, Stand 2026-08-01): **5 aktive Worktrees**, deutlich mehr als am 07-31 — `worktree-wunschkader-fixes` (alt, wie bisher), plus NEU `worktree-card-view-toggle`, `worktree-card-view-toggle-plan`, `worktree-ml-3d-tuning` (alle drei von parallelen Sessions/Agenten, siehe Session 2026-08-01 oben) und `worktree-wunschkader-action-icons` (**locked**, aktiv in Arbeit für die Icon-Buttons-Feature). Vor jeder größeren eigenen Aufgabe `git worktree list` erneut prüfen — die Liste wächst gerade schnell, mehrere Sessions arbeiten parallel an diesem Repo. **Kleiner Housekeeping-Fund (2026-07-31, weiterhin unverändert)**: unter `.claude/worktrees/` liegen zusätzlich drei verwaiste, nicht mehr in `git worktree list` registrierte Verzeichnisse aus abgeschlossenen delegierten Sessions (`gebotstracking`/`ligaanalyse-detail`/`spieler-vergleich`, zusammen ~190MB) — kein aktives Risiko, reine Platten-Altlast.
+**Worktrees** (`git worktree list`, Stand 2026-08-02): 6 registriert — `card-view-toggle`, `card-view-toggle-plan`, `eigenes-team-wunschkader-live-sync` (locked), `wunschkader-action-icons`, `wunschkader-fixes`, plus `handoff-update` (locked, für dieses HANDOFF-Update selbst genutzt, danach wieder entfernt). **Die ersten 5 sind stale/orphaned** — die jeweiligen Features sind alle längst in `main` gemerged: Card-View-Toggle (`24507cb`/`84d9086`/`81461d9`), Live-Sync-Fix (`ab695f0`/`2adacef`/`8c3d54e`), Wunschkader-Action-Icons (`2265f08`/`0a122fe`), `wunschkader-fixes` war laut Korrektur weiter oben ohnehin dieselbe Session. `worktree-ml-3d-tuning` (früher hier gelistet) ist bereits gelöscht. Können bei Gelegenheit per `git worktree remove` aufgeräumt werden — vorher kurz prüfen, dass kein anderer Agent gerade darin arbeitet (`eigenes-team-wunschkader-live-sync` ist noch als `locked` markiert, obwohl der Code schon gemergt ist — evtl. vergessenes Unlock, nicht einfach überschreiben ohne kurz reinzuschauen).
 
 ## Files to Know
 
@@ -184,18 +184,40 @@ KickbaseAgent-Dashboard von 5 parallelen, namensverknüpften Firestore-Arrays au
 
 ## Resume Instructions
 
-**Stand 2026-08-01**: diese Session hat NUR geplant (bis auf den Cron-Fix), nichts von den 3 eigenen Spec+Plan-Paaren umgesetzt. Falls eine neue Session hier weitermacht:
+**Standing-Prozess (seit 2026-08-02, gilt für JEDE neue Session hier, ersetzt die alte rein chronologische Abarbeitung)**:
 
-1. **Zuerst `feedback/current` in Firestore auf offene Einträge prüfen** (siehe Warnings) — alle Items sind noch `status:"open"`, auch die bereits durchgeplanten.
-2. **`git log --oneline -10` + `git worktree list` checken, BEVOR irgendein Plan ausgeführt wird** — mehrere parallele Sessions/Agenten haben zwischen 2026-08-01-Sitzungsbeginn und -ende neue Commits/Worktrees erzeugt (Card-View-Toggle, ML-3D-Tuning, Wunschkader-Action-Icons — siehe Session-2026-08-01-Abschnitt oben). Die 3 eigenen Pläne dieser Session gehen vom damaligen Ist-Stand von `WunschkaderTab.tsx`/`App.tsx`/`formations.ts` aus — falls ein anderer Plan diese Dateien inzwischen verändert hat, vor Ausführung frisch gegenlesen, nicht blind die "Alt:"-Codeblöcke der Pläne annehmen.
-3. **Push-Entscheidung mit User klären** — `main` ist 14 Commits vor `origin/main` (nur Markdown, siehe Current State), noch nicht gepusht (kein Auftrag dazu in dieser Session).
-4. Die 4 offen geplanten/delegierten Feature-Wünsche aus `feedback/current`, in User-Prioritäts-Reihenfolge falls fortgesetzt:
-   - **Prognose 1T/3T**: Plan fertig, `docs/superpowers/plans/2026-08-01-ml-horizonte-frontend-anzeige.md`.
-   - **Live-Sync-Bugfix (Eigenes Team/Wunschkader)**: Plan fertig, `docs/superpowers/plans/2026-08-01-eigenes-team-wunschkader-live-sync.md`.
-   - **Wunschkader-Formationen**: Plan fertig, `docs/superpowers/plans/2026-08-01-wunschkader-formationen.md`.
-   - **Tages-Dashboard mit Handlungsbedarf**: bewusst zurückgestellt (User: "bedarf größerer Planung"), Brainstorming nur angerissen, nicht fortsetzen ohne Nachfrage.
-   - **Kartenansicht Transfermarkt/Alle Spieler** und **Wunschkader-Action-Icons**: laufen/liefen parallel bei anderen Agenten — vor eigenem Anfassen erst `git log`/Worktree-Stand prüfen, ob schon erledigt.
-5. Ältere, weiterhin gültige Backlog-Punkte (unverändert seit 07-31, siehe unten): externe Signale (Transfermarkt.de-Wechselgerüchte, nicht anfragen), Playwright-Component-Testing-Plan für `WunschkaderTab` (gemerged, nicht umgesetzt), "Modelle nochmal tunen"-Idee, Fitness-Historie-Cold-Start (nicht herumoptimieren).
+1. **Immer zuerst `feedback/current` in Firestore auslesen** (Collection `feedback`, Dokument `current`, Feld `items[]` — zweiter Eingangskanal neben dem Chat, siehe Warnings). Korrekter Python-Zugriff: `from google.cloud import firestore` (**nicht** `firebase_admin` — das Paket ist hier nicht installiert). `GOOGLE_APPLICATION_CREDENTIALS=firebase-service-account.json python3 -c "from google.cloud import firestore; ..."` reicht, kein venv nötig (`google-cloud-firestore` ist im System-`python3` bereits vorhanden, wie auch `src/firestore_db.py` es nutzt).
+2. **Alle `status:"open"`-Items einsortieren** (User-Vorgabe, nicht mehr nur nach Priorität in einer Liste abarbeiten):
+   - **Quick Win** — ohne viel Planung umsetzbar: kleiner, klar abgegrenzter Scope, keine offene Produktentscheidung.
+   - **Need Planning** — braucht Planung, aber hoher User-Impact: zeitig angehen, nicht liegen lassen.
+   - **Backlog** — braucht Planung, User-Impact aktuell nicht so hoch: läuft nicht weg, nicht proaktiv anstoßen.
+3. **Erst danach** `git log --oneline -10` + `git worktree list` prüfen, BEVOR irgendein Plan/Feature ausgeführt wird — mehrere parallele Sessions/Agenten arbeiten regelmäßig gleichzeitig an diesem Repo (siehe Warnings), der Stand kann sich zwischen Chat-Nachrichten schon geändert haben.
+
+**Kategorisierung Stand 2026-08-02** (14 offene Items, zur Orientierung — bei Sessionstart per Schritt 1 neu auslesen, es können neue Items dazugekommen oder inzwischen erledigt worden sein, nicht blind übernehmen):
+
+**Quick Win**:
+- Heavy-Cron "wieder nicht richtig getriggert" (`2464b2e6`) — der Timing-Fix (Cron auf `19:04 UTC` vorverlegt + Guard-Step, siehe Session-2026-08-01-Abschnitt oben) ist schon gepusht; vermutlich reicht `gh run list --workflow=dashboard-marktwerte.yml --limit 10 --json createdAt,conclusion`, um zu bestätigen, dass er greift, dann Item auf `status:"done"` setzen.
+- Mobiler Header verschwindet beim Scrollen nicht kontextsensitiv (`832154f3`) — Standard-Pattern Hide-on-scroll-down/Show-on-scroll-up, rein im Mobile-Nav-Bereich.
+- Wunschkader ohne Extra-Klick/Scroll speichern + Hinweistext vereinfachen (`f462d415`).
+- "(Standard)"-Zusatz bei Sortier-Labels entfernen (`75b53c6e`) — trivialer Text-Fix.
+- Kopf-an-Kopf-Kacheln 1T/3T im Modell-Tracking (Web-Breite) zu einer zusammenlegen (`4a19f09a`) — reines Layout.
+- Tausendertrennzeichen in Transfermarkt-Zahlenfiltern (`d390f441`) — Format-on-blur/Parse-on-submit, gut abgegrenzt.
+- Mobile Tab-Überschrift ergänzen (`2fbcfeca`) — seit dem Burger-Menü (Completed) fehlt die Orientierung, welcher Tab gerade aktiv ist.
+- "Marktwert Update"-Hinweiszeile in Spekulation/Transfermarkt (`eefbbba8`) — rein kosmetisch, Kickbase-Vorbild.
+- Zeichenlimit im Feedback-Formular erhöhen (`9e85fca8`) — `maxLength` in `FeedbackTab.tsx`.
+
+**Need Planning** (hoher Impact, aber Produktentscheidung/Konzept nötig):
+- **Tages-Dashboard mit Handlungsbedarf** (`bef54eff`) — der vom User mit Abstand ausführlichst beschriebene Wunsch (Verkaufs-/Kaufkandidaten + letzte Transfers anderer Manager gebündelt, Ziel: seltener direkt in Kickbase einloggen müssen). War schon einmal in Brainstorming, User hat selbst gestoppt ("das bedarf größerer Planung") — **nicht ohne Nachfrage neu anstoßen**, aber bei grünem Licht Priorität vor den anderen beiden Need-Planning-Items.
+- **ML-Charts mobil kaum lesbar** (`5a182f9d`) — Tooltip-Position, Punktdichte, Zeitraum; braucht Entscheidungen zu Mobile-Breakpoints/Sampling, blockiert aber aktuell die mobile Nutzbarkeit des Modell-Tracking-Tabs.
+- **Wunschkader "Geplanter Preis" live berechnen** (`297fc4aa`) — User nennt zwei Optionen (pauschal +10% auf Marktwert vs. den 75%-Schwellenwert aus der Gebotsempfehlung übernehmen) — Produktentscheidung, keine reine Implementierung.
+
+**Backlog** (braucht Planung, aktuell nicht dringend):
+- **Grafische Tab-Indikatoren** (`89aaaa7d`) — User selbst: "hierfür müssen Ideen gesammelt werden", noch keine konkrete Anforderung.
+- **Sentiment-Analyse für Marktwert-Turning-Points** (`6b08e2cf`, Beispiele Amiri/Le Joncur) — groß angelegt (externe Nachrichtenquellen, Sentiment/NLP, neuer Hintergrund-Agent), spannend aber unscoped R&D. Eigene Brainstorming-Session wert, wenn der User bewusst Zeit dafür einplant — nicht proaktiv anfangen.
+
+**Unabhängig von `feedback/current`, weiterhin gültig** (siehe Not Yet Done für vollen Kontext): Embargo-Fix für `_walk_forward_backtest()` bei Mehrtage-Horizonten (**nicht nebenbei fixen** — würde bereits live gezeigte 3T-Genauigkeit rückwirkend verändern, eigene Session), Playwright-Component-Testing-Plan für `WunschkaderTab` (gemerged, nicht umgesetzt, User noch unentschieden Subagent-Driven/Inline), "Modelle nochmal tunen sobald genug Daten da sind" (noch nicht — Fitness-Features liefern noch Cold-Start-Platzhalter).
+
+**Worktree-Housekeeping** (siehe Current State): 5 der 6 registrierten Worktrees sind stale (Feature längst gemerged) — bei Gelegenheit aufräumbar, vorher kurz gegenchecken, dass kein anderer Agent gerade darin arbeitet.
 
 ## Setup Required
 
