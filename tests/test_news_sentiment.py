@@ -4,6 +4,7 @@ gegen gemockte requests/germansentiment-Aufrufe (kein echter Netzwerk-
 docs/superpowers/specs/2026-08-02-news-sentiment-design.md."""
 
 import datetime
+import hashlib
 import os
 import unittest
 from email.utils import format_datetime
@@ -11,7 +12,13 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from src.news_sentiment import _build_query, _max_workers, classify_sentiment, fetch_news_for_player
+from src.news_sentiment import (
+    _build_query,
+    _max_workers,
+    classify_sentiment,
+    collect_news_sentiment,
+    fetch_news_for_player,
+)
 
 
 class BuildQueryTests(unittest.TestCase):
@@ -199,3 +206,102 @@ class ClassifySentimentTests(unittest.TestCase):
             {"label": "negative", "score": 0.95},
         ])
         model.predict_sentiment.assert_called_once_with(["Text A", "Text B"], output_probabilities=True)
+
+
+class CollectNewsSentimentTests(unittest.TestCase):
+    def _today(self) -> str:
+        return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+    @patch("src.news_sentiment.SentimentModel")
+    @patch("src.news_sentiment.fetch_news_for_player")
+    def test_builds_entry_with_article_hash_and_sentiment(self, mock_fetch, mock_model_cls):
+        mock_fetch.side_effect = lambda name, team: (
+            [{"title": "Tor fuer Krauss", "snippet": "Bremen", "link": "https://example.com/a1", "pub_date": "2026-08-01"}]
+            if name == "Krauss" else []
+        )
+        mock_model_cls.return_value.predict_sentiment.return_value = (
+            ["positive"],
+            [[["positive", 0.9], ["negative", 0.05], ["neutral", 0.05]]],
+        )
+        players = [
+            {"player_id": "p1", "name": "Krauss", "team_name": "Bremen"},
+            {"player_id": "p2", "name": "Niemand", "team_name": "Bremen"},
+        ]
+
+        result = collect_news_sentiment(players)
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry["player_id"], "p1")
+        self.assertEqual(entry["headline"], "Tor fuer Krauss")
+        self.assertEqual(entry["snippet"], "Bremen")
+        self.assertEqual(entry["link"], "https://example.com/a1")
+        self.assertEqual(entry["pub_date"], "2026-08-01")
+        self.assertEqual(entry["sentiment_label"], "positive")
+        self.assertEqual(entry["sentiment_score"], 0.9)
+        self.assertEqual(entry["date"], self._today())
+        self.assertEqual(entry["article_hash"], hashlib.sha1(b"https://example.com/a1").hexdigest()[:12])
+        mock_model_cls.return_value.predict_sentiment.assert_called_once_with(["Tor fuer Krauss"], output_probabilities=True)
+
+    @patch("src.news_sentiment.SentimentModel")
+    @patch("src.news_sentiment.fetch_news_for_player")
+    def test_player_with_no_articles_contributes_nothing(self, mock_fetch, mock_model_cls):
+        mock_fetch.return_value = []
+        mock_model_cls.return_value.predict_sentiment.return_value = ([], [])
+
+        result = collect_news_sentiment([{"player_id": "p1", "name": "Niemand", "team_name": None}])
+
+        self.assertEqual(result, [])
+
+    @patch("src.news_sentiment.SentimentModel")
+    @patch("src.news_sentiment.fetch_news_for_player")
+    def test_one_players_fetch_failure_does_not_abort_others(self, mock_fetch, mock_model_cls):
+        def side_effect(name, team):
+            return [] if name == "Broken" else [
+                {"title": "Meldung", "snippet": "Quelle", "link": "https://example.com/b1", "pub_date": "2026-08-01"}
+            ]
+        mock_fetch.side_effect = side_effect
+        mock_model_cls.return_value.predict_sentiment.return_value = (
+            ["neutral"], [[["positive", 0.1], ["negative", 0.1], ["neutral", 0.8]]]
+        )
+        players = [
+            {"player_id": "p1", "name": "Broken", "team_name": None},
+            {"player_id": "p2", "name": "OK", "team_name": None},
+        ]
+
+        result = collect_news_sentiment(players)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["player_id"], "p2")
+
+    @patch("src.news_sentiment.SentimentModel")
+    @patch("src.news_sentiment.fetch_news_for_player")
+    def test_players_missing_player_id_or_name_are_skipped_without_fetching(self, mock_fetch, mock_model_cls):
+        mock_model_cls.return_value.predict_sentiment.return_value = ([], [])
+        players = [
+            {"player_id": None, "name": "X", "team_name": None},
+            {"player_id": "p1", "name": None, "team_name": None},
+        ]
+
+        result = collect_news_sentiment(players)
+
+        self.assertEqual(result, [])
+        mock_fetch.assert_not_called()
+
+    @patch("src.news_sentiment.SentimentModel")
+    @patch("src.news_sentiment.fetch_news_for_player")
+    def test_two_articles_same_player_get_distinct_article_hashes(self, mock_fetch, mock_model_cls):
+        mock_fetch.return_value = [
+            {"title": "Artikel 1", "snippet": "Q1", "link": "https://example.com/x1", "pub_date": "2026-08-01"},
+            {"title": "Artikel 2", "snippet": "Q2", "link": "https://example.com/x2", "pub_date": "2026-08-01"},
+        ]
+        mock_model_cls.return_value.predict_sentiment.return_value = (
+            ["neutral", "neutral"],
+            [[["positive", 0.1], ["negative", 0.1], ["neutral", 0.8]], [["positive", 0.2], ["negative", 0.1], ["neutral", 0.7]]],
+        )
+
+        result = collect_news_sentiment([{"player_id": "p1", "name": "X", "team_name": None}])
+
+        self.assertEqual(len(result), 2)
+        article_hashes = {e["article_hash"] for e in result}
+        self.assertEqual(len(article_hashes), 2)

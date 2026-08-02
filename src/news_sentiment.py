@@ -24,7 +24,9 @@ HTML-verpackte Dopplung des Titels plus Verlagsname. Das <source>-Element
 genutzt, siehe fetch_news_for_player(). Sentiment-Klassifikation nutzt
 deshalb ausschliesslich den Titel als Input."""
 
+import concurrent.futures
 import datetime
+import hashlib
 import os
 import sys
 import xml.etree.ElementTree as ET
@@ -127,3 +129,57 @@ def classify_sentiment(model: "SentimentModel", texts: list[str]) -> list[dict]:
         score = next((float(p[1]) for p in probs if p[0] == label), None)
         results.append({"label": label, "score": score})
     return results
+
+
+def collect_news_sentiment(players: list[dict]) -> list[dict]:
+    """Orchestriert: pro Spieler fetch_news_for_player(), dann alle
+    gesammelten Artikel-TITEL (nicht title+snippet - snippet ist nur der
+    Verlagsname, kein Sentiment-Signal, siehe Modul-Docstring) in EINEM
+    Batch durch classify_sentiment() (nicht pro Spieler einzeln - Modell-
+    Ladezeit faellt nur einmal an). Gibt eine flache Liste von Rohdaten-
+    Dicts zurueck (inkl. article_hash, aber OHNE fertiges doc_id-Feld -
+    der Firestore-Doc-Key wird erst in run_news_sentiment_ingestion() per
+    upsert_history_entries()s doc_id_fn-Parameter gebildet, siehe dort),
+    bereit fuer
+    firestore_db.upsert_history_entries(client, 'player_news_log', ..., doc_id_fn=...).
+    Parallelisiert die RSS-Fetches ueber ThreadPoolExecutor (gleiches
+    Muster wie market_predictor._max_workers(), Netzwerk-IO-gebunden - das
+    Sentiment-Modell selbst laeuft NICHT parallel, ein BERT-Modell mehrfach
+    gleichzeitig zu laden waere reiner Speicher-Overhead ohne Nutzen bei
+    dieser Batch-Groesse). Spieler ohne player_id/name werden ohne Fetch
+    uebersprungen - kein sinnvoller RSS-Query ohne Namen moeglich."""
+    valid_players = [p for p in players if p.get("player_id") and p.get("name")]
+
+    articles_by_player: dict[str, list[dict]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_max_workers()) as executor:
+        futures = {
+            executor.submit(fetch_news_for_player, p["name"], p.get("team_name")): p["player_id"]
+            for p in valid_players
+        }
+        for future in concurrent.futures.as_completed(futures):
+            player_id = futures[future]
+            articles_by_player[player_id] = future.result()
+
+    flat_articles = [
+        (player_id, article)
+        for player_id, articles in articles_by_player.items()
+        for article in articles
+    ]
+    sentiments = classify_sentiment(SentimentModel(), [article["title"] for _pid, article in flat_articles])
+
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    entries = []
+    for (player_id, article), sentiment in zip(flat_articles, sentiments):
+        article_hash = hashlib.sha1(article["link"].encode()).hexdigest()[:12]
+        entries.append({
+            "article_hash": article_hash,
+            "player_id": player_id,
+            "date": today,
+            "pub_date": article["pub_date"],
+            "headline": article["title"],
+            "snippet": article["snippet"],
+            "link": article["link"],
+            "sentiment_label": sentiment["label"],
+            "sentiment_score": sentiment["score"],
+        })
+    return entries
