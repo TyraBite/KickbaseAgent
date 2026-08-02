@@ -16,7 +16,7 @@ type Anbieter = "all" | "kickbase" | "mitspieler";
 type SortKey = "auction" | "price" | "signal" | "trend" | "ml" | "name";
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "auction", label: "Auktion (Standard)" },
+  { value: "auction", label: "Auktion" },
   { value: "price", label: "Preis" },
   { value: "signal", label: "Signal" },
   { value: "trend", label: "Trend 7T" },

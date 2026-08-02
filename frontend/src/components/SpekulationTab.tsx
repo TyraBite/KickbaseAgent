@@ -10,7 +10,7 @@ import { useViewMode } from "../lib/useViewMode";
 type SortKey = "auction" | "ml" | "roi" | "price" | "trend" | "name";
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "auction", label: "Auktion (Standard)" },
+  { value: "auction", label: "Auktion" },
   { value: "ml", label: "Prognose 1T" },
   { value: "roi", label: "Rendite%" },
   { value: "price", label: "Preis" },
