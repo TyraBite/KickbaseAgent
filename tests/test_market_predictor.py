@@ -32,6 +32,7 @@ from src.market_predictor import (
     predict_market_value_changes,
     TARGET,
     TARGET_3D,
+    FEATURES,
 )
 from src.market_predictor import backfill_prediction_log, _build_candidates
 
@@ -302,6 +303,7 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
             "mv_change_3d": rng.randn(n) * 2000, "mv_vol_3d": rng.rand(n) * 500,
             "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
+            "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             target_col: rng.randn(n) * 5000,
             unclipped_col: rng.randn(n) * 5000,
         })
@@ -683,6 +685,7 @@ class TrainAndEvaluateTargetColTests(unittest.TestCase):
             "mv_change_3d": rng.randn(n) * 2000, "mv_vol_3d": rng.rand(n) * 500,
             "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
+            "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             "mv_target_clipped": rng.randn(n) * 5000,
             "alt_target_clipped": rng.randn(n) * 9000,
         })
@@ -721,6 +724,7 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             "mv_change_3d": rng.randn(n) * 2000, "mv_vol_3d": rng.rand(n) * 500,
             "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
+            "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             target_col: rng.randn(n) * 5000,
             unclipped_col: rng.randn(n) * 5000,
         })
@@ -806,6 +810,8 @@ class PredictMarketValueChangesThreeDayIsolationTests(unittest.TestCase):
             "market_divergence": [1.0],
             "days_since_last_status_change": [10],
             "status_change_count_90d": [0],
+            "days_since_last_starting_rank_change": [10],
+            "starting_rank_change_count_90d": [0],
         })
 
     def test_exception_in_3d_call_does_not_discard_1d_result(self):
@@ -834,3 +840,9 @@ class PredictMarketValueChangesThreeDayIsolationTests(unittest.TestCase):
         self.assertEqual(result["metrics"], {"model_type": "HistGradientBoosting"})
         self.assertIsNone(result["predictions_3d"])
         self.assertIsNone(result["metrics_3d"])
+
+
+class FeaturesListStartingRankTests(unittest.TestCase):
+    def test_features_includes_starting_rank_recency_columns(self):
+        self.assertIn("days_since_last_starting_rank_change", FEATURES)
+        self.assertIn("starting_rank_change_count_90d", FEATURES)

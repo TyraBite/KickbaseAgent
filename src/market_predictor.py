@@ -67,6 +67,7 @@ FEATURES = [
     "mv_change_3d", "mv_vol_3d",
     "mv_trend_7d", "market_divergence",
     "days_since_last_status_change", "status_change_count_90d",
+    "days_since_last_starting_rank_change", "starting_rank_change_count_90d",
 ]
 TARGET = "mv_target_clipped"
 TARGET_3D = "mv_target_3d_clipped"
