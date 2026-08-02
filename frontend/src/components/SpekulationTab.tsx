@@ -150,6 +150,7 @@ export default function SpekulationTab({
         <SpekulationTable rows={visible} now={now} onSelect={setSelected} />
       )}
       <p className="mt-4 max-w-3xl text-xs text-slate-500 dark:text-slate-400">{HINT}</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Marktwert-Update</p>
       {selected && (
         <SpekulationDetailModal
           row={selected}
