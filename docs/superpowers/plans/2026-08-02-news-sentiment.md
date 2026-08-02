@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - **Cross-Phase-Abhängigkeit (verpflichtend, MUSS vor Ausführung dieses Plans geprüft werden):** Dieser Plan setzt voraus, dass Phase A (`docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md`, Implementierungsplan falls vorhanden unter `docs/superpowers/plans/2026-08-02-startelf-status-historie.md`) **bereits umgesetzt ist** und `firestore_db.upsert_history_entries(client, collection, entries)` / `firestore_db.get_history(client, collection)` bereits existieren. **Zum Zeitpunkt der Erstellung dieses Plans (2026-08-02) existierte die Phase-A-Plan-Datei noch nicht** — die hier verwendeten Signaturen stammen direkt aus dem Design-Spec-Sketch und müssen vor Ausführung dieses Plans gegen Phase A's tatsächliche Implementierung verifiziert werden (siehe Task 5, Step 0).
-- **Konkreter, im Design-Spec-Sketch NICHT sichtbarer Konflikt, den dieser Plan auflöst:** Phase A's `upsert_history_entries` ersetzt `upsert_fitness_history_entries`, deren Doc-Id fest `{date}_{player_id}` ist (ein Event pro Spieler pro Tag). Phase B braucht dagegen `{date}_{player_id}_{article_hash}` (mehrere Artikel pro Spieler pro Tag möglich) — eine fest hartkodierte `{date}_{player_id}`-Formel in `upsert_history_entries` würde mehrere Artikel desselben Spielers am selben Tag im selben Batch-Write gegenseitig überschreiben. Dieser Plan geht davon aus, dass `upsert_history_entries` den Firestore-Doc-Key aus einem expliziten `doc_id`-Feld liest, das JEDES entry-Dict selbst mitbringt (Aufrufer-Sache, analog dazu, wie `activity_id` in `upsert_bid_premium_entries` sowohl Schlüssel als auch gespeichertes Feld ist) — NICHT aus einer hartkodierten Formel innerhalb der Funktion. Falls Phase A's tatsächliche Implementierung stattdessen `{date}_{player_id}` hartkodiert, muss das VOR Task 5 nachgezogen werden (kleiner Patch an Phase A, kein Workaround in Phase B).
+- **Update 2026-08-02, nach Phase A's Fertigstellung — der folgende Absatz beschreibt NICHT mehr die tatsächliche Lösung, siehe Korrektur direkt danach:** ~~Konkreter, im Design-Spec-Sketch NICHT sichtbarer Konflikt, den dieser Plan auflöst: Phase A's `upsert_history_entries` ersetzt `upsert_fitness_history_entries`, deren Doc-Id fest `{date}_{player_id}` ist (ein Event pro Spieler pro Tag). Phase B braucht dagegen `{date}_{player_id}_{article_hash}` (mehrere Artikel pro Spieler pro Tag möglich) — eine fest hartkodierte `{date}_{player_id}`-Formel in `upsert_history_entries` würde mehrere Artikel desselben Spielers am selben Tag im selben Batch-Write gegenseitig überschreiben. Dieser Plan geht davon aus, dass `upsert_history_entries` den Firestore-Doc-Key aus einem expliziten `doc_id`-Feld liest, das JEDES entry-Dict selbst mitbringt.~~
+  **Tatsächliche Lösung (verifiziert gegen Phase A's echte Implementierung, `src/firestore_db.py`, nach Abschluss von Phase A/`docs/superpowers/plans/2026-08-02-startelf-status-historie.md` Task 2):** `upsert_history_entries(client, collection, entries, doc_id_fn=lambda e: f"{e['date']}_{e['player_id']}")` — der Doc-Key wird von einer ÜBERSCHREIBBAREN `doc_id_fn`-Callback-Funktion gebildet (Default = die bestehende Fitness-/Startelf-Formel), NICHT aus einem im Entry-Dict gespeicherten `doc_id`-Feld gelesen. Für `player_news_log` muss der Aufruf deshalb explizit `doc_id_fn=lambda e: f"{e['date']}_{e['player_id']}_{e['article_hash']}"` übergeben — jedes entry-Dict braucht dafür ein `article_hash`-Feld (nicht ein fertig zusammengesetztes `doc_id`-Feld). Jede Stelle in diesem Plan, die von einem `doc_id`-Feld im Entry-Dict ausgeht (Task 4's Rückgabewert, die zugehörigen Tests, Task 5's Aufruf), ist entsprechend korrigiert — siehe die Inline-Korrekturen dort.
 - **Wichtiger, live verifizierter Fund (2026-08-02, per WebFetch gegen die echte Google-News-RSS-URL geprüft), der die Design-Spec-Annahme korrigiert:** Google News RSS liefert **keinen echten Anriss-/Snippet-Text**. Das `<description>`-Feld enthält nur eine HTML-verpackte Dopplung des Titels plus den Verlagsnamen (`&lt;a href="..."&gt;{title}&lt;/a&gt;&amp;nbsp;&amp;nbsp;&lt;font color="#6f6f6f"&gt;{Verlag}&lt;/font&gt;`) — keine zusätzliche inhaltliche Information. Dieser Plan nutzt stattdessen das separate `<source>`-Element (reiner Klartext-Verlagsname, kein HTML-Parsing nötig) für das im Spec vorgesehene `snippet`-Feld, dokumentiert aber klar, dass es sich dabei um den Verlagsnamen handelt, nicht um einen inhaltlichen Anriss. Als Sentiment-Klassifikations-Input wird deshalb ausschließlich `title` verwendet (nicht `title + snippet` — der Verlagsname trägt kein Sentiment-Signal und würde den BERT-Input nur verrauschen).
 - Kein neuer Kickbase-API-Call — Spieler-Namen/Team kommen ausschließlich aus `dashboard_snapshot/latest`'s bereits vorhandener `players`-Map (read-only).
 - Netzwerkfehler beim RSS-Fetch werden PRO SPIELER abgefangen (leere Liste, Lauf geht weiter) — Modell-Ladefehler (`germansentiment`) werden NICHT abgefangen, sollen den Workflow-Schritt sichtbar fehlschlagen lassen (kein sinnvoller Teilerfolg möglich, das Modell wird für alle Spieler gebraucht).
@@ -490,7 +491,7 @@ git commit -m "news_sentiment: germansentiment-Dependency + classify_sentiment()
 
 **Interfaces:**
 - Consumes: `fetch_news_for_player()` (Task 2), `classify_sentiment()`/`_max_workers()` (Task 3), `SentimentModel` (aus `germansentiment`, Task 3-Import).
-- Produces: `collect_news_sentiment(players: list[dict]) -> list[dict]`. `players`-Elemente haben mindestens `{"player_id": str, "name": str, "team_name": str | None}` (Einträge ohne `player_id`/`name` werden übersprungen, kein Crash). Rückgabe-Dicts haben `doc_id: str` (`{date}_{player_id}_{article_hash}`), `player_id: str`, `date: str` (Lauf-Tag, ISO), `pub_date: str` (Original-Artikel-Datum, ISO), `headline: str`, `snippet: str`, `link: str`, `sentiment_label: str`, `sentiment_score: float`.
+- Produces: `collect_news_sentiment(players: list[dict]) -> list[dict]`. `players`-Elemente haben mindestens `{"player_id": str, "name": str, "team_name": str | None}` (Einträge ohne `player_id`/`name` werden übersprungen, kein Crash). Rückgabe-Dicts haben `article_hash: str` (nicht ein fertiges `doc_id`-Feld — der Firestore-Doc-Key wird erst in Task 5 per `upsert_history_entries`s `doc_id_fn`-Parameter aus `date`+`player_id`+`article_hash` gebildet, siehe Global Constraints), `player_id: str`, `date: str` (Lauf-Tag, ISO), `pub_date: str` (Original-Artikel-Datum, ISO), `headline: str`, `snippet: str`, `link: str`, `sentiment_label: str`, `sentiment_score: float`.
 
 - [ ] **Step 1: Failing Tests schreiben**
 
@@ -498,6 +499,7 @@ In `tests/test_news_sentiment.py`, Imports ergänzen und am Ende der Datei einf�
 
 ```python
 import datetime
+import hashlib
 from unittest.mock import MagicMock, patch
 
 from src.news_sentiment import (
@@ -515,7 +517,7 @@ class CollectNewsSentimentTests(unittest.TestCase):
 
     @patch("src.news_sentiment.SentimentModel")
     @patch("src.news_sentiment.fetch_news_for_player")
-    def test_builds_entry_with_doc_id_and_sentiment(self, mock_fetch, mock_model_cls):
+    def test_builds_entry_with_article_hash_and_sentiment(self, mock_fetch, mock_model_cls):
         mock_fetch.side_effect = lambda name, team: (
             [{"title": "Tor fuer Krauss", "snippet": "Bremen", "link": "https://example.com/a1", "pub_date": "2026-08-01"}]
             if name == "Krauss" else []
@@ -541,7 +543,7 @@ class CollectNewsSentimentTests(unittest.TestCase):
         self.assertEqual(entry["sentiment_label"], "positive")
         self.assertEqual(entry["sentiment_score"], 0.9)
         self.assertEqual(entry["date"], self._today())
-        self.assertTrue(entry["doc_id"].startswith(f"{self._today()}_p1_"))
+        self.assertEqual(entry["article_hash"], hashlib.sha1(b"https://example.com/a1").hexdigest()[:12])
         mock_model_cls.return_value.predict_sentiment.assert_called_once_with(["Tor fuer Krauss"], output_probabilities=True)
 
     @patch("src.news_sentiment.SentimentModel")
@@ -591,7 +593,7 @@ class CollectNewsSentimentTests(unittest.TestCase):
 
     @patch("src.news_sentiment.SentimentModel")
     @patch("src.news_sentiment.fetch_news_for_player")
-    def test_two_articles_same_player_get_distinct_doc_ids(self, mock_fetch, mock_model_cls):
+    def test_two_articles_same_player_get_distinct_article_hashes(self, mock_fetch, mock_model_cls):
         mock_fetch.return_value = [
             {"title": "Artikel 1", "snippet": "Q1", "link": "https://example.com/x1", "pub_date": "2026-08-01"},
             {"title": "Artikel 2", "snippet": "Q2", "link": "https://example.com/x2", "pub_date": "2026-08-01"},
@@ -604,8 +606,8 @@ class CollectNewsSentimentTests(unittest.TestCase):
         result = collect_news_sentiment([{"player_id": "p1", "name": "X", "team_name": None}])
 
         self.assertEqual(len(result), 2)
-        doc_ids = {e["doc_id"] for e in result}
-        self.assertEqual(len(doc_ids), 2)
+        article_hashes = {e["article_hash"] for e in result}
+        self.assertEqual(len(article_hashes), 2)
 ```
 
 - [ ] **Step 2: Tests laufen lassen, Fehlschlag bestätigen**
@@ -639,8 +641,11 @@ def collect_news_sentiment(players: list[dict]) -> list[dict]:
     Verlagsname, kein Sentiment-Signal, siehe Modul-Docstring) in EINEM
     Batch durch classify_sentiment() (nicht pro Spieler einzeln - Modell-
     Ladezeit faellt nur einmal an). Gibt eine flache Liste von Rohdaten-
-    Dicts zurueck, bereit fuer
-    firestore_db.upsert_history_entries(client, 'player_news_log', ...).
+    Dicts zurueck (inkl. article_hash, aber OHNE fertiges doc_id-Feld -
+    der Firestore-Doc-Key wird erst in run_news_sentiment_ingestion() per
+    upsert_history_entries()s doc_id_fn-Parameter gebildet, siehe dort),
+    bereit fuer
+    firestore_db.upsert_history_entries(client, 'player_news_log', ..., doc_id_fn=...).
     Parallelisiert die RSS-Fetches ueber ThreadPoolExecutor (gleiches
     Muster wie market_predictor._max_workers(), Netzwerk-IO-gebunden - das
     Sentiment-Modell selbst laeuft NICHT parallel, ein BERT-Modell mehrfach
@@ -671,7 +676,7 @@ def collect_news_sentiment(players: list[dict]) -> list[dict]:
     for (player_id, article), sentiment in zip(flat_articles, sentiments):
         article_hash = hashlib.sha1(article["link"].encode()).hexdigest()[:12]
         entries.append({
-            "doc_id": f"{today}_{player_id}_{article_hash}",
+            "article_hash": article_hash,
             "player_id": player_id,
             "date": today,
             "pub_date": article["pub_date"],
@@ -716,9 +721,9 @@ Vor Beginn dieses Tasks prüfen:
 grep -n "def upsert_history_entries\|def get_history" src/firestore_db.py
 ```
 
-Erwartung: beide Funktionen existieren bereits (Phase A abgeschlossen). Falls NICHT: Phase A zuerst umsetzen (siehe `docs/superpowers/plans/2026-08-02-startelf-status-historie.md`, falls vorhanden, sonst Design-Spec `docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md`) — dieser Task darf NICHT mit einer eigenen dritten Kopie der Batch-Write-Logik umgehen.
+Erwartung: beide Funktionen existieren bereits (Phase A abgeschlossen — bestätigt, `docs/superpowers/plans/2026-08-02-startelf-status-historie.md`, alle 7 Tasks umgesetzt und gemerged). Falls NICHT (z.B. Ausführung dieses Plans in einem anderen Branch-Stand): Phase A zuerst umsetzen — dieser Task darf NICHT mit einer eigenen dritten Kopie der Batch-Write-Logik umgehen.
 
-Zusätzlich prüfen, WIE `upsert_history_entries` den Firestore-Doc-Key bildet (`sed -n '/def upsert_history_entries/,/^def /p' src/firestore_db.py` oder direkt lesen). Dieser Plan erwartet, dass die Funktion den Key aus einem `doc_id`-Feld JEDES entry-Dicts liest (siehe Global Constraints, "Konkreter... Konflikt"). Falls die tatsächliche Implementierung statt dessen intern `f"{e['date']}_{e['player_id']}"` hartkodiert: das ist mit `player_news_log`s Mehrfach-Artikel-pro-Tag-Fall NICHT kompatibel (Artikel würden sich gegenseitig überschreiben) — in diesem Fall Phase A's `upsert_history_entries` zuerst um die `doc_id`-Feld-Lesart erweitern (kleiner, rückwärtskompatibler Patch: bestehende Phase-A-Aufrufer aus `dashboard_export.py` müssten ihren Entries dann ebenfalls ein `doc_id`-Feld (`f"{date}_{player_id}"`) mitgeben), bevor mit Step 1 fortgefahren wird.
+Zusätzlich verifizieren, dass `upsert_history_entries` genau die erwartete Signatur hat: `upsert_history_entries(client, collection, entries, doc_id_fn=lambda e: f"{e['date']}_{e['player_id']}")` — der Firestore-Doc-Key wird von der überschreibbaren `doc_id_fn`-Callback gebildet (Default = die Fitness-/Startelf-Formel), NICHT aus einem im Entry-Dict gespeicherten `doc_id`-Feld gelesen (siehe Global Constraints). Prüfen: `sed -n '/def upsert_history_entries/,/^def /p' src/firestore_db.py`. Falls die tatsächliche Signatur keinen `doc_id_fn`-Parameter hat (z.B. weil eine andere/spätere Version von Phase A ihn wieder entfernt hätte): das ist mit `player_news_log`s Mehrfach-Artikel-pro-Tag-Fall NICHT kompatibel (Artikel würden sich unter dem Default-Key gegenseitig überschreiben) — in diesem Fall Phase A's `upsert_history_entries` zuerst um den `doc_id_fn`-Parameter ergänzen, bevor mit Step 1 fortgefahren wird.
 
 - [ ] **Step 1: Failing Tests schreiben**
 
@@ -763,12 +768,16 @@ class RunNewsSentimentIngestionTests(unittest.TestCase):
     @patch("src.news_sentiment.firestore_db.connect")
     def test_writes_collected_entries_when_firestore_enabled(self, mock_connect, mock_get_snapshot, mock_collect, mock_upsert):
         mock_get_snapshot.return_value = {"players": {"p1": {"name": "Krauss", "team_name": "Bremen"}}}
-        mock_collect.return_value = [{"doc_id": "2026-08-02_p1_abc123", "player_id": "p1"}]
+        mock_collect.return_value = [{"article_hash": "abc123", "date": "2026-08-02", "player_id": "p1"}]
 
         with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
             result = run_news_sentiment_ingestion()
 
-        mock_upsert.assert_called_once_with(mock_connect.return_value, "player_news_log", mock_collect.return_value)
+        mock_upsert.assert_called_once()
+        call_args = mock_upsert.call_args
+        self.assertEqual(call_args.args, (mock_connect.return_value, "player_news_log", mock_collect.return_value))
+        doc_id_fn = call_args.kwargs["doc_id_fn"]
+        self.assertEqual(doc_id_fn({"date": "2026-08-02", "player_id": "p1", "article_hash": "abc123"}), "2026-08-02_p1_abc123")
         self.assertEqual(result, {"players_checked": 1, "entries_written": 1})
 
     @patch("src.news_sentiment.firestore_db.connect")
@@ -797,7 +806,7 @@ class RunNewsSentimentIngestionTests(unittest.TestCase):
     @patch("src.news_sentiment.firestore_db.connect")
     def test_firestore_write_failure_is_caught_not_raised(self, mock_connect, mock_get_snapshot, mock_collect, mock_upsert):
         mock_get_snapshot.return_value = {"players": {"p1": {"name": "Krauss", "team_name": "Bremen"}}}
-        mock_collect.return_value = [{"doc_id": "2026-08-02_p1_abc123", "player_id": "p1"}]
+        mock_collect.return_value = [{"article_hash": "abc123", "date": "2026-08-02", "player_id": "p1"}]
         mock_upsert.side_effect = RuntimeError("Firestore down")
 
         with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
@@ -866,7 +875,10 @@ def run_news_sentiment_ingestion() -> dict:
 
     entries = collect_news_sentiment(players)
     try:
-        firestore_db.upsert_history_entries(fs_client, "player_news_log", entries)
+        firestore_db.upsert_history_entries(
+            fs_client, "player_news_log", entries,
+            doc_id_fn=lambda e: f"{e['date']}_{e['player_id']}_{e['article_hash']}",
+        )
     except Exception as exc:  # sekundaerer, eigenstaendiger Workflow - darf nicht crashen
         print(f"Warnung: player_news_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
 
@@ -982,7 +994,7 @@ git commit -m "player-news-sentiment: eigenstaendigen taeglichen Workflow ergaen
 ## Self-Review
 
 - **Spec-Abdeckung:** RSS-Fetch (Task 2), Sentiment-Klassifikation (Task 3), Orchestrierung inkl. Parallelisierung (Task 4), Firestore-Schreiben über Phase A's generalisierten Writer (Task 5), eigenständiger Workflow (Task 6) — alle Abschnitte des Design-Spec (`Architektur`, `Scheduling`, `Umfang`, `Datenfluss`, `Fehlerfälle`, `Testing`, `Betroffene Dateien`) haben einen entsprechenden Task.
-- **Zwei konkrete, während der Recherche gefundene Korrekturen am Design-Spec eingearbeitet (nicht nur Signatur-Nits):** (1) Google News RSS liefert keinen echten Snippet-Text (live per WebFetch verifiziert) — `snippet`-Feld wird stattdessen mit dem Verlagsnamen aus `<source>` befüllt, Sentiment-Input nutzt nur `title`. (2) Der Doc-Id-Konflikt zwischen Phase A's `{date}_{player_id}`-Formel und Phase B's benötigtem `{date}_{player_id}_{article_hash}` — gelöst über ein explizites `doc_id`-Feld in jedem entry-Dict, das `upsert_history_entries` lesen muss statt einer hartkodierten Formel; als Pre-Task-Check in Task 5 verankert, da Phase A zum Zeitpunkt dieses Plans noch nicht implementiert ist.
+- **Zwei konkrete, während der Recherche gefundene Korrekturen am Design-Spec eingearbeitet (nicht nur Signatur-Nits):** (1) Google News RSS liefert keinen echten Snippet-Text (live per WebFetch verifiziert) — `snippet`-Feld wird stattdessen mit dem Verlagsnamen aus `<source>` befüllt, Sentiment-Input nutzt nur `title`. (2) Der Doc-Id-Konflikt zwischen Phase A's `{date}_{player_id}`-Formel und Phase B's benötigtem `{date}_{player_id}_{article_hash}` — **Korrektur nach Phase A's tatsächlicher Fertigstellung (2026-08-02):** ursprünglich ging dieser Plan von einem expliziten `doc_id`-Feld im entry-Dict aus; Phase A's echte Implementierung löst das statt dessen über einen überschreibbaren `doc_id_fn`-Parameter auf `upsert_history_entries`. Alle betroffenen Stellen (Global Constraints, Task 4's Interface/Tests/Implementierung, Task 5's Step 0/Tests/Implementierung) wurden entsprechend korrigiert, gefunden im finalen Whole-Branch-Review von Phase A.
 - **Platzhalter-Scan:** keine TBD/TODO, jeder Code-Block enthält vollständigen, lauffähigen Code, jeder Testschritt hat echte Assertions.
 - **Typ-/Namens-Konsistenz geprüft:** `fetch_news_for_player()` (Task 2) liefert `{title, snippet, link, pub_date}` — `collect_news_sentiment()` (Task 4) liest exakt diese vier Keys. `classify_sentiment()` (Task 3) liefert `{label, score}` — Task 4 verwendet exakt diese beiden Keys für `sentiment_label`/`sentiment_score`. `_players_from_snapshot()` (Task 5) liefert `{player_id, name, team_name}` — `collect_news_sentiment()` (Task 4) liest exakt diese drei Keys (`p["player_id"]`, `p["name"]`, `p.get("team_name")`).
 - **YAGNI-Entscheidungen dokumentiert:** kein Rate-Limiting/Backoff (Design-Spec: nur bei beobachtetem Bedarf nachrüsten), kein dedizierter `_max_workers()`-Test über das übliche Maß hinaus (Konsistenz mit `market_predictor.py`, das `_max_workers()` ebenfalls nicht separat testet — hier trotzdem zwei einfache Tests ergänzt, da die Env-Var neu ist und ein Basis-Smoke-Test billig ist), kein `get_history("player_news_log")`-Aufruf in Phase B (erst Phase C braucht Lesezugriff).
