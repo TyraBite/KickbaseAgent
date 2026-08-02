@@ -15,9 +15,11 @@ import requests
 from src.news_sentiment import (
     _build_query,
     _max_workers,
+    _players_from_snapshot,
     classify_sentiment,
     collect_news_sentiment,
     fetch_news_for_player,
+    run_news_sentiment_ingestion,
 )
 
 
@@ -305,3 +307,75 @@ class CollectNewsSentimentTests(unittest.TestCase):
         self.assertEqual(len(result), 2)
         article_hashes = {e["article_hash"] for e in result}
         self.assertEqual(len(article_hashes), 2)
+
+
+class PlayersFromSnapshotTests(unittest.TestCase):
+    def test_extracts_player_id_name_team_name_from_players_map(self):
+        snapshot = {"players": {
+            "p1": {"name": "Krauss", "team_name": "Bremen", "status_code": 0},
+            "p2": {"name": "Mueller", "team_name": "Muenchen", "status_code": 1},
+        }}
+        result = _players_from_snapshot(snapshot)
+        self.assertEqual(len(result), 2)
+        self.assertIn({"player_id": "p1", "name": "Krauss", "team_name": "Bremen"}, result)
+        self.assertIn({"player_id": "p2", "name": "Mueller", "team_name": "Muenchen"}, result)
+
+    def test_none_snapshot_returns_empty_list(self):
+        self.assertEqual(_players_from_snapshot(None), [])
+
+    def test_snapshot_without_players_key_returns_empty_list(self):
+        self.assertEqual(_players_from_snapshot({}), [])
+
+
+class RunNewsSentimentIngestionTests(unittest.TestCase):
+    @patch("src.news_sentiment.firestore_db.upsert_history_entries")
+    @patch("src.news_sentiment.collect_news_sentiment")
+    @patch("src.news_sentiment.firestore_db.get_dashboard_snapshot")
+    @patch("src.news_sentiment.firestore_db.connect")
+    def test_writes_collected_entries_when_firestore_enabled(self, mock_connect, mock_get_snapshot, mock_collect, mock_upsert):
+        mock_get_snapshot.return_value = {"players": {"p1": {"name": "Krauss", "team_name": "Bremen"}}}
+        mock_collect.return_value = [{"article_hash": "abc123", "date": "2026-08-02", "player_id": "p1"}]
+
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            result = run_news_sentiment_ingestion()
+
+        mock_upsert.assert_called_once()
+        call_args = mock_upsert.call_args
+        self.assertEqual(call_args.args, (mock_connect.return_value, "player_news_log", mock_collect.return_value))
+        doc_id_fn = call_args.kwargs["doc_id_fn"]
+        self.assertEqual(doc_id_fn({"date": "2026-08-02", "player_id": "p1", "article_hash": "abc123"}), "2026-08-02_p1_abc123")
+        self.assertEqual(result, {"players_checked": 1, "entries_written": 1})
+
+    @patch("src.news_sentiment.firestore_db.connect")
+    def test_skips_without_firestore_enabled(self, mock_connect):
+        with patch.dict(os.environ, {}, clear=True):
+            result = run_news_sentiment_ingestion()
+
+        mock_connect.assert_not_called()
+        self.assertEqual(result, {"players_checked": 0, "entries_written": 0})
+
+    @patch("src.news_sentiment.collect_news_sentiment")
+    @patch("src.news_sentiment.firestore_db.get_dashboard_snapshot")
+    @patch("src.news_sentiment.firestore_db.connect")
+    def test_no_players_in_snapshot_skips_collection(self, mock_connect, mock_get_snapshot, mock_collect):
+        mock_get_snapshot.return_value = {"players": {}}
+
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            result = run_news_sentiment_ingestion()
+
+        mock_collect.assert_not_called()
+        self.assertEqual(result, {"players_checked": 0, "entries_written": 0})
+
+    @patch("src.news_sentiment.firestore_db.upsert_history_entries")
+    @patch("src.news_sentiment.collect_news_sentiment")
+    @patch("src.news_sentiment.firestore_db.get_dashboard_snapshot")
+    @patch("src.news_sentiment.firestore_db.connect")
+    def test_firestore_write_failure_is_caught_not_raised(self, mock_connect, mock_get_snapshot, mock_collect, mock_upsert):
+        mock_get_snapshot.return_value = {"players": {"p1": {"name": "Krauss", "team_name": "Bremen"}}}
+        mock_collect.return_value = [{"article_hash": "abc123", "date": "2026-08-02", "player_id": "p1"}]
+        mock_upsert.side_effect = RuntimeError("Firestore down")
+
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            result = run_news_sentiment_ingestion()
+
+        self.assertEqual(result, {"players_checked": 1, "entries_written": 1})

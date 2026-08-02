@@ -35,6 +35,8 @@ from email.utils import parsedate_to_datetime
 import requests
 from germansentiment import SentimentModel
 
+from src import firestore_db
+
 NEWS_LOOKBACK_DAYS = 7
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
 RSS_REQUEST_TIMEOUT_SECONDS = 15
@@ -187,3 +189,63 @@ def collect_news_sentiment(players: list[dict]) -> list[dict]:
             "sentiment_score": sentiment["score"],
         })
     return entries
+
+
+def _players_from_snapshot(snapshot: dict | None) -> list[dict]:
+    """Wandelt dashboard_snapshot/latest's players-Map (player_id ->
+    {name, team_name, ...}) in die von collect_news_sentiment() erwartete
+    flache Liste um - liest ausschliesslich name/team_name, alle anderen
+    Felder der Map (status_code, market_value, ...) werden hier nicht
+    gebraucht. None/fehlende players-Map (Cold Start, dashboard_snapshot/
+    latest noch nie geschrieben) gibt eine leere Liste zurueck, kein
+    Crash."""
+    if not snapshot:
+        return []
+    players_map = snapshot.get("players", {})
+    return [
+        {"player_id": pid, "name": data.get("name"), "team_name": data.get("team_name")}
+        for pid, data in players_map.items()
+    ]
+
+
+def run_news_sentiment_ingestion() -> dict:
+    """Oeffentlicher Entry-Point fuer den eigenstaendigen
+    player-news-sentiment-Workflow (siehe
+    .github/workflows/player-news-sentiment.yml). Liest
+    dashboard_snapshot/latest (read-only, kein neuer Kickbase-API-Call,
+    siehe Design-Spec 'Scheduling'), sammelt Sentiment fuer alle Spieler
+    und schreibt nach player_news_log. Firestore-Schreibfehler werden
+    abgefangen (Warnung, kein Crash) - Modell-Ladefehler in
+    collect_news_sentiment()/germansentiment werden bewusst NICHT
+    abgefangen, sollen den Workflow-Schritt sichtbar fehlschlagen lassen
+    (siehe Design-Spec 'Fehlerfaelle': ein Teilerfolg ist hier nicht
+    sinnvoll moeglich, das Modell wird fuer ALLE Spieler gebraucht)."""
+    if not os.environ.get("FIRESTORE_ENABLED"):
+        print("Warnung: FIRESTORE_ENABLED nicht gesetzt, Sentiment-Lauf uebersprungen.", file=sys.stderr)
+        return {"players_checked": 0, "entries_written": 0}
+
+    fs_client = firestore_db.connect()
+    snapshot = firestore_db.get_dashboard_snapshot(fs_client)
+    players = _players_from_snapshot(snapshot)
+    if not players:
+        print("Warnung: dashboard_snapshot/latest liefert keine Spieler, Sentiment-Lauf uebersprungen.", file=sys.stderr)
+        return {"players_checked": 0, "entries_written": 0}
+
+    entries = collect_news_sentiment(players)
+    try:
+        firestore_db.upsert_history_entries(
+            fs_client, "player_news_log", entries,
+            doc_id_fn=lambda e: f"{e['date']}_{e['player_id']}_{e['article_hash']}",
+        )
+    except Exception as exc:  # sekundaerer, eigenstaendiger Workflow - darf nicht crashen
+        print(f"Warnung: player_news_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
+
+    return {"players_checked": len(players), "entries_written": len(entries)}
+
+
+if __name__ == "__main__":
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    result = run_news_sentiment_ingestion()
+    print(f"Spieler geprueft: {result['players_checked']}, Sentiment-Eintraege geschrieben: {result['entries_written']}")
