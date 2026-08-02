@@ -254,6 +254,9 @@ class CollectNewsSentimentTests(unittest.TestCase):
         result = collect_news_sentiment([{"player_id": "p1", "name": "Niemand", "team_name": None}])
 
         self.assertEqual(result, [])
+        # Kein Artikel zu klassifizieren -> das ~440MB BERT-Modell darf gar
+        # nicht erst geladen werden (siehe Review-Fund 2026-08-02).
+        mock_model_cls.assert_not_called()
 
     @patch("src.news_sentiment.SentimentModel")
     @patch("src.news_sentiment.fetch_news_for_player")
@@ -289,6 +292,7 @@ class CollectNewsSentimentTests(unittest.TestCase):
 
         self.assertEqual(result, [])
         mock_fetch.assert_not_called()
+        mock_model_cls.assert_not_called()
 
     @patch("src.news_sentiment.SentimentModel")
     @patch("src.news_sentiment.fetch_news_for_player")
@@ -343,8 +347,33 @@ class RunNewsSentimentIngestionTests(unittest.TestCase):
         call_args = mock_upsert.call_args
         self.assertEqual(call_args.args, (mock_connect.return_value, "player_news_log", mock_collect.return_value))
         doc_id_fn = call_args.kwargs["doc_id_fn"]
-        self.assertEqual(doc_id_fn({"date": "2026-08-02", "player_id": "p1", "article_hash": "abc123"}), "2026-08-02_p1_abc123")
+        self.assertEqual(doc_id_fn({"date": "2026-08-02", "player_id": "p1", "article_hash": "abc123"}), "p1_abc123")
         self.assertEqual(result, {"players_checked": 1, "entries_written": 1})
+
+    @patch("src.news_sentiment.firestore_db.upsert_history_entries")
+    @patch("src.news_sentiment.collect_news_sentiment")
+    @patch("src.news_sentiment.firestore_db.get_dashboard_snapshot")
+    @patch("src.news_sentiment.firestore_db.connect")
+    def test_doc_id_fn_is_stable_across_run_dates_for_same_article(self, mock_connect, mock_get_snapshot, mock_collect, mock_upsert):
+        # Kern der Cross-Day-Dedup-Garantie (Design-Spec-Ziel): derselbe
+        # Artikel (gleicher article_hash), an zwei verschiedenen Lauf-Tagen
+        # innerhalb des NEWS_LOOKBACK_DAYS-Fensters erneut gefunden, MUSS auf
+        # dieselbe Firestore-Doc-Id abbilden - sonst entsteht pro Rerun ein
+        # neues Dokument fuer denselben Artikel (siehe Review-Fund
+        # 2026-08-02: ~640 Schreibungen/Tag, nur ~91 davon echte neue
+        # Artikel). 'date' darf deshalb NICHT Teil des Keys sein.
+        mock_get_snapshot.return_value = {"players": {"p1": {"name": "Krauss", "team_name": "Bremen"}}}
+        mock_collect.return_value = []
+
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            run_news_sentiment_ingestion()
+
+        doc_id_fn = mock_upsert.call_args.kwargs["doc_id_fn"]
+        entry_run_day_1 = {"date": "2026-08-01", "player_id": "p1", "article_hash": "abc123"}
+        entry_run_day_2 = {"date": "2026-08-02", "player_id": "p1", "article_hash": "abc123"}
+
+        self.assertEqual(doc_id_fn(entry_run_day_1), doc_id_fn(entry_run_day_2))
+        self.assertEqual(doc_id_fn(entry_run_day_1), "p1_abc123")
 
     @patch("src.news_sentiment.firestore_db.connect")
     def test_skips_without_firestore_enabled(self, mock_connect):

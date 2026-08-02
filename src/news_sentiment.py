@@ -171,7 +171,13 @@ def collect_news_sentiment(players: list[dict]) -> list[dict]:
         for player_id, articles in articles_by_player.items()
         for article in articles
     ]
-    sentiments = classify_sentiment(SentimentModel(), [article["title"] for _pid, article in flat_articles])
+    if flat_articles:
+        # SentimentModel() laedt ein ~440MB BERT-Modell - das lohnt sich nicht,
+        # wenn es (z.B. bei einem Google-News-Totalausfall) gar keine Artikel
+        # zu klassifizieren gibt.
+        sentiments = classify_sentiment(SentimentModel(), [article["title"] for _pid, article in flat_articles])
+    else:
+        sentiments = []
 
     today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     entries = []
@@ -235,7 +241,22 @@ def run_news_sentiment_ingestion() -> dict:
     try:
         firestore_db.upsert_history_entries(
             fs_client, "player_news_log", entries,
-            doc_id_fn=lambda e: f"{e['date']}_{e['player_id']}_{e['article_hash']}",
+            # Bewusst OHNE 'date' im Key: article_hash ist bereits ein
+            # stabiler Hash des Artikel-Links, player_id+article_hash allein
+            # identifiziert ein (Spieler, Artikel)-Paar eindeutig UND
+            # tagesuebergreifend. Mit 'date' im Key (Lauf-Tag, nicht
+            # pub_date) wuerde derselbe, innerhalb von NEWS_LOOKBACK_DAYS
+            # erneut gefundene Artikel an bis zu 7 aufeinanderfolgenden Tagen
+            # je ein NEUES Dokument erzeugen statt dasselbe zu ueberschreiben
+            # - live gemessen (2026-08-02): ~640 Schreibungen/Tag, aber nur
+            # ~91 tatsaechlich neue Artikel. Das wuerde Phase C's geplante
+            # 7-Tage-Aggregation (Volumen/Durchschnitts-Sentiment pro
+            # Spieler) systematisch bis zu 7x zu hoch zaehlen. 'date' bleibt
+            # als normales Feld IM Dokument erhalten (siehe
+            # collect_news_sentiment()) - jedes Refetch aktualisiert es per
+            # .set()-Overwrite, das ist nur "zuletzt gesehen am", nicht Teil
+            # des Keys.
+            doc_id_fn=lambda e: f"{e['player_id']}_{e['article_hash']}",
         )
     except Exception as exc:  # sekundaerer, eigenstaendiger Workflow - darf nicht crashen
         print(f"Warnung: player_news_log-Schreibzugriff fehlgeschlagen: {exc}", file=sys.stderr)
