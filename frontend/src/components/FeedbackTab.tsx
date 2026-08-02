@@ -160,7 +160,7 @@ export default function FeedbackTab({ now }: { now: number }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={3}
-          maxLength={1000}
+          maxLength={2000}
           placeholder={type === "bug" ? "Was ist kaputt?" : "Was wäre hilfreich?"}
           className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
@@ -256,7 +256,7 @@ function FeedbackRow({
             value={editText}
             onChange={(e) => onEditTextChange(e.target.value)}
             rows={3}
-            maxLength={1000}
+            maxLength={2000}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           />
           <button
