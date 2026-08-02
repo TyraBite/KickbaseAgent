@@ -1,0 +1,26 @@
+# News/Sentiment-Ingestion-spezifische Abhaengigkeiten (siehe
+# src/news_sentiment.py, docs/superpowers/specs/2026-08-02-news-sentiment-design.md).
+# Bewusst NICHT in requirements.txt - das ist die geteilte Datei, aus der auch
+# dashboard.yml (stuendlich) und dashboard-marktwerte.yml (taeglich)
+# installieren, und deren Code importiert weder germansentiment noch
+# transformers noch torch. Ein grosser ML-Dependency-Stack in jedem der
+# 24 taeglichen Dashboard-Laeufe waere reiner Overhead ohne Nutzen.
+#
+# transformers ist ohne Obergrenze bei germansentiment gepinnt - pip
+# resolved damit "frei" die jeweils neueste Version. Live verifiziert
+# 2026-08-02: transformers 5.14.1 (aktueller freier Resolve-Stand) hat
+# tokenizer.batch_encode_plus() entfernt, das germansentiment's eigenes
+# predict_sentiment() aufruft - classify_sentiment() crasht damit bei JEDEM
+# echten Aufruf mit AttributeError. Deshalb hier explizit auf die zuletzt
+# live verifiziert funktionierende Version gepinnt.
+transformers==4.57.6
+germansentiment==1.1.0
+# germansentiment zieht torch+transformers transitiv - Standard-PyPI-Install
+# holt auf Linux die volle CUDA-Variante (~5GB, verifiziert 2026-08-02), nicht
+# die "paar hundert MB" der urspruenglichen Design-Annahme. In CI (siehe
+# .github/workflows/player-news-sentiment.yml) torch VOR dieser Datei separat
+# ueber den CPU-only-Index installieren:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# damit `pip install -r requirements-news.txt` die bereits installierte
+# CPU-Version vorfindet statt die CUDA-Variante nachzuladen. Lokal (Sandbox)
+# unkritisch (viel freier Speicher), nur fuer den CI-Workflow relevant.
