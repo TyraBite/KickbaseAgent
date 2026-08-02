@@ -535,6 +535,16 @@ class SentimentFeaturesAsOfTests(unittest.TestCase):
         self.assertEqual(result["avg_sentiment_7d"], 0)
         self.assertEqual(result["news_volume_7d"], 3)
 
+    def test_fractional_average_two_positive_one_negative(self):
+        articles = [
+            {"pub_date": "2026-08-01", "sentiment_label": "positive"},
+            {"pub_date": "2026-08-01", "sentiment_label": "positive"},
+            {"pub_date": "2026-08-01", "sentiment_label": "negative"},
+        ]
+        result = _sentiment_features_as_of(articles, datetime.date(2026, 8, 2))
+        self.assertAlmostEqual(result["avg_sentiment_7d"], 1 / 3)
+        self.assertEqual(result["news_volume_7d"], 3)
+
     def test_article_older_than_window_is_excluded(self):
         as_of = datetime.date(2026, 8, 2)
         too_old = (as_of - datetime.timedelta(days=8)).isoformat()
@@ -549,6 +559,18 @@ class SentimentFeaturesAsOfTests(unittest.TestCase):
         articles = [{"pub_date": boundary_date, "sentiment_label": "positive"}]
         result = _sentiment_features_as_of(articles, as_of)
         self.assertEqual(result["news_volume_7d"], 0)
+
+    def test_article_published_exactly_on_as_of_date_is_included(self):
+        """Oberes Fensterende ist inklusiv ((as_of_date - 7, as_of_date]) -
+        ein heute (am as_of_date selbst) veroeffentlichter Artikel zaehlt
+        noch mit, wird NICHT wie Cold-Start behandelt. Regressionsschutz
+        dagegen, dass die obere Grenze versehentlich exklusiv (< statt <=)
+        wird."""
+        as_of = datetime.date(2026, 8, 2)
+        articles = [{"pub_date": as_of.isoformat(), "sentiment_label": "positive"}]
+        result = _sentiment_features_as_of(articles, as_of)
+        self.assertEqual(result["news_volume_7d"], 1)
+        self.assertEqual(result["avg_sentiment_7d"], 1)
 
     def test_article_published_after_as_of_date_is_excluded_lookahead_guard(self):
         as_of = datetime.date(2026, 8, 2)
