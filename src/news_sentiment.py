@@ -80,7 +80,17 @@ def fetch_news_for_player(player_name: str, team_name: str | None) -> list[dict]
             pub_date = parsedate_to_datetime(pub_date_raw)
         except (TypeError, ValueError):
             continue
-        if pub_date is None or pub_date < cutoff:
+        if pub_date is None:
+            continue
+        if pub_date.tzinfo is None:
+            # RFC-822 erlaubt den Zonen-Marker "-0000" ("Zeit unbekannt/UTC"),
+            # den parsedate_to_datetime() im Gegensatz zu "+0000"/"GMT" als
+            # naives datetime ohne tzinfo zurueckgibt. Ohne Normalisierung
+            # wuerde der Vergleich unten mit dem tz-aware cutoff ein
+            # TypeError werfen und den gesamten Abruf fuer diesen Spieler
+            # abbrechen statt nur diesen einen Artikel zu uebergehen.
+            pub_date = pub_date.replace(tzinfo=datetime.timezone.utc)
+        if pub_date < cutoff:
             continue
         articles.append({
             "title": item.findtext("title") or "",

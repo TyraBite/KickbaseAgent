@@ -132,3 +132,34 @@ class FetchNewsForPlayerTests(unittest.TestCase):
         result = fetch_news_for_player("Marco Friedl", "Werder Bremen")
 
         self.assertEqual(result, [])
+
+    @patch("src.news_sentiment.requests.get")
+    def test_naive_pub_date_from_rfc822_dash_zero_offset_does_not_raise(self, mock_get):
+        # RFC-822 erlaubt "-0000" als Zonen-Marker ("Zeit unbekannt/UTC"), im
+        # Unterschied zu "+0000"/"GMT" gibt parsedate_to_datetime() dafuer ein
+        # naives datetime ohne tzinfo zurueck. Ohne Normalisierung wuerde der
+        # Vergleich mit dem tz-aware cutoff ein TypeError werfen und den
+        # gesamten Abruf fuer diesen Spieler crashen statt nur den Artikel zu
+        # ueberspringen.
+        now = datetime.datetime.now(datetime.timezone.utc)
+        recent = now - datetime.timedelta(days=2)
+        naive_style_pub_date = format_datetime(recent).replace("+0000", "-0000")
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Artikel mit -0000 Zonen-Marker</title>
+      <link>https://news.google.com/rss/articles/dash-zero-id?oc=5</link>
+      <pubDate>{naive_style_pub_date}</pubDate>
+      <source url="https://www.butenunbinnen.de">buten un binnen</source>
+    </item>
+  </channel>
+</rss>""".encode("utf-8")
+        mock_get.return_value = _mock_response(xml)
+
+        result = fetch_news_for_player("Marco Friedl", "Werder Bremen")
+
+        titles = [a["title"] for a in result]
+        self.assertIn("Artikel mit -0000 Zonen-Marker", titles)
+        article = next(a for a in result if a["title"] == "Artikel mit -0000 Zonen-Marker")
+        self.assertEqual(article["pub_date"], recent.date().isoformat())
