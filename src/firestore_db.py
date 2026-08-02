@@ -15,8 +15,14 @@ ohnehin explizit.
 
 Verbleibende Collections: `ml_prediction_log`/`ml_accuracy_daily` (ML-
 Bookkeeping, siehe market_predictor.py), `dashboard_snapshot` (der einzige
-vom Frontend gelesene Snapshot) und `wunschkader` (User-editierbare Ziel-
-Config, Schreibpfad ist der Browser). Mehrzeilige Writes nutzen Firestore-
+vom Frontend gelesene Snapshot), `wunschkader` (User-editierbare Ziel-
+Config, Schreibpfad ist der Browser), `bid_premium_log`/`bid_premium_state`/
+`bid_premium_unsold_log` (Systemkauf-Aufpreis-Tracking, siehe
+src/bid_premium.py) sowie die per `collection`-Parameter generalisierten
+`upsert_history_entries`/`get_history`/`upsert_baseline`/`get_baseline` fuer
+`fitness_history_log`/`fitness_status_baseline` (Fitness-Wechsel-Historie)
+und `starting_rank_history_log`/`starting_rank_baseline` (Startelf-Status-
+Historie, siehe dashboard_export.py). Mehrzeilige Writes nutzen Firestore-
 WriteBatch (max. 500 Operationen/Batch - siehe _write_in_batches).
 """
 
@@ -226,9 +232,15 @@ def upsert_history_entries(
 
 def get_history(client: firestore.Client, collection: str) -> list[dict]:
     """Generalisierte Fassung von get_fitness_history (ersetzt sie) - liest
-    die komplette angegebene Collection, bleibt klein (nur echte Wechsel,
-    deutlich unter 450/Tag), analog get_bid_premium_history. Wird einmal
-    pro ML-Lauf gelesen, nicht pro Spieler."""
+    die komplette angegebene Collection ungebremst (kein Datumsfilter, anders
+    als der [since_date, before_date)-Range bei get_recent_prediction_log_entries
+    mit LOG_RETENTION_DAYS), bleibt fuer fitness_history_log klein (nur echte
+    Fitness-Wechsel, deutlich unter 450/Tag), analog get_bid_premium_history.
+    starting_rank_history_log duerfte schneller wachsen (Startelf-Rang aendert
+    sich woechentlich mit jeder Kaderrotation, nicht nur bei Verletzungen) -
+    fuer eine Saison noch weit unter dem Firestore-Tages-Read-Kontingent, aber
+    ohne Retention-Fenster. Wird einmal pro ML-Lauf gelesen, nicht pro
+    Spieler."""
     return [doc.to_dict() for doc in client.collection(collection).stream()]
 
 
