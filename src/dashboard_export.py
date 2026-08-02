@@ -385,30 +385,32 @@ def _build_players_map(
     return base
 
 
-def _detect_status_changes(previous_players: dict[str, dict], all_players: list[dict]) -> list[dict]:
-    """Reine Diff-Funktion: vergleicht status_code je Spieler zwischen der
-    vorherigen Baseline (previous_players, gespeist aus
-    firestore_db.get_fitness_status_baseline) und den frisch gefetchten
-    all_players (Heavy-Cron, 1x/Tag, siehe
-    player_valuation.fetch_all_players). Liefert ein Event-Dict pro
-    tatsaechlichem Wechsel - Rohbasis fuer fitness_history_log (siehe
-    firestore_db.upsert_fitness_history_entries). Spieler ohne vorherigen
-    Stand (neu im Pool) oder die aus all_players verschwunden sind werden
-    uebersprungen, kein Crash."""
+def _detect_field_changes(previous_players: dict[str, dict], all_players: list[dict], field: str) -> list[dict]:
+    """Reine Diff-Funktion: vergleicht `field` je Spieler zwischen der
+    vorherigen Baseline (previous_players) und den frisch gefetchten
+    all_players (Heavy-Cron, 1x/Tag, siehe player_valuation.fetch_all_players).
+    Liefert ein Event-Dict {'player_id', 'from', 'to'} pro tatsaechlichem
+    Wechsel - Rohbasis fuer die feldspezifische Firestore-History (siehe
+    firestore_db.upsert_history_entries). Spieler ohne vorherigen Stand (neu
+    im Pool) oder die aus all_players verschwunden sind werden uebersprungen,
+    kein Crash. Ersetzt das frueher status_code-spezifische
+    _detect_status_changes() - identische Logik, jetzt fuer status_code UND
+    starting_rank genutzt (siehe
+    docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md).
+    Aufrufstellen bauen aus dem generischen {'from', 'to'}-Ergebnis das
+    jeweils feldspezifische Schema (from_status_code/to_status_code bzw.
+    from_starting_rank/to_starting_rank) - das bestehende Firestore-Schema
+    bleibt dadurch byte-identisch."""
     changes = []
     for row in all_players:
         pid = row.get("player_id")
         if not pid or pid not in previous_players:
             continue
-        old_status = previous_players[pid].get("status_code")
-        new_status = row.get("status_code")
-        if old_status is None or new_status is None or old_status == new_status:
+        old_value = previous_players[pid].get(field)
+        new_value = row.get(field)
+        if old_value is None or new_value is None or old_value == new_value:
             continue
-        changes.append({
-            "player_id": pid,
-            "from_status_code": old_status,
-            "to_status_code": new_status,
-        })
+        changes.append({"player_id": pid, "from": old_value, "to": new_value})
     return changes
 
 
@@ -500,7 +502,10 @@ def export() -> dict:
             previous_players_for_fitness_diff = {
                 pid: {"status_code": code} for pid, code in baseline_status_by_player.items()
             }
-            status_changes = _detect_status_changes(previous_players_for_fitness_diff, heavy["all_players"])
+            status_changes = [
+                {"player_id": c["player_id"], "from_status_code": c["from"], "to_status_code": c["to"]}
+                for c in _detect_field_changes(previous_players_for_fitness_diff, heavy["all_players"], "status_code")
+            ]
             if status_changes:
                 fitness_entries = [
                     {**change, "date": fetched_at, "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}

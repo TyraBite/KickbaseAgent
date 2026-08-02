@@ -9,7 +9,7 @@ from src.dashboard_export import (
     _build_players_map,
     _build_transfermarkt_listings,
     _build_wunschkader_targets,
-    _detect_status_changes,
+    _detect_field_changes,
     _finalize_firestore_write,
     _load_wunschkader,
     _resolve_heavy_data,
@@ -552,17 +552,17 @@ class BuildPlayersMapTests(unittest.TestCase):
         self.assertEqual(result["p1"]["market_value"], 10_500_000)
 
 
-class DetectStatusChangesTests(unittest.TestCase):
+class DetectFieldChangesTests(unittest.TestCase):
     def test_no_change_returns_empty_list(self):
         previous = {"p1": {"player_id": "p1", "status_code": 0}}
         all_players = [{"player_id": "p1", "status_code": 0}]
-        self.assertEqual(_detect_status_changes(previous, all_players), [])
+        self.assertEqual(_detect_field_changes(previous, all_players, "status_code"), [])
 
-    def test_one_change_returns_one_event_with_correct_codes(self):
+    def test_one_change_returns_one_event_with_correct_values(self):
         previous = {"p1": {"player_id": "p1", "status_code": 0}}
         all_players = [{"player_id": "p1", "status_code": 1}]
-        result = _detect_status_changes(previous, all_players)
-        self.assertEqual(result, [{"player_id": "p1", "from_status_code": 0, "to_status_code": 1}])
+        result = _detect_field_changes(previous, all_players, "status_code")
+        self.assertEqual(result, [{"player_id": "p1", "from": 0, "to": 1}])
 
     def test_mixed_players_only_changed_ones_become_events(self):
         previous = {
@@ -573,17 +573,33 @@ class DetectStatusChangesTests(unittest.TestCase):
             {"player_id": "p1", "status_code": 0},
             {"player_id": "p2", "status_code": 0},
         ]
-        result = _detect_status_changes(previous, all_players)
-        self.assertEqual(result, [{"player_id": "p2", "from_status_code": 1, "to_status_code": 0}])
+        result = _detect_field_changes(previous, all_players, "status_code")
+        self.assertEqual(result, [{"player_id": "p2", "from": 1, "to": 0}])
 
     def test_player_without_prior_snapshot_is_skipped(self):
-        result = _detect_status_changes({}, [{"player_id": "p_new", "status_code": 1}])
+        result = _detect_field_changes({}, [{"player_id": "p_new", "status_code": 1}], "status_code")
         self.assertEqual(result, [])
 
     def test_player_missing_from_all_players_causes_no_crash(self):
         previous = {"p1": {"player_id": "p1", "status_code": 0}, "p2": {"player_id": "p2", "status_code": 0}}
-        result = _detect_status_changes(previous, [{"player_id": "p1", "status_code": 0}])
+        result = _detect_field_changes(previous, [{"player_id": "p1", "status_code": 0}], "status_code")
         self.assertEqual(result, [])
+
+    def test_starting_rank_field_change_detected(self):
+        """Regressionsschutz fuer die Generalisierung selbst (siehe
+        docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md,
+        Abschnitt Testing): dieselbe Diff-Logik wie oben, aber mit
+        field='starting_rank' statt 'status_code' - beweist, dass die
+        Funktion tatsaechlich feld-generisch ist, nicht nur umbenannt."""
+        previous = {"p1": {"player_id": "p1", "starting_rank": 3}}
+        all_players = [{"player_id": "p1", "starting_rank": 1}]
+        result = _detect_field_changes(previous, all_players, "starting_rank")
+        self.assertEqual(result, [{"player_id": "p1", "from": 3, "to": 1}])
+
+    def test_starting_rank_none_values_are_skipped(self):
+        previous = {"p1": {"player_id": "p1", "starting_rank": None}}
+        all_players = [{"player_id": "p1", "starting_rank": 1}]
+        self.assertEqual(_detect_field_changes(previous, all_players, "starting_rank"), [])
 
 
 class BuildLigaanalyseTests(unittest.TestCase):
