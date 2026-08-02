@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { PlayerRecord } from "../types";
+import { normalizeSearchText } from "../lib/derive";
 import { fmtNum } from "../format";
 
 const MAX_RESULTS = 20;
@@ -14,10 +15,10 @@ export default function PlayerNamePicker({
   onSelect: (playerId: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
+  const q = normalizeSearchText(query.trim());
   const results = q
     ? Object.values(players)
-        .filter((p) => p.player_id !== excludePlayerId && p.name.toLowerCase().includes(q))
+        .filter((p) => p.player_id !== excludePlayerId && normalizeSearchText(p.name).includes(q))
         .slice(0, MAX_RESULTS)
     : [];
 

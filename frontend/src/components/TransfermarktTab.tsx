@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
-import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type TransfermarktRow } from "../lib/derive";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, suggestBid, type TransfermarktRow } from "../lib/derive";
 import { Badge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
@@ -76,12 +76,12 @@ export default function TransfermarktTab({
   const [viewMode, setViewMode] = useViewMode("kickbaseagent_view_transfermarkt");
 
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeSearchText(search.trim());
     const filtered = rows.filter((r) => {
       if (position !== "all" && r.position !== position) return false;
       if (anbieter === "kickbase" && !r.is_system_offer) return false;
       if (anbieter === "mitspieler" && r.is_system_offer) return false;
-      if (q && !`${r.name} ${r.team_name ?? ""}`.toLowerCase().includes(q)) return false;
+      if (q && !normalizeSearchText(`${r.name} ${r.team_name ?? ""}`).includes(q)) return false;
       return true;
     });
     return sortRows(filtered, sortKey);

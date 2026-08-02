@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardSnapshot } from "../types";
-import { buildAlleSpielerRows, type AlleSpielerRow } from "../lib/derive";
+import { buildAlleSpielerRows, normalizeSearchText, type AlleSpielerRow } from "../lib/derive";
 import { Badge, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
@@ -53,7 +53,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
   const [viewMode, setViewMode] = useViewMode("kickbaseagent_view_alle_spieler");
 
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeSearchText(search.trim());
     return allRows.filter((r) => {
       if (position !== "all" && r.position !== position) return false;
       if (verfuegbarkeit === "frei" && r.owner !== "Frei") return false;
@@ -61,7 +61,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
       if (verfuegbarkeit === "andere" && (r.owner === "Frei" || r.owner === "Eigener Kader")) return false;
       if (ranks.size && (r.starting_rank === null || !ranks.has(r.starting_rank))) return false;
       if ((r.market_value ?? 0) < marketValueMin || (r.market_value ?? 0) > marketValueMax) return false;
-      if (q && !`${r.name} ${r.team_name ?? ""}`.toLowerCase().includes(q)) return false;
+      if (q && !normalizeSearchText(`${r.name} ${r.team_name ?? ""}`).includes(q)) return false;
       return true;
     });
   }, [allRows, position, verfuegbarkeit, ranks, marketValueMin, marketValueMax, search]);

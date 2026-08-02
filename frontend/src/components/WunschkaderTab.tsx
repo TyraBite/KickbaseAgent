@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
-import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
+import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, normalizeSearchText, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { canAddStarter, matchedFormation, POSITIONS, type Position, type PositionCounts } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -71,9 +71,9 @@ function searchReplacementPool(
   target: { player_id?: string; position: string; market_value: number | null; average_points: number | null },
   query: string
 ) {
-  const q = query.toLowerCase();
+  const q = normalizeSearchText(query);
   return scoreReplacementPool(alleSpieler, target)
-    .filter((p) => p.name.toLowerCase().includes(q))
+    .filter((p) => normalizeSearchText(p.name).includes(q))
     .slice(0, 20);
 }
 
@@ -82,10 +82,10 @@ function searchReplacementPool(
 // Spieler selbst, nicht von einer vorher getroffenen Auswahl. Behaelt den
 // Frei/Eigener-Kader-Owner-Filter aus scoreReplacementPool() bei.
 function searchAnyPosition(alleSpieler: AlleSpielerRow[], excludePlayerId: string | undefined, query: string) {
-  const q = query.toLowerCase();
+  const q = normalizeSearchText(query);
   return alleSpieler
     .filter((p) => p.player_id !== excludePlayerId && (p.owner === "Frei" || p.owner === "Eigener Kader"))
-    .filter((p) => p.name.toLowerCase().includes(q))
+    .filter((p) => normalizeSearchText(p.name).includes(q))
     .slice(0, 20);
 }
 

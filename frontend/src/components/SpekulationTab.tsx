@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, MlMetrics, PositionNeed } from "../types";
-import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, suggestBid, type SpekulationRow } from "../lib/derive";
+import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, suggestBid, type SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { Badge, PositionBadge, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
@@ -86,8 +86,8 @@ export default function SpekulationTab({
   const [viewMode, setViewMode] = useViewMode("kickbaseagent_view_spekulation");
 
   const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const filtered = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
+    const q = normalizeSearchText(search.trim());
+    const filtered = q ? rows.filter((r) => normalizeSearchText(r.name).includes(q)) : rows;
     return sortRows(filtered, sortKey);
   }, [rows, search, sortKey]);
 

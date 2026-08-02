@@ -15,6 +15,19 @@ export function kForPosition(calibration: Calibration | null, position: string):
   return calibration.position_k?.[position]?.k ?? calibration.global_k ?? null;
 }
 
+// Umlaute/Diakritika/Apostrophe-insensitive Spielersuche (User-Feedback
+// 2026-08-02): "Diaz" soll "Díaz" treffen, "N'Guessan" soll "N’Guessan"
+// treffen (typografischer vs. ASCII-Apostroph). NFD-Dekomposition trennt
+// Basisbuchstabe und Diakritikum in zwei Codepoints, danach werden die
+// Diakritika-Codepoints entfernt.
+export function normalizeSearchText(input: string): string {
+  return input
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/['’]/g, "")
+    .toLowerCase();
+}
+
 // 1:1 Port von dashboard_export.py::_valuation()
 export function valuation(
   marketValue: number | null,
