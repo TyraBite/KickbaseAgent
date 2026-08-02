@@ -158,7 +158,11 @@ def collect_news_sentiment(players: list[dict]) -> list[dict]:
         }
         for future in concurrent.futures.as_completed(futures):
             player_id = futures[future]
-            articles_by_player[player_id] = future.result()
+            try:
+                articles_by_player[player_id] = future.result()
+            except Exception as exc:
+                print(f"Warnung: News-Fetch fuer Spieler '{player_id}' fehlgeschlagen: {exc}", file=sys.stderr)
+                articles_by_player[player_id] = []
 
     flat_articles = [
         (player_id, article)

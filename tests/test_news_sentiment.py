@@ -257,9 +257,9 @@ class CollectNewsSentimentTests(unittest.TestCase):
     @patch("src.news_sentiment.fetch_news_for_player")
     def test_one_players_fetch_failure_does_not_abort_others(self, mock_fetch, mock_model_cls):
         def side_effect(name, team):
-            return [] if name == "Broken" else [
-                {"title": "Meldung", "snippet": "Quelle", "link": "https://example.com/b1", "pub_date": "2026-08-01"}
-            ]
+            if name == "Broken":
+                raise RuntimeError("boom")
+            return [{"title": "Meldung", "snippet": "Quelle", "link": "https://example.com/b1", "pub_date": "2026-08-01"}]
         mock_fetch.side_effect = side_effect
         mock_model_cls.return_value.predict_sentiment.return_value = (
             ["neutral"], [[["positive", 0.1], ["negative", 0.1], ["neutral", 0.8]]]
