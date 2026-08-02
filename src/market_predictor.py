@@ -103,20 +103,23 @@ def _max_workers() -> int:
     return int(os.environ.get("MARKET_PREDICTOR_MAX_WORKERS", 8))
 
 
-def _load_fitness_events_by_player() -> dict[str, list[dict]]:
-    """Liest fitness_history_log (siehe firestore_db.get_fitness_history)
+def _load_change_events_by_player(collection: str) -> dict[str, list[dict]]:
+    """Liest die angegebene History-Collection (siehe firestore_db.get_history)
     einmal pro Lauf und gruppiert nach player_id - Basis fuer
     _change_recency_features() in _fetch_player_training_frame(). Leeres
     Dict bei deaktiviertem Firestore oder Lesefehler (gleiches
     Resilienz-Muster wie _load_recent_prediction_log) - jeder Spieler
-    bekommt dann ueberall den Cold-Start-Platzhalter, kein Crash."""
+    bekommt dann ueberall den Cold-Start-Platzhalter, kein Crash.
+    Generalisierte Fassung von _load_fitness_events_by_player() (ersetzt
+    sie), collection als Parameter statt hardcoded 'fitness_history_log' -
+    genutzt fuer 'fitness_history_log' UND 'starting_rank_history_log'."""
     events_by_player: dict[str, list[dict]] = defaultdict(list)
     if os.environ.get("FIRESTORE_ENABLED"):
         try:
-            for entry in firestore_db.get_fitness_history(firestore_db.connect()):
+            for entry in firestore_db.get_history(firestore_db.connect(), collection):
                 events_by_player[entry["player_id"]].append(entry)
         except Exception as exc:
-            print(f"Warnung: fitness_history_log-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
+            print(f"Warnung: {collection}-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
             return {}
     return dict(events_by_player)
 
@@ -637,8 +640,11 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
     league_id = select_league(leagues)["id"]
     me = get_me(token, league_id)
     competition_id = me.get("cpi") or "1"
-    fitness_events_by_player = _load_fitness_events_by_player()
-    corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player, {})
+    fitness_events_by_player = _load_change_events_by_player("fitness_history_log")
+    starting_rank_events_by_player = _load_change_events_by_player("starting_rank_history_log")
+    corpus = _build_corpus(
+        token, league_id, competition_id, fitness_events_by_player, starting_rank_events_by_player,
+    )
     history_df, _today_df = _engineer_features(corpus)
 
     dates = sorted(history_df["date"].unique())
@@ -1003,8 +1009,11 @@ def predict_market_value_changes() -> dict | None:
         me = get_me(token, league_id)
         competition_id = me.get("cpi") or "1"
 
-        fitness_events_by_player = _load_fitness_events_by_player()
-        corpus = _build_corpus(token, league_id, competition_id, fitness_events_by_player, {})
+        fitness_events_by_player = _load_change_events_by_player("fitness_history_log")
+        starting_rank_events_by_player = _load_change_events_by_player("starting_rank_history_log")
+        corpus = _build_corpus(
+            token, league_id, competition_id, fitness_events_by_player, starting_rank_events_by_player,
+        )
         history_df, today_df = _engineer_features(corpus)
 
         # Spieler ohne verwertbaren "naechster Spieltag" (kein Spiel seit

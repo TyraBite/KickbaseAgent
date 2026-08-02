@@ -23,7 +23,7 @@ from src.market_predictor import (
     _change_recency_features,
     _fetch_player_training_frame,
     _build_corpus,
-    _load_fitness_events_by_player,
+    _load_change_events_by_player,
     _engineer_features,
     NO_HISTORY_DAYS_PLACEHOLDER,
     _train_and_evaluate,
@@ -309,7 +309,7 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
 
     @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
     @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
-    @patch("src.market_predictor._load_fitness_events_by_player", return_value={})
+    @patch("src.market_predictor._load_change_events_by_player", return_value={})
     @patch("src.market_predictor._build_corpus", return_value=None)
     @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
     @patch("src.market_predictor.select_league", return_value={"id": "league1"})
@@ -355,7 +355,7 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
 
     @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
     @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
-    @patch("src.market_predictor._load_fitness_events_by_player", return_value={})
+    @patch("src.market_predictor._load_change_events_by_player", return_value={})
     @patch("src.market_predictor._build_corpus", return_value=None)
     @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
     @patch("src.market_predictor.select_league", return_value={"id": "league1"})
@@ -506,8 +506,8 @@ class ChangeRecencyFeaturesTests(unittest.TestCase):
         self.assertEqual(result["starting_rank_change_count_90d"], 0)
 
 
-class LoadFitnessEventsByPlayerTests(unittest.TestCase):
-    @patch("src.market_predictor.firestore_db.get_fitness_history")
+class LoadChangeEventsByPlayerTests(unittest.TestCase):
+    @patch("src.market_predictor.firestore_db.get_history")
     @patch("src.market_predictor.firestore_db.connect")
     def test_groups_entries_by_player_id(self, mock_connect, mock_get):
         mock_get.return_value = [
@@ -516,20 +516,36 @@ class LoadFitnessEventsByPlayerTests(unittest.TestCase):
             {"player_id": "p2", "date": "2026-07-22", "from_status_code": 0, "to_status_code": 2},
         ]
         with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
-            result = _load_fitness_events_by_player()
+            result = _load_change_events_by_player("fitness_history_log")
+        mock_get.assert_called_once_with(mock_connect.return_value, "fitness_history_log")
         self.assertEqual(len(result["p1"]), 2)
         self.assertEqual(len(result["p2"]), 1)
 
     def test_returns_empty_dict_without_firestore_enabled(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(_load_fitness_events_by_player(), {})
+            self.assertEqual(_load_change_events_by_player("fitness_history_log"), {})
 
-    @patch("src.market_predictor.firestore_db.get_fitness_history")
+    @patch("src.market_predictor.firestore_db.get_history")
     @patch("src.market_predictor.firestore_db.connect")
     def test_returns_empty_dict_on_firestore_error(self, mock_connect, mock_get):
         mock_get.side_effect = RuntimeError("Firestore down")
         with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
-            self.assertEqual(_load_fitness_events_by_player(), {})
+            self.assertEqual(_load_change_events_by_player("fitness_history_log"), {})
+
+    @patch("src.market_predictor.firestore_db.get_history")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_groups_starting_rank_entries_by_player_id(self, mock_connect, mock_get):
+        """Regressionsschutz fuer die Generalisierung selbst: gleiche Logik
+        wie test_groups_entries_by_player_id, aber mit collection=
+        'starting_rank_history_log' - beweist collection ist ein echter
+        Parameter, nicht hardcoded."""
+        mock_get.return_value = [
+            {"player_id": "p1", "date": "2026-07-20", "from_starting_rank": 3, "to_starting_rank": 1},
+        ]
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            result = _load_change_events_by_player("starting_rank_history_log")
+        mock_get.assert_called_once_with(mock_connect.return_value, "starting_rank_history_log")
+        self.assertEqual(len(result["p1"]), 1)
 
 
 class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
@@ -801,7 +817,7 @@ class PredictMarketValueChangesThreeDayIsolationTests(unittest.TestCase):
             os.environ, {"KICKBASE_EMAIL": "a@b.c", "KICKBASE_PASSWORD": "x"}, clear=True,
         ), patch("src.market_predictor.login", return_value=("tok", {"id": "u1"}, [{"id": "l1"}])
         ), patch("src.market_predictor.get_me", return_value={"cpi": "1"}
-        ), patch("src.market_predictor._load_fitness_events_by_player", return_value={}
+        ), patch("src.market_predictor._load_change_events_by_player", return_value={}
         ), patch("src.market_predictor._build_corpus", return_value=pd.DataFrame()
         ), patch("src.market_predictor._engineer_features", return_value=(history_df, today_df)
         ), patch("src.market_predictor._infer_today", return_value="2026-07-31"
