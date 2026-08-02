@@ -89,8 +89,8 @@ EVALUATION_LOOKBACK_DAYS = 3
 BACKTEST_FOLDS = 6
 BACKTEST_MIN_TRAIN_ROWS = MIN_TRAINING_ROWS
 
-FITNESS_NO_HISTORY_DAYS = 9999  # Platzhalter: kein Fitness-Ereignis vor diesem Datum bekannt (Cold-Start oder Spieler nie im fitness_history_log)
-FITNESS_COUNT_WINDOW_DAYS = 90
+NO_HISTORY_DAYS_PLACEHOLDER = 9999  # Platzhalter: kein Wechsel-Ereignis vor diesem Datum bekannt (Cold-Start oder Spieler noch nie in der jeweiligen History-Collection) - feldneutral, siehe _change_recency_features()
+CHANGE_COUNT_WINDOW_DAYS = 90
 
 # Aggregierter Sicherheits-Check: schlagen zu viele der ersten Abrufe fehl,
 # lieber den ganzen Corpus-Aufbau abbrechen als auf degradierten Daten zu
@@ -106,7 +106,7 @@ def _max_workers() -> int:
 def _load_fitness_events_by_player() -> dict[str, list[dict]]:
     """Liest fitness_history_log (siehe firestore_db.get_fitness_history)
     einmal pro Lauf und gruppiert nach player_id - Basis fuer
-    _fitness_features_as_of() in _fetch_player_training_frame(). Leeres
+    _change_recency_features() in _fetch_player_training_frame(). Leeres
     Dict bei deaktiviertem Firestore oder Lesefehler (gleiches
     Resilienz-Muster wie _load_recent_prediction_log) - jeder Spieler
     bekommt dann ueberall den Cold-Start-Platzhalter, kein Crash."""
@@ -189,22 +189,29 @@ def _performance_frame(token: str, competition_id: str, player_id: str) -> pd.Da
     return df
 
 
-def _fitness_features_as_of(events: list[dict], as_of_date: datetime.date) -> dict:
-    """events: EIN Spielers Eintraege aus fitness_history_log (jeweils
-    {'date': 'YYYY-MM-DD', 'from_status_code': int, 'to_status_code': int}),
-    Reihenfolge egal. as_of_date: das Datum der Trainings-/Prognose-Zeile.
-    Nur Ereignisse mit event_date <= as_of_date fliessen ein - kein
-    Lookahead in die Zukunft dieser Zeile. Siehe
-    docs/superpowers/specs/2026-07-31-fitness-history-design.md,
-    Abschnitt 'ML-Integration'."""
+def _change_recency_features(
+    events: list[dict], as_of_date: datetime.date,
+    days_feature: str, count_feature: str,
+    window_days: int = CHANGE_COUNT_WINDOW_DAYS,
+) -> dict:
+    """events: EIN Spielers Eintraege aus der jeweiligen History-Collection
+    (mindestens {'date': 'YYYY-MM-DD', ...}), Reihenfolge egal. as_of_date:
+    das Datum der Trainings-/Prognose-Zeile. Nur Ereignisse mit event_date
+    <= as_of_date fliessen ein - kein Lookahead in die Zukunft dieser Zeile.
+    days_feature/count_feature benennen die beiden Ergebnis-Keys (z.B.
+    'days_since_last_status_change'/'status_change_count_90d' fuer Fitness,
+    'days_since_last_starting_rank_change'/'starting_rank_change_count_90d'
+    fuer Startelf-Rang). Generalisierte Fassung von
+    _fitness_features_as_of() (ersetzt sie), identische Formel, siehe
+    docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md."""
     relevant = [e for e in events if datetime.date.fromisoformat(e["date"]) <= as_of_date]
     if not relevant:
-        return {"days_since_last_status_change": FITNESS_NO_HISTORY_DAYS, "status_change_count_90d": 0}
+        return {days_feature: NO_HISTORY_DAYS_PLACEHOLDER, count_feature: 0}
     last_date = max(datetime.date.fromisoformat(e["date"]) for e in relevant)
     days_since = (as_of_date - last_date).days
-    cutoff = as_of_date - datetime.timedelta(days=FITNESS_COUNT_WINDOW_DAYS)
-    count_90d = sum(1 for e in relevant if datetime.date.fromisoformat(e["date"]) > cutoff)
-    return {"days_since_last_status_change": days_since, "status_change_count_90d": count_90d}
+    cutoff = as_of_date - datetime.timedelta(days=window_days)
+    count = sum(1 for e in relevant if datetime.date.fromisoformat(e["date"]) > cutoff)
+    return {days_feature: days_since, count_feature: count}
 
 
 def _fetch_player_training_frame(
@@ -242,7 +249,11 @@ def _fetch_player_training_frame(
     merged["team_id"] = team_id
 
     events = fitness_events_by_player.get(player_id, [])
-    fitness_features = merged["date"].apply(lambda ts: _fitness_features_as_of(events, ts.date()))
+    fitness_features = merged["date"].apply(
+        lambda ts: _change_recency_features(
+            events, ts.date(), "days_since_last_status_change", "status_change_count_90d",
+        )
+    )
     merged["days_since_last_status_change"] = fitness_features.apply(lambda f: f["days_since_last_status_change"])
     merged["status_change_count_90d"] = fitness_features.apply(lambda f: f["status_change_count_90d"])
 

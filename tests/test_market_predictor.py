@@ -20,11 +20,11 @@ from src.market_predictor import (
     _select_live_model,
     _infer_today,
     _performance_frame,
-    _fitness_features_as_of,
+    _change_recency_features,
     _fetch_player_training_frame,
     _load_fitness_events_by_player,
     _engineer_features,
-    FITNESS_NO_HISTORY_DAYS,
+    NO_HISTORY_DAYS_PLACEHOLDER,
     _train_and_evaluate,
     _walk_forward_backtest,
     _train_and_track_horizon,
@@ -436,20 +436,26 @@ class PerformanceFrameMinutesAvgTests(unittest.TestCase):
         self.assertTrue(df.empty)
 
 
-class FitnessFeaturesAsOfTests(unittest.TestCase):
+class ChangeRecencyFeaturesTests(unittest.TestCase):
     def test_no_prior_event_returns_placeholder(self):
-        result = _fitness_features_as_of([], datetime.date(2026, 7, 31))
-        self.assertEqual(result["days_since_last_status_change"], FITNESS_NO_HISTORY_DAYS)
+        result = _change_recency_features(
+            [], datetime.date(2026, 7, 31), "days_since_last_status_change", "status_change_count_90d",
+        )
+        self.assertEqual(result["days_since_last_status_change"], NO_HISTORY_DAYS_PLACEHOLDER)
         self.assertEqual(result["status_change_count_90d"], 0)
 
     def test_ignores_events_after_as_of_date(self):
         events = [{"date": "2026-08-01", "from_status_code": 0, "to_status_code": 1}]
-        result = _fitness_features_as_of(events, datetime.date(2026, 7, 31))
-        self.assertEqual(result["days_since_last_status_change"], FITNESS_NO_HISTORY_DAYS)
+        result = _change_recency_features(
+            events, datetime.date(2026, 7, 31), "days_since_last_status_change", "status_change_count_90d",
+        )
+        self.assertEqual(result["days_since_last_status_change"], NO_HISTORY_DAYS_PLACEHOLDER)
 
     def test_one_event_returns_correct_days_since(self):
         events = [{"date": "2026-07-20", "from_status_code": 0, "to_status_code": 1}]
-        result = _fitness_features_as_of(events, datetime.date(2026, 7, 31))
+        result = _change_recency_features(
+            events, datetime.date(2026, 7, 31), "days_since_last_status_change", "status_change_count_90d",
+        )
         self.assertEqual(result["days_since_last_status_change"], 11)
         self.assertEqual(result["status_change_count_90d"], 1)
 
@@ -459,7 +465,9 @@ class FitnessFeaturesAsOfTests(unittest.TestCase):
             {"date": "2026-07-01", "from_status_code": 1, "to_status_code": 0},
             {"date": "2026-07-20", "from_status_code": 0, "to_status_code": 1},
         ]
-        result = _fitness_features_as_of(events, datetime.date(2026, 7, 31))
+        result = _change_recency_features(
+            events, datetime.date(2026, 7, 31), "days_since_last_status_change", "status_change_count_90d",
+        )
         self.assertEqual(result["days_since_last_status_change"], 11)
         self.assertEqual(result["status_change_count_90d"], 2)
 
@@ -467,9 +475,34 @@ class FitnessFeaturesAsOfTests(unittest.TestCase):
         as_of = datetime.date(2026, 7, 31)
         boundary_date = (as_of - datetime.timedelta(days=90)).isoformat()
         events = [{"date": boundary_date, "from_status_code": 0, "to_status_code": 1}]
-        result = _fitness_features_as_of(events, as_of)
+        result = _change_recency_features(
+            events, as_of, "days_since_last_status_change", "status_change_count_90d",
+        )
         self.assertEqual(result["status_change_count_90d"], 0)
         self.assertEqual(result["days_since_last_status_change"], 90)
+
+    def test_starting_rank_feature_names_produce_same_formula(self):
+        """Regressionsschutz fuer die Generalisierung selbst (siehe
+        docs/superpowers/specs/2026-08-02-startelf-status-historie-design.md,
+        Abschnitt Testing): identische Events/Datum wie
+        test_one_event_returns_correct_days_since, aber mit den
+        Startelf-Rang-Feature-Namen durchgereicht - beweist, dass die Formel
+        unveraendert bleibt, unabhaengig vom Feld."""
+        events = [{"date": "2026-07-20", "from_starting_rank": 3, "to_starting_rank": 1}]
+        result = _change_recency_features(
+            events, datetime.date(2026, 7, 31),
+            "days_since_last_starting_rank_change", "starting_rank_change_count_90d",
+        )
+        self.assertEqual(result["days_since_last_starting_rank_change"], 11)
+        self.assertEqual(result["starting_rank_change_count_90d"], 1)
+
+    def test_starting_rank_feature_names_cold_start_placeholder(self):
+        result = _change_recency_features(
+            [], datetime.date(2026, 7, 31),
+            "days_since_last_starting_rank_change", "starting_rank_change_count_90d",
+        )
+        self.assertEqual(result["days_since_last_starting_rank_change"], NO_HISTORY_DAYS_PLACEHOLDER)
+        self.assertEqual(result["starting_rank_change_count_90d"], 0)
 
 
 class LoadFitnessEventsByPlayerTests(unittest.TestCase):
@@ -524,7 +557,7 @@ class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
 
         result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {})
 
-        self.assertEqual(list(result["days_since_last_status_change"]), [FITNESS_NO_HISTORY_DAYS])
+        self.assertEqual(list(result["days_since_last_status_change"]), [NO_HISTORY_DAYS_PLACEHOLDER])
 
 
 class EngineerFeatures3dTargetTests(unittest.TestCase):
