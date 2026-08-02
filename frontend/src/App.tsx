@@ -13,6 +13,7 @@ import WunschkaderTab from "./components/WunschkaderTab";
 import FeedbackTab from "./components/FeedbackTab";
 import { IconMenu } from "./components/icons";
 import { buildSpekulationRows, buildTransfermarktRows, formatRelativeTime } from "./lib/derive";
+import { useHideOnScroll } from "./lib/useHideOnScroll";
 import { isAnyModalOpen, useModalOpenTracking } from "./lib/modalOpenTracker";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "./types";
 
@@ -200,6 +201,7 @@ export default function App() {
   );
   const spekulationRows = useMemo(() => buildSpekulationRows(transfermarktRows), [transfermarktRows]);
   const { onTouchStart, onTouchEnd } = useSwipeTabs(activeTab, setActiveTab);
+  const headerVisible = useHideOnScroll();
 
   useEffect(() => {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
@@ -253,7 +255,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-950">
+      <header
+        className={`sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:!translate-y-0 ${
+          headerVisible ? "translate-y-0" : "-translate-y-full"
+        }`}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
