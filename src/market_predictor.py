@@ -111,13 +111,17 @@ def _max_workers() -> int:
 def _load_change_events_by_player(collection: str) -> dict[str, list[dict]]:
     """Liest die angegebene History-Collection (siehe firestore_db.get_history)
     einmal pro Lauf und gruppiert nach player_id - Basis fuer
-    _change_recency_features() in _fetch_player_training_frame(). Leeres
-    Dict bei deaktiviertem Firestore oder Lesefehler (gleiches
-    Resilienz-Muster wie _load_recent_prediction_log) - jeder Spieler
-    bekommt dann ueberall den Cold-Start-Platzhalter, kein Crash.
-    Generalisierte Fassung von _load_fitness_events_by_player() (ersetzt
-    sie), collection als Parameter statt hardcoded 'fitness_history_log' -
-    genutzt fuer 'fitness_history_log' UND 'starting_rank_history_log'."""
+    _change_recency_features() UND _sentiment_features_as_of() in
+    _fetch_player_training_frame() (unterschiedliche Feature-Berechnung,
+    gleicher Lade-/Gruppier-Schritt). Leeres Dict bei deaktiviertem
+    Firestore oder Lesefehler (gleiches Resilienz-Muster wie
+    _load_recent_prediction_log) - jeder Spieler bekommt dann ueberall den
+    Cold-Start-Platzhalter, kein Crash. Generalisierte Fassung von
+    _load_fitness_events_by_player() (ersetzt sie), collection als
+    Parameter statt hardcoded 'fitness_history_log' - genutzt fuer
+    'fitness_history_log', 'starting_rank_history_log' UND
+    'player_news_log' (letzteres ueber den duennen Wrapper
+    _load_news_events_by_player())."""
     events_by_player: dict[str, list[dict]] = defaultdict(list)
     if os.environ.get("FIRESTORE_ENABLED"):
         try:

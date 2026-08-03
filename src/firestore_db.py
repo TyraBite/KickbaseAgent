@@ -22,8 +22,11 @@ src/bid_premium.py) sowie die per `collection`-Parameter generalisierten
 `upsert_history_entries`/`get_history`/`upsert_baseline`/`get_baseline` fuer
 `fitness_history_log`/`fitness_status_baseline` (Fitness-Wechsel-Historie)
 und `starting_rank_history_log`/`starting_rank_baseline` (Startelf-Status-
-Historie, siehe dashboard_export.py). Mehrzeilige Writes nutzen Firestore-
-WriteBatch (max. 500 Operationen/Batch - siehe _write_in_batches).
+Historie, siehe dashboard_export.py) sowie `player_news_log` (News/Sentiment-
+Rohdaten, nur `upsert_history_entries`/`get_history` - kein eigenes Baseline-
+Dokument, kein Diff-Muster - siehe src/news_sentiment.py). Mehrzeilige Writes
+nutzen Firestore-WriteBatch (max. 500 Operationen/Batch - siehe
+_write_in_batches).
 """
 
 from typing import Callable
