@@ -1,43 +1,288 @@
-# KickbaseAgent — Hinweise für KI-Agenten
+# CLAUDE.md — KickbaseAgent
 
-Architektur/Setup: siehe `README.md`. Laufender Session-Status/Historie: siehe `HANDOFF.md` — dort lesen, bevor eine
-neue Session hier startet.
+Diese Datei wird zu Beginn jeder Claude-Code-Session geladen. Sie beschreibt,
+**wie** in diesem Repo gearbeitet wird. Was gerade passiert ist und was offen
+ist, steht in `HANDOFF.md` — die vor jeder neuen Session lesen. Setup-Befehle
+stehen im `README.md` und werden hier nicht wiederholt.
 
-## Verbindliche Regel: Testabdeckung (seit 2026-08-03)
+## Was das Projekt ist
 
-**Jedes neue Frontend-Feature UND jeder Bugfix muss durch einen automatisierten Test abgedeckt sein, bevor er als
-fertig gilt.** Wähler die Test-Ebene passend zum Szenario:
+Decision-Support für Kickbase: Daten sammeln, aufbereiten, Signale anzeigen.
+Der Mensch entscheidet und klickt. Es gibt bewusst **keine** schreibenden
+Kickbase-API-Calls (kein Auto-Bidding) — das ist ein anderes Risikoprofil und
+wird nicht "nebenbei" eingebaut.
 
-- **Reine Logik/Ableitungsfunktionen** (`frontend/src/lib/derive.ts`, `format.ts`, etc.) → Vitest-Unit-Test
-  (`frontend/src/**/*.test.ts`), TDD (Test zuerst, rot, dann grün).
-- **Komponenten-Interaktion** (Formular-Verhalten, State-Uebergaenge innerhalb einer Komponente, ohne echten
-  Firebase-Zugriff) → Playwright Component Test (`frontend/tests-ct/*.ct.tsx`).
-- **App-weites Verhalten** (Tab-Wechsel, Touch-Gesten, Interaktion zwischen mehreren Komponenten) → Playwright E2E
-  (`frontend/tests-e2e/*.spec.ts`).
-- **Backend** (`src/`) folgt der bereits etablierten Konvention: `unittest`, TDD, siehe bestehende `tests/*.py`.
+Zweiter, gleichrangiger Arbeitseingang neben dem Chat: das Firestore-Dokument
+`feedback/current` (Tab „Bugs & Ideen"). Offene Einträge (`status:"open"`) dort
+aktiv prüfen, nicht nur auf Chat-Aufträge reagieren. Nach der Umsetzung auf
+`status:"done"` setzen — aber erst, wenn live verifiziert.
 
-Ein Bugfix ohne Regressionstest gilt als unvollstaendig — der Test soll den Bug reproduzieren (rot), dann den Fix
-verifizieren (gruen). Ausnahme nur bei echter, im PR explizit begruendeter Unmoeglichkeit (z.B. reiner
-Text-/Copy-Fix ohne Verhaltensaenderung).
+## Grundhaltung: ehrliche Daten schlagen vollständige Daten
 
-**Wie das durchgesetzt wird:**
-1. Diese Datei wird bei jeder neuen Claude-Code-Session automatisch geladen — die Regel ist also nicht nur hier
-   dokumentiert, sondern aktiver Kontext von Anfang an.
-2. `.github/pull_request_template.md` fragt bei jedem `gh pr create` explizit nach der Testabdeckung — ein PR ohne
-   beantwortete Checkliste faellt beim Review auf.
-3. Test-Coverage-Luecken werden im laufenden Audit (`docs/superpowers/plans/2026-08-03-test-coverage-audit.md`,
-   falls vorhanden — sonst `HANDOFF.md` nach dem aktuellen Stand durchsuchen) priorisiert nachgezogen, nicht nur bei
-   neuen Features.
+Das ist die Leitlinie des ganzen Projekts, im Code wie in den `MDs/`:
 
-Dies ist eine **Regel, kein CI-Gate** — es gibt (bewusst) keinen automatisierten Check, der einen PR ohne Test hart
-blockiert (zu viele legitime Ausnahmen: reine Copy-Fixes, Refactorings ohne Verhaltensaenderung, Doku-PRs). Die
-Durchsetzung passiert ueber Review-Disziplin (Punkt 2) und darüber, dass diese Regel jeder Session von Anfang an
-bekannt ist (Punkt 1) — nicht über einen harten Gate.
+- Ein unbekannter Wert wird als „–" angezeigt, **nie** als `0`, `–0 €` oder als
+  geschätzte Zahl ohne Kennzeichnung. Ein Geldfeld, das „kostenlos" suggeriert,
+  ist ein kritischer Bug, kein Schönheitsfehler.
+- Wo geschätzt wird, steht die Herkunft dran („(Schätzung)", „(geringe
+  Datenbasis, n=X)"). Zahl und Label kommen aus **einer** Funktion, damit sie
+  nicht auseinanderlaufen können.
+- Keine Bedeutung erfinden, die nicht verifiziert ist — siehe `MDs/codes.md`
+  für das Muster (Status-Code 8 ist unbekannt und bleibt unbekannt, bis ein
+  In-App-Beleg existiert).
+- Lieber eine Lücke im UI als eine plausible Behauptung.
 
-## PR-Workflow (seit 2026-08-03)
+## Architektur — die vier Regeln, die nicht verhandelbar sind
 
-Jede funktionale Aenderung (Backend `src/`+`tests/`, Frontend `frontend/src/`+`frontend/tests-*`, CI
-`.github/workflows/`) laeuft ueber einen echten PR: `gh pr create` + `gh pr merge --auto --squash` (kein `--admin`
-noetig, Auto-Merge funktioniert). Direkt-Push auf `main` bleibt nur fuer reine Doku-/Planungs-Commits (Specs,
-Plaene, `HANDOFF.md`, dieses Dokument, Memory-Notizen) ohne Code-Auswirkung. Details/Hintergrund:
-`HANDOFF.md` (Abschnitt "PR-Workflow + Branch-Protection").
+**1. Backend liefert Rohdaten, das Frontend leitet ab.**
+Alles, was aus vorhandenen Rohdaten berechenbar ist — Fairwert, Signal,
+Status-Text, Trend, Budgetplan, ROI, Auktions-Countdown, Sortierung, Filter —
+gehört nach `frontend/src/lib/derive.ts`. Das Backend schreibt nur, was es
+nicht selbst errechnen kann (Kickbase-Rohdaten, ML-Prognosen, historische
+Aggregate). Bevor ein neues Firestore-Feld entsteht: prüfen, ob es ableitbar
+ist. Wenn ja, ist das neue Feld der Fehler.
+
+**2. `player_id` ist der einzige Join-Key.** Niemals über Spielernamen joinen
+oder matchen. Der Grund steht in `MDs/datencheck.md` („Stange" vs. „Stage") und
+hat schon einmal echten Schaden angerichtet.
+
+**3. Ein Firestore-Snapshot-Dokument.** `dashboard_snapshot/latest` enthält eine
+`players`-Map (`player_id -> Rohdaten`) plus dünne Referenzlisten. Keine
+parallelen, namensverknüpften Arrays. Ändert sich das Key-Set von `export()`,
+muss der Contract-Test (`AssembleSnapshotContractTests.EXPECTED_KEYS`)
+mitgezogen werden — der existiert genau deshalb.
+
+**4. Light und Heavy sind getrennt.** `DASHBOARD_MODE=light` (stündlich, günstig)
+vs. `heavy` (1×/Tag, teure Kickbase-Calls, ML, Historien-Writes). Beim Ändern
+von `dashboard_export.py` immer beide Zweige durchdenken: was der Light-Lauf
+stündlich überschreibt, darf keine Diff-Baseline für den Heavy-Lauf sein
+(diese Falle hat schon einmal Historie dauerhaft vernichtet — Kickbase liefert
+keine Zeitreihen nach). Nach einem großen Schema-Wechsel Frontend-Deploy und
+Backend-Cron nicht als synchron annehmen — beide laufen unabhängig
+voneinander. Ein Frontend-Push kann live gehen, bevor der nächste Backend-Lauf
+das neue Schema geschrieben hat (führte hier schon zu einem echten
+Weißer-Bildschirm-Vorfall) — nach jedem größeren Schema-Wechsel sofort einen
+Heavy-Lauf erzwingen (`gh workflow run dashboard-marktwerte.yml`), nicht auf
+den nächsten planmäßigen Cron warten.
+
+## Modulkarte
+
+**Backend (`src/`, Python)** — Details im `README.md`. Kurz:
+`kickbase_client.py` (API-Wrapper, `select_league()` public und von allen
+Einstiegspunkten genutzt), `fetcher.py` (ein Abruf-Lauf → SQLite via `db.py`),
+`manager_budgets.py`, `player_valuation.py`, `market_predictor.py`,
+`bid_premium.py`, `news_sentiment.py`, `firestore_db.py`,
+`dashboard_export.py` (Haupt-Einstiegspunkt, baut den Snapshot).
+
+Daneben existiert ein **älterer, paralleler Pfad**: `prompt_builder.py` /
+`discord_notify.py` / `main.py` baut einen Text-Prompt für die manuelle
+Claude-Konversation. Der nutzt eigene Felder aus SQLite und hat mit dem
+Dashboard/Firestore nichts zu tun. Beim Entfernen „toter" Felder dort **nicht**
+mitaufräumen, ohne diesen Pfad zu prüfen.
+
+**Frontend (`frontend/`, React + Vite + TypeScript + Tailwind)**
+- `lib/derive.ts` — alle Ableitungen, reine Funktionen, das Herz der App
+- `types.ts` — Wire-Typen des Snapshots (liegt direkt unter `frontend/src/`,
+  nicht unter `lib/`)
+- `format.ts` — Formatierung (ebenfalls direkt unter `frontend/src/`); `lib/use*.ts` — Hooks
+- `components/ui.tsx` — geteilte Bausteine (`Row`, `Badge`, `PositionBadge`,
+  `FitnessBadge`, `TeamCrest`); `components/table.tsx` — `SortableTable`,
+  geteilt über mehrere Tabs; `components/icons.tsx` — Inline-SVG-Icons
+- Tabs als `*Tab.tsx`-Dateien direkt in `frontend/src/components/` (kein
+  eigener `tabs/`-Ordner)
+
+Neue Logik landet in `derive.ts` (testbar), nicht in einer Tab-Komponente.
+Ein Muster, das in zwei Tabs auftaucht, wird nach `ui.tsx`/`derive.ts`
+konsolidiert, statt kopiert zu werden.
+
+**Wissensspeicher (`MDs/*.md`)** — von Hand gepflegte Recherche-Methodik
+(Startelf-Einschätzungen, Verletzungslage, Schwellenwerte, Datenqualität).
+**Kein Code-Feature und kein Generierungsziel.** Nie aus Modellwissen
+ergänzen. Änderungen daran nur auf ausdrücklichen Wunsch, und dann als reiner
+Doku-Commit.
+
+## Code-Style — Python
+
+- Kommentare nur, wo die Logik wirklich nicht-offensichtlich ist (Warum, nicht
+  Was). Klare Namen und kleine Funktionen ersetzen Kommentare.
+- Modulinterne Funktionen mit führendem Unterstrich (`_build_players_map`,
+  `_resolve_is_light`, `_detect_field_changes`). Public nur, was ein anderes
+  Modul wirklich braucht.
+- **Parametrisieren statt duplizieren.** Zwei Varianten derselben Berechnung
+  bekommen einen Parameter (`target_col`, `horizon_days`, `doc_id_fn`), keine
+  zweite Kopie. Ein Bugfix muss an einer Stelle passieren. Eine „eigene Kopie
+  der Modellparameter" im Backtest war schon einmal die Ursache stiller Drift.
+- **Strukturell gleiche Parameter immer als Keyword-Argument übergeben.** Drei
+  `dict`-Parameter nebeneinander sind sonst irgendwann vertauscht.
+- **Fehlerklassen trennen.** Ein fehlgeschlagener Write auf den kritischen Pfad
+  (`dashboard_snapshot`) muss den Lauf failen lassen (`FirestoreWriteError`) —
+  eine stille alte Seite ist schlimmer als ein roter Workflow. Ein Fehler in
+  einem Nebenpfad (Historien-Logs, Sentiment) darf den kritischen Write **nicht**
+  verhindern. Bei Zeiger-/Fortschritts-Logik zwischen PERMANENT (Zeiger rückt
+  vor) und TRANSIENT (Zeiger friert ein) unterscheiden.
+- **Doc-Ids idempotent wählen.** Ein Wiederholungslauf darf keine Duplikate
+  erzeugen — und wenn dieselbe Quelle über mehrere Tage erneut auftaucht, darf
+  das Datum nicht Teil der Id sein.
+- **Firestore-Writes sind ein Budget.** Spark-Free-Tier, 20.000 Writes/Tag.
+  Vor einem Backfill die Write-Anzahl abschätzen und im Log ausgeben.
+- Dependencies in `requirements.txt` **exakt gepinnt**. Schwere/optionale
+  Abhängigkeiten (Torch/Transformers) bleiben in `requirements-news.txt` und
+  werden nur im zugehörigen Workflow installiert.
+- Teure oder fragile Pipeline-Schritte bekommen einen Env-Kill-Switch
+  (Vorbild: `MARKET_PREDICTOR_ENABLED`), damit der Rest weiterläuft.
+- Neue Env-Variablen/Secrets in **allen** Workflows verdrahten, die sie
+  brauchen — ein Secret, das nur in der lokalen `.env` steht, ist in Produktion
+  wirkungslos und der Fehler ist wochenlang unsichtbar. Auch ein bereits per
+  `gh secret set` gesetztes Secret allein bewirkt noch nichts — es muss
+  zusätzlich im `env:`-Block der jeweiligen Workflow-YAML referenziert werden
+  (`${{ secrets.NAME }}`), sonst bleibt es wirkungslos, ohne dass das auffällt.
+
+## Code-Style — TypeScript / React
+
+- **Ableitungen sind reine Funktionen** in `derive.ts`, ohne React-Bezug, ohne
+  Datumszugriff auf `Date.now()` im Inneren (Zeit kommt als Parameter, z. B. aus
+  dem geteilten `useNow`-Ticker in `App.tsx`). Nur so sind sie mit Vitest
+  testbar und nur so bleibt die Zeitlogik deterministisch.
+- **Zeitzonen: Europe/Berlin, DST-sicher.** Auktions-Countdown und
+  Update-Cutoff sind schon zweimal an DST gescheitert. Neue Zeitlogik gegen die
+  bestehenden Helfer in `derive.ts` bauen, nicht neu erfinden.
+- Keine `<form>`-Tags; Interaktion über `onClick`/`onChange`.
+- `localStorage` nur mit `kickbaseagent_`-Präfix (`kickbaseagent_active_tab`,
+  `kickbaseagent_view_<tab>`). Keys sind Kompatibilitäts-Verträge — beim
+  Umbenennen eines Tabs bleibt der `key` unverändert.
+- Tailwind: nur Utility-Klassen der Config (`brand`-Skala, `slate`),
+  `darkMode: "media"`. **Jede neue Textfarbe/Select/Input im Dark Mode
+  gegenprüfen** — unlesbarer Dark-Mode-Text ist hier ein wiederkehrender Bug.
+- Mobile ist ein Bürger erster Klasse: Tap-Ziele ≥ 44px, Wisch-Gesten wechseln
+  Tabs. Jedes neue Overlay/Modal registriert sich per
+  `useModalOpenTracking()`, sonst wischt der Nutzer den Hintergrund-Tab weg.
+  Scroll-/Touch-Handler nie desktop-only testen.
+- Icons als Inline-JSX mit `fill="currentColor"`/`stroke="currentColor"` in
+  `icons.tsx` (erben Textfarbe), nicht als `<img src>`.
+- **Keine echten Vereinslogos.** Die Wappen in `frontend/public/crests/` sind
+  selbst generierte Monogramme — bewusst, wegen Markenrecht. Dabei bleibt es.
+- Tote Felder und tote Funktionen werden gelöscht, nicht kommentiert. Ein Feld,
+  das nur geschrieben und nirgends gelesen wird, gehört raus (Backend,
+  `types.ts`, `derive.ts` — alle drei).
+
+## Domänen-Vokabular (bitte exakt so)
+
+Code, Bezeichner und Commits auf Englisch; UI-Texte und Doku auf Deutsch.
+Diese Begriffe sind app-weit vereinheitlicht — nicht wieder aufweichen:
+
+| Begriff | Bedeutung |
+|---|---|
+| **Fitness** | Spielerzustand: Fit / Verletzt / Angeschlagen / Im Aufbau (`status_code`) |
+| **Verfügbarkeit** | Markt-Status (gelistet, Angebot, frei) — nicht mit Fitness vermischen |
+| **Kapital** | exakter Kontostand (`own_budget_exact`) |
+| **Budget** | inkl. Überziehungsrahmen (`own_available_budget`) |
+| **average_points** | Punkteschnitt (nicht `points_avg`, nicht `total_points`) |
+| **k/Punkt** | `market_value / average_points` — app-weit diese eine Definition |
+| **Prognose 1T / 3T** | ML-Prognose je Horizont (nicht „ML-Prognose", nicht „Einschätzung") |
+| **Fairwert / Signal** | positionsbezogene Referenzbewertung aus `player_valuation.py` |
+
+Status-Codes: `{1: "Verletzt", 2: "Angeschlagen", 4: "Im Aufbau"}` — verifiziert,
+Quelle ist `MDs/codes.md`. Code `8` ist unbeobachtet und **nicht** zu raten.
+
+## Tests (verbindlich)
+
+**Jedes neue Feature UND jeder Bugfix ist erst fertig, wenn ein automatisierter
+Test ihn abdeckt.** Ein Bugfix ohne Regressionstest ist unvollständig: Test
+zuerst rot (reproduziert den Bug), dann grün. Ebene passend wählen:
+
+| Was | Wo | Runner |
+|---|---|---|
+| Reine Logik (`derive.ts`, `format.ts`, …) | `frontend/src/**/*.test.ts` | Vitest, TDD |
+| Komponenten-Interaktion, ohne echtes Firebase | `frontend/tests-ct/*.ct.tsx` | Playwright CT |
+| App-weites Verhalten (Tabs, Touch, Zusammenspiel) | `frontend/tests-e2e/*.spec.ts` | Playwright E2E |
+| Backend | `tests/*.py` (`unittest.TestCase`) | CI: `python -m pytest tests/ -v` |
+
+Immer `python -m pytest` (nicht bares `pytest`) — `tests/` hat kein
+`__init__.py`, bare Aufrufe finden `src` nicht.
+
+Ausnahme nur bei echter, im PR begründeter Unmöglichkeit (reiner Copy-Fix ohne
+Verhaltensänderung). Es gibt bewusst **kein** hartes CI-Gate dafür; die
+Durchsetzung läuft über diese Datei und `.github/pull_request_template.md`.
+
+**Was Unit-Tests hier zuverlässig nicht finden:** Debounce-/Timing-Fehler,
+Cursor-Position, Touch-Gesten, echte Netz-/RSS-/Sentiment-Läufe, kaputte
+Dependency-Auflösung. Bei Änderungen mit diesem Risikoprofil gehört ein echter
+Browser- oder Live-Smoke-Test dazu. Erfahrungswert aus mehreren Sessions: dort
+fand der echte Test **jedes Mal** einen Bug, den mehrere statische Reviews
+übersehen hatten. Jeder Test wird per Mutation-Check verifiziert (Fix
+temporär zurücknehmen → Test muss rot werden), sonst ist er vakuos.
+
+Die Sandbox hat echten Live-Zugriff auf Kickbase-API und Firestore (`.env` +
+`firebase-service-account.json` im Repo-Root). Vor dem Bau eines Umwegs über
+GitHub Actions also erst testen, ob es direkt geht.
+
+## Git- und PR-Workflow
+
+Jede funktionale Änderung (`src/`, `tests/`, `frontend/src/`,
+`frontend/tests-*`, `.github/workflows/`) läuft über einen echten PR:
+`gh pr create` + `gh pr merge --auto --squash` (kein `--admin` nötig).
+`main` ist per Ruleset geschützt, 4 Required Checks.
+
+Direkt-Push auf `main` bleibt nur für reine Doku-/Planungs-Commits (Specs,
+Pläne, `HANDOFF.md`, diese Datei) ohne Code-Wirkung. Im Zweifel: PR.
+
+Zeilenenden sind LF (`.gitattributes: * text=auto eol=lf`) — CRLF-Drift von der
+Windows-Seite nicht mitcommitten. `data/kickbase.db` ist gitignored und wird
+bei jedem Lauf neu erzeugt; nie zurückcommitten.
+
+An diesem Repo arbeiten gelegentlich **mehrere Sessions/Worktrees parallel**.
+Vor dem Start `git status`, `git log`, `git worktree list` prüfen und nicht
+etwas duplizieren, das schon in Arbeit ist. GitHub Actions liest beim
+Merge/Check immer vom Remote `main`, nicht von lokalen Commits — vor jeder
+Live-Verifikation eines frischen Fixes `git log origin/main --oneline`
+prüfen, nicht davon ausgehen, dass ein lokaler Commit schon gepusht ist.
+
+## Sandbox- und Ausführungshinweise
+
+- `npm install`/`npm run` **niemals im Haupt-Checkout** ausführen
+  (`/workspace/work` ist ein Windows-DrvFs-Mount mit geteilter `node_modules` —
+  ein `npm install` dort würde Unix-Bin-Shims statt `.cmd`-Dateien erzeugen und
+  `npm run` auf der Windows/Rider-Seite brechen). In einer eigenen, isolierten
+  Git-Worktree ist `npm install` dagegen unproblematisch (eigene
+  `node_modules`-Kopie).
+
+## Vorgehen bei größeren Änderungen
+
+- Bei Architekturentscheidungen, mehreren betroffenen Dateien, neuen
+  Dependencies oder Refactors: kurz den Plan skizzieren (was, warum), bevor
+  Code entsteht. Bei Tippfehlern und Einzeilern einfach machen.
+- Existieren mehrere sinnvolle Wege mit relevanten Konsequenzen: Optionen mit
+  Trade-offs nennen statt still einen auszuwählen.
+- **Jeden Plan gegen den echten, aktuellen Code verifizieren, nicht gegen den
+  Konversationskontext oder einen älteren Plan.** Die betroffenen Dateien vor
+  dem Schreiben der Tasks tatsächlich lesen. Ein Plan von letzter Woche kann
+  stale sein; ein bereits „abgenickter" Task kann durch einen späteren Fix
+  widerlegt sein. Ground Truth ist die laufende Implementierung.
+- Subagent-Berichte nie ungeprüft übernehmen — `git diff` / `git status`
+  selbst ansehen.
+- Fehlt eine Information, die das Ergebnis wesentlich verändert: nachfragen.
+  Keine stillen Annahmen. Eine Sandbox-Fähigkeit („ich kann X nicht") vor dem
+  Umweg explizit testen.
+- Bei einer Sammelbestätigung des Users („passt so") über mehrere gleichzeitig
+  geänderte Dateien hinweg nachfragen, welche Teile gemeint sind.
+- Bei Governance-/Berechtigungsfragen auf GitHub alle relevanten Endpunkte
+  auflisten (`/rulesets` *und* `/branches/main/protection`), nicht nur den
+  erwarteten einen — sie gelten kumulativ.
+
+## ML-spezifisch
+
+- Zielwerte und Features sind in `market_predictor.py` zentral definiert
+  (`FEATURES`, `TARGET_*`). Kein Feature „mal ausprobieren" und drin lassen —
+  toter, aber getesteter Berechnungscode ist ok, ein inaktives Feature in
+  `FEATURES` nicht.
+- Bewertung nur per Walk-Forward über genug Folds. Kleine Fold-Zahlen haben hier
+  schon zu einer um 8 Prozentpunkte zu optimistischen Behauptung geführt.
+- **Bei Mehrtage-Horizonten gehört ein Embargo in die Walk-Forward-Evaluation**
+  (die letzten `horizon_days` Trainingstage vor jedem Cutoff ausschließen).
+  Ohne das leckt das Label über den Cutoff und tiefe, unregularisierte Modelle
+  gewinnen scheinbar. Das ist ein bekannter, noch offener Punkt in der
+  produktiven `_walk_forward_backtest()` — siehe `HANDOFF.md`.
+- Cold-Start ist kein Bug: neue Features zeigen anfangs Platzhalter. Erst nach
+  echtem Datenaufbau bewerten, vorher nicht daran optimieren.
+- Wird eine schon live gezeigte Genauigkeitszahl durch einen Fix rückwirkend
+  schlechter: das dem User sagen, nicht stillschweigend korrigieren.
