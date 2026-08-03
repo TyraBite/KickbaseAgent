@@ -68,6 +68,7 @@ FEATURES = [
     "mv_trend_7d", "market_divergence",
     "days_since_last_status_change", "status_change_count_90d",
     "days_since_last_starting_rank_change", "starting_rank_change_count_90d",
+    "avg_sentiment_7d", "news_volume_7d",
 ]
 TARGET = "mv_target_clipped"
 TARGET_3D = "mv_target_3d_clipped"
@@ -126,6 +127,22 @@ def _load_change_events_by_player(collection: str) -> dict[str, list[dict]]:
             print(f"Warnung: {collection}-Lesezugriff fehlgeschlagen: {exc}", file=sys.stderr)
             return {}
     return dict(events_by_player)
+
+
+def _load_news_events_by_player() -> dict[str, list[dict]]:
+    """Liest player_news_log (Phase B befuellt diese Collection, siehe
+    docs/superpowers/specs/2026-08-02-news-sentiment-design.md) - Basis fuer
+    _sentiment_features_as_of() in _fetch_player_training_frame(). Duenne,
+    benannte Verdrahtung um _load_change_events_by_player() (siehe dort fuer
+    das eigentliche Resilienz-/Gruppier-Verhalten: leeres Dict bei
+    deaktiviertem Firestore oder Lesefehler) statt einer dritten
+    Kopie derselben Logik - eigener Name statt direktem Inline-Aufruf an den
+    beiden Call-Sites, weil die Design-Spec
+    (docs/superpowers/specs/2026-08-02-sentiment-ml-integration-design.md)
+    ihn explizit als eigene Funktion vorsieht und backfill_prediction_log()/
+    predict_market_value_changes() dadurch mit drei parallelen, gleich
+    lesbaren Event-Quellen-Loads nebeneinander bleiben."""
+    return _load_change_events_by_player("player_news_log")
 
 
 def _fetch_competition_player_ids(token: str, competition_id: str) -> dict[str, str]:
@@ -249,6 +266,7 @@ def _fetch_player_training_frame(
     token: str, league_id: str, competition_id: str, player_id: str, team_id: str,
     fitness_events_by_player: dict[str, list[dict]],
     starting_rank_events_by_player: dict[str, list[dict]],
+    news_events_by_player: dict[str, list[dict]],
 ) -> pd.DataFrame | None:
     """Holt Marktwert- und Performance-Historie eines Spielers und merged sie
     zu einer Zeitreihe. Faengt Fehler selbst ab (Resilienz-Pattern analog
@@ -303,6 +321,11 @@ def _fetch_player_training_frame(
         lambda f: f["starting_rank_change_count_90d"]
     )
 
+    news_events = news_events_by_player.get(player_id, [])
+    sentiment_features = merged["date"].apply(lambda ts: _sentiment_features_as_of(news_events, ts.date()))
+    merged["avg_sentiment_7d"] = sentiment_features.apply(lambda f: f["avg_sentiment_7d"])
+    merged["news_volume_7d"] = sentiment_features.apply(lambda f: f["news_volume_7d"])
+
     return merged
 
 
@@ -310,6 +333,7 @@ def _build_corpus(
     token: str, league_id: str, competition_id: str,
     fitness_events_by_player: dict[str, list[dict]],
     starting_rank_events_by_player: dict[str, list[dict]],
+    news_events_by_player: dict[str, list[dict]],
 ) -> pd.DataFrame:
     player_to_team = _fetch_competition_player_ids(token, competition_id)
     if not player_to_team:
@@ -324,7 +348,7 @@ def _build_corpus(
             executor.submit(
                 _fetch_player_training_frame,
                 token, league_id, competition_id, pid, tid,
-                fitness_events_by_player, starting_rank_events_by_player,
+                fitness_events_by_player, starting_rank_events_by_player, news_events_by_player,
             ): pid
             for pid, tid in player_to_team.items()
         }
@@ -670,8 +694,10 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
     competition_id = me.get("cpi") or "1"
     fitness_events_by_player = _load_change_events_by_player("fitness_history_log")
     starting_rank_events_by_player = _load_change_events_by_player("starting_rank_history_log")
+    news_events_by_player = _load_news_events_by_player()
     corpus = _build_corpus(
-        token, league_id, competition_id, fitness_events_by_player, starting_rank_events_by_player,
+        token, league_id, competition_id,
+        fitness_events_by_player, starting_rank_events_by_player, news_events_by_player,
     )
     history_df, _today_df = _engineer_features(corpus)
 
@@ -1039,8 +1065,10 @@ def predict_market_value_changes() -> dict | None:
 
         fitness_events_by_player = _load_change_events_by_player("fitness_history_log")
         starting_rank_events_by_player = _load_change_events_by_player("starting_rank_history_log")
+        news_events_by_player = _load_news_events_by_player()
         corpus = _build_corpus(
-            token, league_id, competition_id, fitness_events_by_player, starting_rank_events_by_player,
+            token, league_id, competition_id,
+            fitness_events_by_player, starting_rank_events_by_player, news_events_by_player,
         )
         history_df, today_df = _engineer_features(corpus)
 

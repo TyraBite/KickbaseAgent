@@ -25,6 +25,7 @@ from src.market_predictor import (
     _fetch_player_training_frame,
     _build_corpus,
     _load_change_events_by_player,
+    _load_news_events_by_player,
     _engineer_features,
     NO_HISTORY_DAYS_PLACEHOLDER,
     SENTIMENT_WINDOW_DAYS,
@@ -306,6 +307,7 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
             "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
+            "avg_sentiment_7d": 0, "news_volume_7d": 0,
             target_col: rng.randn(n) * 5000,
             unclipped_col: rng.randn(n) * 5000,
         })
@@ -627,6 +629,56 @@ class LoadChangeEventsByPlayerTests(unittest.TestCase):
         mock_get.assert_called_once_with(mock_connect.return_value, "starting_rank_history_log")
         self.assertEqual(len(result["p1"]), 1)
 
+    @patch("src.market_predictor.firestore_db.get_history")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_groups_news_entries_by_player_id(self, mock_connect, mock_get):
+        """Regressionsschutz analog test_groups_starting_rank_entries_by_player_id,
+        hier fuer 'player_news_log' (Phase B/C) - beweist collection bleibt
+        ein echter Parameter auch fuer die dritte Nutzung dieser
+        Generalisierung."""
+        mock_get.return_value = [
+            {"player_id": "p1", "pub_date": "2026-07-20", "sentiment_label": "positive"},
+        ]
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            result = _load_change_events_by_player("player_news_log")
+        mock_get.assert_called_once_with(mock_connect.return_value, "player_news_log")
+        self.assertEqual(len(result["p1"]), 1)
+
+
+class LoadNewsEventsByPlayerTests(unittest.TestCase):
+    """_load_news_events_by_player() ist eine duenne, benannte Verdrahtung um
+    _load_change_events_by_player('player_news_log') (siehe dortige
+    LoadChangeEventsByPlayerTests fuer die eigentliche Gruppier-/Resilienz-Logik) -
+    die Design-Spec (docs/superpowers/specs/2026-08-02-sentiment-ml-integration-design.md)
+    sieht explizit einen eigenen, benannten Funktionsnamen vor, damit
+    backfill_prediction_log()/predict_market_value_changes() lesbar bleiben
+    (drei parallele Event-Quellen-Loads nebeneinander)."""
+
+    @patch("src.market_predictor.firestore_db.get_history")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_groups_entries_by_player_id(self, mock_connect, mock_get):
+        mock_get.return_value = [
+            {"player_id": "p1", "pub_date": "2026-07-20", "sentiment_label": "positive"},
+            {"player_id": "p1", "pub_date": "2026-07-25", "sentiment_label": "negative"},
+            {"player_id": "p2", "pub_date": "2026-07-22", "sentiment_label": "neutral"},
+        ]
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            result = _load_news_events_by_player()
+        self.assertEqual(len(result["p1"]), 2)
+        self.assertEqual(len(result["p2"]), 1)
+        mock_get.assert_called_once_with(mock_connect.return_value, "player_news_log")
+
+    def test_returns_empty_dict_without_firestore_enabled(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_load_news_events_by_player(), {})
+
+    @patch("src.market_predictor.firestore_db.get_history")
+    @patch("src.market_predictor.firestore_db.connect")
+    def test_returns_empty_dict_on_firestore_error(self, mock_connect, mock_get):
+        mock_get.side_effect = RuntimeError("Firestore down")
+        with patch.dict(os.environ, {"FIRESTORE_ENABLED": "1"}):
+            self.assertEqual(_load_news_events_by_player(), {})
+
 
 class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
     @patch("src.market_predictor._performance_frame")
@@ -641,7 +693,7 @@ class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
             "p1": [{"player_id": "p1", "date": "2026-07-20", "from_status_code": 0, "to_status_code": 1}],
         }
 
-        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", fitness_events_by_player, {})
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", fitness_events_by_player, {}, {})
 
         self.assertEqual(list(result["days_since_last_status_change"]), [5, 11])
         self.assertEqual(list(result["status_change_count_90d"]), [1, 1])
@@ -652,7 +704,7 @@ class FetchPlayerTrainingFrameFitnessColumnsTests(unittest.TestCase):
         mock_mv_frame.return_value = pd.DataFrame({"date": pd.to_datetime(["2026-07-31"]), "mv": [10_000_000]})
         mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
 
-        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {}, {})
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {}, {}, {})
 
         self.assertEqual(list(result["days_since_last_status_change"]), [NO_HISTORY_DAYS_PLACEHOLDER])
 
@@ -675,7 +727,7 @@ class FetchPlayerTrainingFrameStartingRankColumnsTests(unittest.TestCase):
             "p1": [{"player_id": "p1", "date": "2026-07-20", "from_starting_rank": 3, "to_starting_rank": 1}],
         }
 
-        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", {}, starting_rank_events_by_player)
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", {}, starting_rank_events_by_player, {})
 
         self.assertEqual(list(result["days_since_last_starting_rank_change"]), [5, 11])
         self.assertEqual(list(result["starting_rank_change_count_90d"]), [1, 1])
@@ -689,9 +741,47 @@ class FetchPlayerTrainingFrameStartingRankColumnsTests(unittest.TestCase):
         mock_mv_frame.return_value = pd.DataFrame({"date": pd.to_datetime(["2026-07-31"]), "mv": [10_000_000]})
         mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
 
-        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {}, {})
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {}, {}, {})
 
         self.assertEqual(list(result["days_since_last_starting_rank_change"]), [NO_HISTORY_DAYS_PLACEHOLDER])
+
+
+class FetchPlayerTrainingFrameSentimentColumnsTests(unittest.TestCase):
+    """Spiegelt FetchPlayerTrainingFrameStartingRankColumnsTests fuer die
+    dritte Event-Quelle (player_news_log/Sentiment, Phase C) - beweist, dass
+    sie unabhaengig von Fitness- UND Startelf-Rang-Events funktioniert (beide
+    leer daneben, kein Cross-Contamination zwischen den drei Feature-Paaren)."""
+
+    @patch("src.market_predictor._performance_frame")
+    @patch("src.market_predictor._market_value_frame")
+    def test_adds_sentiment_columns_computed_as_of_each_row_date(self, mock_mv_frame, mock_perf_frame):
+        mock_mv_frame.return_value = pd.DataFrame({
+            "date": pd.to_datetime(["2026-07-25", "2026-08-01"]),
+            "mv": [10_000_000, 10_200_000],
+        })
+        mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
+        news_events_by_player = {
+            "p1": [{"player_id": "p1", "pub_date": "2026-07-24", "sentiment_label": "positive"}],
+        }
+
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p1", "t1", {}, {}, news_events_by_player)
+
+        self.assertEqual(list(result["avg_sentiment_7d"]), [1, 0])
+        self.assertEqual(list(result["news_volume_7d"]), [1, 0])
+        self.assertEqual(
+            list(result["days_since_last_status_change"]), [NO_HISTORY_DAYS_PLACEHOLDER, NO_HISTORY_DAYS_PLACEHOLDER]
+        )
+
+    @patch("src.market_predictor._performance_frame")
+    @patch("src.market_predictor._market_value_frame")
+    def test_player_without_any_news_events_gets_neutral_placeholder(self, mock_mv_frame, mock_perf_frame):
+        mock_mv_frame.return_value = pd.DataFrame({"date": pd.to_datetime(["2026-08-01"]), "mv": [10_000_000]})
+        mock_perf_frame.return_value = pd.DataFrame(columns=["date", "md", "p", "mp", "mp_avg_3", "t1", "t2", "t1g", "t2g"])
+
+        result = _fetch_player_training_frame("tok", "l1", "c1", "p_unknown", "t1", {}, {}, {})
+
+        self.assertEqual(list(result["avg_sentiment_7d"]), [0])
+        self.assertEqual(list(result["news_volume_7d"]), [0])
 
 
 class BuildCorpusStartingRankThreadingTests(unittest.TestCase):
@@ -704,9 +794,32 @@ class BuildCorpusStartingRankThreadingTests(unittest.TestCase):
         fitness_events = {"p1": [{"date": "2026-07-20"}]}
         starting_rank_events = {"p1": [{"date": "2026-07-25"}]}
 
-        _build_corpus("tok", "l1", "c1", fitness_events, starting_rank_events)
+        _build_corpus("tok", "l1", "c1", fitness_events, starting_rank_events, {})
 
-        mock_fetch_frame.assert_called_once_with("tok", "l1", "c1", "p1", "t1", fitness_events, starting_rank_events)
+        mock_fetch_frame.assert_called_once_with(
+            "tok", "l1", "c1", "p1", "t1", fitness_events, starting_rank_events, {}
+        )
+
+
+class BuildCorpusNewsEventsThreadingTests(unittest.TestCase):
+    """Spiegelt BuildCorpusStartingRankThreadingTests fuer news_events_by_player
+    (dritter, letzter Event-Quellen-Parameter, Phase C)."""
+
+    @patch("src.market_predictor._fetch_player_training_frame")
+    @patch("src.market_predictor._fetch_competition_player_ids", return_value={"p1": "t1"})
+    def test_news_events_by_player_passed_through_to_training_frame(
+        self, mock_fetch_ids, mock_fetch_frame
+    ):
+        mock_fetch_frame.return_value = pd.DataFrame({"player_id": ["p1"], "mv": [1_000_000]})
+        fitness_events = {"p1": [{"date": "2026-07-20"}]}
+        starting_rank_events = {"p1": [{"date": "2026-07-25"}]}
+        news_events = {"p1": [{"pub_date": "2026-07-24", "sentiment_label": "positive"}]}
+
+        _build_corpus("tok", "l1", "c1", fitness_events, starting_rank_events, news_events)
+
+        mock_fetch_frame.assert_called_once_with(
+            "tok", "l1", "c1", "p1", "t1", fitness_events, starting_rank_events, news_events
+        )
 
 
 class EngineerFeatures3dTargetTests(unittest.TestCase):
@@ -764,6 +877,7 @@ class TrainAndEvaluateTargetColTests(unittest.TestCase):
             "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
+            "avg_sentiment_7d": 0, "news_volume_7d": 0,
             "mv_target_clipped": rng.randn(n) * 5000,
             "alt_target_clipped": rng.randn(n) * 9000,
         })
@@ -803,6 +917,7 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             "mv_trend_7d": rng.randn(n) * 0.02, "market_divergence": rng.rand(n) + 0.5,
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
+            "avg_sentiment_7d": 0, "news_volume_7d": 0,
             target_col: rng.randn(n) * 5000,
             unclipped_col: rng.randn(n) * 5000,
         })
@@ -890,6 +1005,8 @@ class PredictMarketValueChangesThreeDayIsolationTests(unittest.TestCase):
             "status_change_count_90d": [0],
             "days_since_last_starting_rank_change": [10],
             "starting_rank_change_count_90d": [0],
+            "avg_sentiment_7d": [0],
+            "news_volume_7d": [0],
         })
 
     def test_exception_in_3d_call_does_not_discard_1d_result(self):
@@ -924,3 +1041,9 @@ class FeaturesListStartingRankTests(unittest.TestCase):
     def test_features_includes_starting_rank_recency_columns(self):
         self.assertIn("days_since_last_starting_rank_change", FEATURES)
         self.assertIn("starting_rank_change_count_90d", FEATURES)
+
+
+class FeaturesListSentimentTests(unittest.TestCase):
+    def test_features_includes_sentiment_columns(self):
+        self.assertIn("avg_sentiment_7d", FEATURES)
+        self.assertIn("news_volume_7d", FEATURES)
