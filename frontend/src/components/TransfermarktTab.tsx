@@ -342,6 +342,7 @@ export function TransfermarktDetailModal({
             </span>
             {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
           </Row>
+          <StatusLabelRow value={row.status_label} />
           <Row label="Trend 7T">
             <span className={trendClass(row.market_value_change_7d)}>
               {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}

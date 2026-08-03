@@ -8,6 +8,7 @@ import {
   formatRelativeTime,
   liveModelMae,
   recentTransfersWithin24h,
+  sellSignal,
   type EigenesTeamRow,
   type TransfermarktRow,
 } from "../lib/derive";
@@ -83,17 +84,20 @@ export default function DashboardTab({
   const InvestmentSection = (
     <Section key="investment" title="Investment" emptyText="Aktuell keine Kapitalanlage-Swaps mit ausreichendem Abstand." isEmpty={investmentSwaps.length === 0}>
       <div className="space-y-4">
-        {investmentSwaps.map((pair) => (
-          <div key={pair.sell.player_id + pair.buy.player_id} className="flex flex-wrap items-center gap-3">
-            <div className="w-56 shrink-0">
-              <PlayerCard row={{ ...pair.sell, sell_signal: "verkaufen" }} onSelect={() => setSelectedOwned({ ...pair.sell, sell_signal: "verkaufen" })} />
+        {investmentSwaps.map((pair) => {
+          const sellRow: EigenesTeamRow = { ...pair.sell, sell_signal: sellSignal(pair.sell.ml_prediction, mae) };
+          return (
+            <div key={pair.sell.player_id + pair.buy.player_id} className="flex flex-wrap items-center gap-3">
+              <div className="w-56 shrink-0">
+                <PlayerCard row={sellRow} onSelect={() => setSelectedOwned(sellRow)} />
+              </div>
+              <span className="text-2xl text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
+              <div className="w-56 shrink-0">
+                <TransfermarktCard row={pair.buy} bidHistory={data.bid_premium_history ?? []} thresholds={data.signal_thresholds} onSelect={() => setSelected(pair.buy)} />
+              </div>
             </div>
-            <span className="text-2xl text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
-            <div className="w-56 shrink-0">
-              <TransfermarktCard row={pair.buy} bidHistory={data.bid_premium_history ?? []} thresholds={data.signal_thresholds} onSelect={() => setSelected(pair.buy)} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Section>
   );
