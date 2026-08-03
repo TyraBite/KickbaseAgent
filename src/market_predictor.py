@@ -697,7 +697,9 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
     news_events_by_player = _load_news_events_by_player()
     corpus = _build_corpus(
         token, league_id, competition_id,
-        fitness_events_by_player, starting_rank_events_by_player, news_events_by_player,
+        fitness_events_by_player=fitness_events_by_player,
+        starting_rank_events_by_player=starting_rank_events_by_player,
+        news_events_by_player=news_events_by_player,
     )
     history_df, _today_df = _engineer_features(corpus)
 
@@ -1068,7 +1070,9 @@ def predict_market_value_changes() -> dict | None:
         news_events_by_player = _load_news_events_by_player()
         corpus = _build_corpus(
             token, league_id, competition_id,
-            fitness_events_by_player, starting_rank_events_by_player, news_events_by_player,
+            fitness_events_by_player=fitness_events_by_player,
+            starting_rank_events_by_player=starting_rank_events_by_player,
+            news_events_by_player=news_events_by_player,
         )
         history_df, today_df = _engineer_features(corpus)
 
@@ -1134,7 +1138,7 @@ def predict_market_value_changes() -> dict | None:
             "predictions_3d": result_3d["predictions"] if result_3d else None,
             "metrics_3d": result_3d["metrics"] if result_3d else None,
         }
-    except (KickbaseError, RuntimeError) as exc:
+    except Exception as exc:
         print(f"Warnung: ML-Marktwertprognose fehlgeschlagen, wird uebersprungen: {exc}", file=sys.stderr)
         return None
 
