@@ -358,7 +358,12 @@ export default function App() {
         />
       )}
       <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <h2 className="mb-4 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
+          {TAB_ICON[activeTab] &&
+            (() => {
+              const Icon = TAB_ICON[activeTab];
+              return <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />;
+            })()}
           {TABS.find((t) => t.key === activeTab)?.label}
         </h2>
         {loadState === "loading" && activeTab !== "feedback" && (
