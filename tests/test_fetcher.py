@@ -2,7 +2,12 @@ import datetime
 import unittest
 from unittest.mock import patch
 
-from src.fetcher import _apply_or_reuse_market_value_history, _compute_expiry, _squad_item_to_row
+from src.fetcher import (
+    _apply_or_reuse_market_value_history,
+    _compute_expiry,
+    _market_item_to_row,
+    _squad_item_to_row,
+)
 
 
 class ComputeExpiryTests(unittest.TestCase):
@@ -58,3 +63,51 @@ class SquadItemToRowPurchasePriceTests(unittest.TestCase):
     def test_purchase_price_none_when_mvgl_missing(self):
         row = _squad_item_to_row({"i": "p1", "n": "Test", "pos": 3, "mv": 1_000_000}, {})
         self.assertIsNone(row["purchase_price"])
+
+
+class MarketItemToRowOwnerTests(unittest.TestCase):
+    """Regressionsschutz fuer den dokumentierten echten Live-Crash
+    ("unhashable type: dict"): ein fruehes Ad-hoc-Skript nahm an, 'u' sei
+    immer eine flache Id/String, tatsaechlich steckt der Anbieter bei
+    Mitspieler-Angeboten als VERSCHACHTELTES Objekt {"i": ..., "n": ...}
+    drin."""
+
+    def test_owner_as_dict_resolves_id_and_name_from_nested_object(self):
+        item = {"i": "p1", "n": "Foo", "pos": 3, "mv": 1_000_000, "tid": "t1", "u": {"i": "u1", "n": "Rivale"}}
+        row = _market_item_to_row(item, {}, {"t1": "Bremen"})
+        self.assertEqual(row["offering_user_id"], "u1")
+        self.assertEqual(row["offering_username"], "Rivale")
+        self.assertEqual(row["is_system_offer"], 0)
+
+    def test_owner_as_string_falls_back_to_names_by_user_id_lookup(self):
+        item = {"i": "p2", "n": "Bar", "pos": 1, "mv": 500_000, "u": "u2"}
+        row = _market_item_to_row(item, {"u2": "Zweiter"}, {})
+        self.assertEqual(row["offering_user_id"], "u2")
+        self.assertEqual(row["offering_username"], "Zweiter")
+        self.assertEqual(row["is_system_offer"], 0)
+
+    def test_no_owner_field_is_a_system_offer(self):
+        item = {"i": "p3", "n": "Baz", "pos": 2, "mv": 300_000}
+        row = _market_item_to_row(item, {}, {})
+        self.assertIsNone(row["offering_user_id"])
+        self.assertIsNone(row["offering_username"])
+        self.assertEqual(row["is_system_offer"], 1)
+
+
+class MarketItemToRowPriceDeltaPctTests(unittest.TestCase):
+    def test_computes_pct_change_between_price_and_market_value(self):
+        item = {"i": "p4", "n": "Qux", "pos": 4, "mv": 1_000_000, "prc": 1_050_000}
+        row = _market_item_to_row(item, {}, {})
+        self.assertEqual(row["price_delta_pct"], 5.0)
+
+
+class MarketItemToRowLeadingBidTests(unittest.TestCase):
+    def test_matches_leading_bid_username_from_offers_list(self):
+        item = {
+            "i": "p5", "n": "Quux", "pos": 3, "mv": 1_000_000,
+            "uoid": "u9", "uop": 1_200_000,
+            "ofs": [{"u": "u9", "unm": "Fuehrender"}, {"u": "u8", "unm": "Andere"}],
+        }
+        row = _market_item_to_row(item, {}, {})
+        self.assertEqual(row["leading_bid_username"], "Fuehrender")
+        self.assertEqual(row["leading_bid_price"], 1_200_000)
