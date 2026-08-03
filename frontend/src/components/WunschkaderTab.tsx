@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
-import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, normalizeSearchText, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
+import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, plannedPriceFor, suggestBid, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { canAddStarter, matchedFormation, POSITIONS, type Position, type PositionCounts } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -173,8 +173,9 @@ export default function WunschkaderTab({
         targets: editState,
         ownBudgetExact: data.own_budget_exact,
         listingsByPlayerId,
+        bidHistory: data.bid_premium_history ?? [],
       }),
-    [data.players, ownSquadIds, editState, data.own_budget_exact, listingsByPlayerId]
+    [data.players, ownSquadIds, editState, data.own_budget_exact, listingsByPlayerId, data.bid_premium_history]
   );
 
   const byPosition = useMemo(() => {
@@ -210,14 +211,24 @@ export default function WunschkaderTab({
   // liveBidFor()/plannedPriceFor() (derive.ts) - dieselben Funktionen, die
   // buildBudgetPlan() intern nutzt, damit Kachel-Einzelpreis und Budget-Summe
   // garantiert nie divergieren (Review-Fund 2026-07-29: vorher war der
-  // Live-Gebots-Ausdruck hier separat dupliziert).
+  // Live-Gebots-Ausdruck hier separat dupliziert). Jetzt ein kleines Objekt
+  // statt nur einer Zahl (Feedback 297fc4aa, 2026-08-02): die Detailansicht
+  // muss zwischen "echte Zahl" (isOwn/liveBid) und "Schaetzung" (suggestBid()
+  // p75) unterscheiden koennen, um denselben Zusatztext wie Transfermarkt/
+  // Spekulation zu zeigen.
   const selectedPlannedPrice = useMemo(() => {
-    if (!selected) return null;
+    const empty = { price: null as number | null, isEstimate: false, suggestionN: null as number | null };
+    if (!selected) return empty;
     const computed = resolvedByPlayerId.get(selected.player_id);
-    if (!computed) return null;
+    if (!computed) return empty;
+    const isOwn = ownSquadIds.has(selected.player_id);
     const liveBid = liveBidFor(selected.player_id, listingsByPlayerId);
-    return plannedPriceFor(computed.market_value, ownSquadIds.has(selected.player_id), liveBid);
-  }, [selected, resolvedByPlayerId, listingsByPlayerId, ownSquadIds]);
+    const bidHistory = data.bid_premium_history ?? [];
+    const price = plannedPriceFor(computed, isOwn, liveBid, bidHistory);
+    if (isOwn || liveBid !== null) return { price, isEstimate: false, suggestionN: null };
+    const suggestion = suggestBid(computed, bidHistory);
+    return { price, isEstimate: suggestion !== null, suggestionN: suggestion?.n ?? null };
+  }, [selected, resolvedByPlayerId, listingsByPlayerId, ownSquadIds, data.bid_premium_history]);
 
   function toggleBench(uid: number) {
     pendingSaveKind.current = "immediate";
@@ -556,7 +567,7 @@ function DetailModal({
 }: {
   target: EditTarget;
   computed: ResolvedTarget;
-  plannedPrice: number | null;
+  plannedPrice: { price: number | null; isEstimate: boolean; suggestionN: number | null };
   thresholds: DashboardSnapshot["signal_thresholds"];
   mae: number | null;
   mae3d: number | null;
@@ -641,7 +652,14 @@ function DetailModal({
                 : <span className="text-slate-400 dark:text-slate-500">n/v</span>}
             </Row>
           ) : (
-            <Row label="Geplanter Preis">{fmtNum(plannedPrice)}</Row>
+            <Row label="Geplanter Preis">
+              {fmtNum(plannedPrice.price)}
+              {plannedPrice.isEstimate && plannedPrice.suggestionN !== null && plannedPrice.suggestionN < MIN_N_FOR_PERCENTILE_SPREAD ? (
+                <span className="text-slate-400 dark:text-slate-500"> (geringe Datenbasis, n={plannedPrice.suggestionN})</span>
+              ) : plannedPrice.isEstimate ? (
+                <span className="text-slate-400 dark:text-slate-500"> (Schätzung)</span>
+              ) : null}
+            </Row>
           )}
           <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
           <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
