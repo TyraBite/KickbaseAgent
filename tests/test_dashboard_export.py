@@ -1,3 +1,4 @@
+import datetime
 import os
 import unittest
 from unittest.mock import ANY, patch
@@ -1020,37 +1021,66 @@ class BuildRecentTransfersTests(unittest.TestCase):
     dieselben Felder unabhaengig schon per Name statt User-Id verarbeiten.
     Deshalb hier keine ranking_rows-basierte Id->Name-Aufloesung mehr noetig:
     buyer/seller kommen direkt aus data.byr/data.slr, eigene Trades werden
-    per Namensvergleich (own_name) ausgeschlossen."""
+    per Namensvergleich (own_name) ausgeschlossen.
+
+    Finaler Review (2026-08-03): 'dt' darf NICHT hardcodiert werden (frueher
+    "2026-08-03T10:00:00Z" in jeder Fixture) - _build_recent_transfers()
+    vergleicht gegen die ECHTE Systemuhr zur Testlaufzeit
+    (datetime.datetime.now(...) - cutoff_hours), ein fixes Datum waere nur
+    zufaellig "aktuell genug" und faellt ab 2026-08-06 aus dem 72h-Cutoff-
+    Fenster (siehe test_news_sentiment.py/test_market_predictor.py fuer
+    denselben now()-relativen Fixture-Stil in diesem Repo)."""
 
     PLAYERS_MAP = {
         "p1": {"player_id": "p1", "name": "Spieler Eins"},
         "p2": {"player_id": "p2", "name": "Spieler Zwei"},
     }
 
+    @staticmethod
+    def _dt(hours_ago: float = 1) -> str:
+        return (
+            datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours_ago)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     def test_resolves_player_and_manager_names(self):
+        recent_dt = self._dt()
         activities = [
-            {"t": 15, "dt": "2026-08-03T10:00:00Z", "data": {"pi": "p1", "byr": "Rivale", "slr": "Ich", "trp": 500000}},
+            {"t": 15, "dt": recent_dt, "data": {"pi": "p1", "byr": "Rivale", "slr": "Ich", "trp": 500000}},
         ]
         result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
         self.assertEqual(result, [
-            {"player_id": "p1", "player_name": "Spieler Eins", "buyer": "Rivale", "seller": "Ich", "price": 500000, "date": "2026-08-03T10:00:00Z"},
+            {"player_id": "p1", "player_name": "Spieler Eins", "buyer": "Rivale", "seller": "Ich", "price": 500000, "date": recent_dt},
         ])
 
     def test_marks_system_trade_as_kickbase(self):
         activities = [
-            {"t": 15, "dt": "2026-08-03T10:00:00Z", "data": {"pi": "p2", "byr": "Rivale", "trp": 300000}},
+            {"t": 15, "dt": self._dt(), "data": {"pi": "p2", "byr": "Rivale", "trp": 300000}},
         ]
         result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
         self.assertEqual(result[0]["seller"], "Kickbase")
 
     def test_excludes_own_trades(self):
         activities = [
-            {"t": 15, "dt": "2026-08-03T10:00:00Z", "data": {"pi": "p1", "byr": "Ich", "slr": "Rivale", "trp": 500000}},
+            {"t": 15, "dt": self._dt(), "data": {"pi": "p1", "byr": "Ich", "slr": "Rivale", "trp": 500000}},
         ]
         result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name="Ich", cutoff_hours=72)
         self.assertEqual(result, [])
 
     def test_excludes_non_trade_activity_types(self):
-        activities = [{"t": 22, "dt": "2026-08-03T10:00:00Z", "data": {"bn": 1000}}]
+        activities = [{"t": 22, "dt": self._dt(), "data": {"bn": 1000}}]
         result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
         self.assertEqual(result, [])
+
+    def test_excludes_entries_older_than_cutoff(self):
+        # Deckt die eigentliche Cutoff-Filterlogik ab (bisher ungetestet -
+        # keiner der vier obigen Tests lieferte je einen Eintrag AUSSERHALB
+        # des Fensters). Mischt einen zu alten (100h, ausserhalb des
+        # cutoff_hours=72-Default) mit einem aktuellen Eintrag, damit klar
+        # ist: die alte Zeile fehlt wegen des Zeitfilters, nicht weil
+        # _build_recent_transfers() grundsaetzlich nichts zurueckgibt.
+        activities = [
+            {"t": 15, "dt": self._dt(hours_ago=100), "data": {"pi": "p1", "byr": "Rivale", "slr": "Ich", "trp": 500000}},
+            {"t": 15, "dt": self._dt(hours_ago=1), "data": {"pi": "p2", "byr": "Rivale", "trp": 300000}},
+        ]
+        result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
+        self.assertEqual([row["player_id"] for row in result], ["p2"])
