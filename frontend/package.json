@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:ct": "playwright test -c playwright-ct.config.ts",
+    "test:ct:ui": "playwright test -c playwright-ct.config.ts --ui"
   },
   "dependencies": {
     "firebase": "^10.14.1",
@@ -16,6 +18,9 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/experimental-ct-react": "1.62.0",
+    "@playwright/test": "1.62.0",
+    "@types/node": "^20.0.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
