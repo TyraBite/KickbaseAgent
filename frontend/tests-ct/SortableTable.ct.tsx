@@ -1,34 +1,15 @@
 import { test, expect } from "@playwright/experimental-ct-react";
-import { SortableTable, type TableColumn } from "../src/components/table";
+import SortableTableStory from "./SortableTable.story";
 
 // Task 7 (Test-Coverage Quick Wins Frontend): Sortier-Toggle + Null-Handling,
 // geteilt ueber ~5 Tabs (AlleSpielerTab/TransfermarktTab/SpekulationTab/
 // EigenesTeamTab/WunschkaderTab). Echtes DOM-Klick-Verhalten -> Playwright CT
-// statt Vitest-Unit (kein Mocking noetig, reines Rendering).
-
-interface FixtureRow {
-  id: string;
-  name: string;
-  value: number | null;
-}
-
-const rows: FixtureRow[] = [
-  { id: "a", name: "Alpha", value: 30 },
-  { id: "b", name: "Bravo", value: null },
-  { id: "c", name: "Charlie", value: 10 },
-  { id: "d", name: "Delta", value: 20 },
-];
-
-const columns: TableColumn<FixtureRow>[] = [
-  { key: "name", label: "Name", render: (r) => r.name, sortValue: (r) => r.name },
-  { key: "value", label: "Wert", align: "right", render: (r) => (r.value === null ? "–" : String(r.value)), sortValue: (r) => r.value },
-];
-
+// statt Vitest-Unit (kein Mocking noetig, reines Rendering). Fixture +
+// columns/render()/sortValue() leben in SortableTable.story.tsx (siehe dort
+// fuer den Grund).
 test.describe("SortableTable - Sortier-Toggle + Null-immer-zuletzt", () => {
   test("Spaltenkopf-Klick sortiert aufsteigend, null-Zeile landet am Ende", async ({ mount }) => {
-    const component = await mount(
-      <SortableTable columns={columns} rows={rows} rowKey={(r) => r.id} />
-    );
+    const component = await mount(<SortableTableStory />);
 
     await component.getByRole("columnheader", { name: "Wert" }).click();
 
@@ -37,9 +18,7 @@ test.describe("SortableTable - Sortier-Toggle + Null-immer-zuletzt", () => {
   });
 
   test("erneuter Klick auf dieselbe Spalte sortiert absteigend, null-Zeile bleibt trotzdem am Ende", async ({ mount }) => {
-    const component = await mount(
-      <SortableTable columns={columns} rows={rows} rowKey={(r) => r.id} />
-    );
+    const component = await mount(<SortableTableStory />);
 
     const wertHeader = component.getByRole("columnheader", { name: "Wert" });
     await wertHeader.click(); // aufsteigend
@@ -50,9 +29,7 @@ test.describe("SortableTable - Sortier-Toggle + Null-immer-zuletzt", () => {
   });
 
   test("Klick auf eine ANDERE Spalte resettet die Sortierrichtung auf aufsteigend", async ({ mount }) => {
-    const component = await mount(
-      <SortableTable columns={columns} rows={rows} rowKey={(r) => r.id} />
-    );
+    const component = await mount(<SortableTableStory />);
 
     const wertHeader = component.getByRole("columnheader", { name: "Wert" });
     await wertHeader.click(); // aufsteigend
