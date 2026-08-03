@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildBudgetPlan, normalizeSearchText, plannedPriceFor, suggestBid, buildDashboardSellCandidates, buildDashboardBuyCandidates, buildInvestmentSwaps, recentTransfersWithin24h } from "./derive";
-import type { BidPremiumEntry, PlayerRecord, RawWunschkaderTarget } from "../types";
+import { buildBudgetPlan, normalizeSearchText, plannedPriceFor, suggestBid, buildDashboardSellCandidates, buildDashboardBuyCandidates, buildInvestmentSwaps, recentTransfersWithin24h, valuation, signalFor, nextUpdateCutoff, MIN_N_FOR_PERCENTILE_SPREAD, buildPlayerRow, buildTransfermarktRows, buildSpekulationRows, buildEigenesTeamSplit, buildAlleSpielerRows, ownerFor } from "./derive";
+import type { BidPremiumEntry, Calibration, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
 import type { PlayerRow, TransfermarktRow } from "./derive";
 
 describe("normalizeSearchText", () => {
@@ -20,6 +20,55 @@ describe("normalizeSearchText", () => {
 
   it("handles German umlauts", () => {
     expect(normalizeSearchText("Müller")).toBe("muller");
+  });
+});
+
+describe("valuation", () => {
+  const calibration: Calibration = {
+    n: 10,
+    global_k: null,
+    position_k: { Sturm: { k: 5000, n: 10 } },
+  };
+
+  it("computes fairwert/signal from a known market_value/average_points/position/calibration quadruple", () => {
+    // k=5000 (Sturm), averagePoints=200, marketValue=900_000.
+    // fairwert = round(5000*200) = 1_000_000.
+    // signal = round((5000 / (900_000/200)) * 100) / 100 = round(111.11) / 100 = 1.11.
+    expect(valuation(900_000, 200, "Sturm", calibration)).toEqual({ fairwert: 1_000_000, signal: 1.11 });
+  });
+
+  it("returns null/null when calibration has no k for the position and no global_k fallback", () => {
+    // position_k hat keinen Eintrag fuer "Torwart", global_k ist ebenfalls null -> kForPosition() liefert null.
+    expect(valuation(900_000, 200, "Torwart", calibration)).toEqual({ fairwert: null, signal: null });
+  });
+
+  it("returns null/null when market_value is 0 (falsy guard), even with valid k/averagePoints", () => {
+    expect(valuation(0, 200, "Sturm", calibration)).toEqual({ fairwert: null, signal: null });
+  });
+
+  it("returns null/null when average_points is 0 (falsy guard), even with valid k/marketValue", () => {
+    expect(valuation(900_000, 0, "Sturm", calibration)).toEqual({ fairwert: null, signal: null });
+  });
+
+  it("returns null/null when calibration itself is null", () => {
+    expect(valuation(900_000, 200, "Sturm", null)).toEqual({ fairwert: null, signal: null });
+  });
+});
+
+describe("signalFor", () => {
+  const calibration: Calibration = {
+    n: 10,
+    global_k: null,
+    position_k: { Sturm: { k: 5000, n: 10 } },
+  };
+
+  it("returns exactly valuation()'s signal field for the same inputs", () => {
+    expect(signalFor(900_000, 200, "Sturm", calibration)).toBe(valuation(900_000, 200, "Sturm", calibration).signal);
+    expect(signalFor(900_000, 200, "Sturm", calibration)).toBe(1.11);
+  });
+
+  it("returns null when the null guard triggers (e.g. market_value 0)", () => {
+    expect(signalFor(0, 200, "Sturm", calibration)).toBeNull();
   });
 });
 
