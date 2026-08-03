@@ -1,9 +1,19 @@
 # CLAUDE.md — KickbaseAgent
 
 Diese Datei wird zu Beginn jeder Claude-Code-Session geladen. Sie beschreibt,
-**wie** in diesem Repo gearbeitet wird. Was gerade passiert ist und was offen
-ist, steht in `HANDOFF.md` — die vor jeder neuen Session lesen. Setup-Befehle
-stehen im `README.md` und werden hier nicht wiederholt.
+**wie** in diesem Repo gearbeitet wird — vor jeder neuen Session lesen.
+
+`HANDOFF.md` ist der Gegenpart dazu: offene Aufgaben und Themen, die noch
+geplant oder umgesetzt werden müssen — ebenfalls vor jeder neuen Session
+lesen. `HANDOFF.md` ist bewusst **kein** fortlaufendes Änderungsprotokoll
+vergangener Arbeit (das steht in der Git-Historie, `git log`) — sondern eine
+kompakte, aktuell gehaltene Liste dessen, was als Nächstes ansteht. Abgeschlossene
+Punkte werden aus `HANDOFF.md` entfernt, nicht dort angehäuft.
+
+Setup-Befehle stehen im `README.md` und werden hier nicht wiederholt — das
+README muss deshalb selbst aktuell gehalten werden. Ändert sich Setup,
+Architektur oder Modulkarte, gehört die Aktualisierung des `README.md` zum
+Task dazu, nicht als separater Nachtrag.
 
 ## Was das Projekt ist
 
