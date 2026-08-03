@@ -1,8 +1,15 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from src.kickbase_client import select_league, status_label
+from src.kickbase_client import (
+    KickbaseAuthError,
+    KickbaseError,
+    _raise_for_status,
+    get_teams,
+    select_league,
+    status_label,
+)
 
 
 class SelectLeagueTests(unittest.TestCase):
@@ -42,3 +49,36 @@ class StatusLabelTests(unittest.TestCase):
 
     def test_unconfirmed_code_falls_back_to_placeholder(self):
         self.assertEqual(status_label(8), "Status-Code 8 (Bedeutung in v4-API nicht zweifelsfrei bestaetigt)")
+
+
+class RaiseForStatusTests(unittest.TestCase):
+    def test_401_raises_kickbase_auth_error(self):
+        response = MagicMock(status_code=401)
+        with self.assertRaises(KickbaseAuthError):
+            _raise_for_status(response)
+
+    def test_503_raises_generic_kickbase_error(self):
+        response = MagicMock(status_code=503, url="https://api.kickbase.com/v4/x", text="Service Unavailable")
+        with self.assertRaises(KickbaseError):
+            _raise_for_status(response)
+
+    def test_200_does_not_raise(self):
+        response = MagicMock(status_code=200)
+        _raise_for_status(response)  # keine Exception erwartet
+
+
+class GetTeamsTests(unittest.TestCase):
+    @patch("src.kickbase_client.requests.get")
+    def test_filters_out_teams_missing_tid_or_tn(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"tms": [
+                {"tid": "5", "tn": "Freiburg"},
+                {"tid": "6"},  # 'tn' fehlt
+                {"tn": "Ohne Id"},  # 'tid' fehlt
+            ]},
+        )
+
+        teams = get_teams("tok", "1")
+
+        self.assertEqual(teams, {"5": "Freiburg"})
