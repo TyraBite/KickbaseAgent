@@ -19,6 +19,7 @@ from src.market_predictor import (
     _save_prediction_log,
     _select_live_model,
     _infer_today,
+    _parse_minutes,
     _performance_frame,
     _change_recency_features,
     _sentiment_features_as_of,
@@ -414,6 +415,19 @@ def _performance_payload(minutes_by_matchday):
             }
         ]
     }
+
+
+class ParseMinutesTests(unittest.TestCase):
+    def test_normal_value_strips_apostrophe_and_converts_to_int(self):
+        self.assertEqual(_parse_minutes("45'"), 45)
+
+    def test_malformed_string_falls_back_to_zero(self):
+        # Der except-ValueError-Fallback - deckt kaputte "mp"-Strings von
+        # der echten API ab (bisher ungetestet).
+        self.assertEqual(_parse_minutes("garbage"), 0)
+
+    def test_none_falls_back_to_zero(self):
+        self.assertEqual(_parse_minutes(None), 0)
 
 
 class PerformanceFrameMinutesAvgTests(unittest.TestCase):
