@@ -201,7 +201,7 @@ function MlPredictionRow({
 // Echter Verletzt/Angeschlagen/Im-Aufbau-Text statt Rohwert, "Fit" als
 // expliziter Normalzustand statt einer leeren Zeile (User-Wunsch
 // 2026-07-30: direkt sichtbar auf der Karte, nicht nur als Badge im Header).
-function StatusLabelRow({ value }: { value: string | null }) {
+export function StatusLabelRow({ value }: { value: string | null }) {
   return (
     <Row label="Fitness">
       <FitnessBadge label={value} />
@@ -209,7 +209,7 @@ function StatusLabelRow({ value }: { value: string | null }) {
   );
 }
 
-function PlayerCard({
+export function PlayerCard({
   row,
   onSelect,
 }: {
@@ -318,7 +318,7 @@ function DetailModalShell({
   );
 }
 
-function PlayerDetailModal({
+export function PlayerDetailModal({
   row,
   thresholds,
   mae,
