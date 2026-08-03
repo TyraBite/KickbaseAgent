@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlMetrics, MlModelType } from "../types";
 import { POSITIONS } from "../lib/formations";
+import { nearestTrendIndex } from "../lib/mlChartMobile";
 import { Badge } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum } from "../format";
@@ -164,35 +165,50 @@ function shortDate(iso: string): string {
   return `${day}.${month}.`;
 }
 
+// Gleicher Breakpoint wie useViewMode.ts (Tabellen/Karten-Toggle,
+// Burger-Menue) - konsistent mit dem Rest der App. Einmalig beim Mount
+// ermittelt, kein Resize-Listener (gleiches Muster wie useViewMode.ts).
+function isMobileViewport(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(max-width: 639px)").matches;
+}
+
 function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
   const [showTable, setShowTable] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [isMobile] = useState(isMobileViewport);
+
+  // Mobile: nur die letzten 14 Eintraege im Chart (User-Feedback 2026-08-01,
+  // Punkte lagen auf schmalen Viewports zu eng beieinander) - die
+  // Tabellen-Ansicht (showTable) zeigt weiterhin die volle Historie.
+  const chartTrend = useMemo(() => (isMobile ? trend.slice(-14) : trend), [trend, isMobile]);
 
   const plotW = CHART_WIDTH - PAD.left - PAD.right;
   const plotH = CHART_HEIGHT - PAD.top - PAD.bottom;
 
-  const xFor = (i: number) => PAD.left + (trend.length > 1 ? (i / (trend.length - 1)) * plotW : plotW / 2);
+  const xFor = (i: number) =>
+    PAD.left + (chartTrend.length > 1 ? (i / (chartTrend.length - 1)) * plotW : plotW / 2);
   const yFor = (v: number) => PAD.top + plotH - (v / 100) * plotH;
 
   const paths = useMemo(
     () =>
       MODEL_ORDER.map((name) => {
-        const points = trend
+        const points = chartTrend
           .map((entry, i) => (entry[name] === null ? null : { x: xFor(i), y: yFor(entry[name] as number) }))
           .filter((p): p is { x: number; y: number } => p !== null);
         return { name, points, d: points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ") };
       }),
-    [trend]
+    [chartTrend]
   );
 
   // Grob skizzierter Zeitraum auf der X-Achse (User-Fund 2026-07-30: bisher
   // komplett unbeschriftet) - ein paar gleichmaessig verteilte Datums-Ticks
   // reichen, keine taggenaue Beschriftung noetig.
   const tickIndices = useMemo(() => {
-    if (trend.length <= X_TICK_COUNT) return trend.map((_, i) => i);
-    const step = (trend.length - 1) / (X_TICK_COUNT - 1);
+    if (chartTrend.length <= X_TICK_COUNT) return chartTrend.map((_, i) => i);
+    const step = (chartTrend.length - 1) / (X_TICK_COUNT - 1);
     return Array.from(new Set(Array.from({ length: X_TICK_COUNT }, (_, i) => Math.round(i * step))));
-  }, [trend.length]);
+  }, [chartTrend.length]);
 
   // Endlabel-Positionen kollisionsfrei machen: liegen zwei Modelle am
   // rechten Rand vertikal zu nah beieinander, werden ihre TEXT-Labels
@@ -256,8 +272,7 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
             onMouseMove={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const relX = ((e.clientX - rect.left) / rect.width) * CHART_WIDTH;
-              const i = Math.round(((relX - PAD.left) / plotW) * (trend.length - 1));
-              setHoverIndex(Math.min(Math.max(i, 0), trend.length - 1));
+              setHoverIndex(nearestTrendIndex(relX, plotW, PAD.left, chartTrend.length));
             }}
             onMouseLeave={() => setHoverIndex(null)}
           >
@@ -307,7 +322,7 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
                 textAnchor="middle"
                 className="fill-slate-400 text-[10px] dark:fill-slate-500"
               >
-                {shortDate(trend[i].date)}
+                {shortDate(chartTrend[i].date)}
               </text>
             ))}
             {hoverIndex !== null && (
@@ -326,10 +341,10 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
               className="pointer-events-none absolute top-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs shadow-md dark:border-slate-700 dark:bg-slate-800"
               style={{ left: `${(xFor(hoverIndex) / CHART_WIDTH) * 100}%` }}
             >
-              <div className="font-medium text-slate-900 dark:text-slate-50">{trend[hoverIndex].date}</div>
+              <div className="font-medium text-slate-900 dark:text-slate-50">{chartTrend[hoverIndex].date}</div>
               {MODEL_ORDER.map((name) => (
                 <div key={name} className="text-slate-600 dark:text-slate-300">
-                  {MODEL_LABELS[name]}: {fmtAccPct(trend[hoverIndex][name])}
+                  {MODEL_LABELS[name]}: {fmtAccPct(chartTrend[hoverIndex][name])}
                 </div>
               ))}
             </div>
