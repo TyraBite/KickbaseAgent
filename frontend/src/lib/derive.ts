@@ -397,12 +397,15 @@ export function buildDashboardSellCandidates(
   ownSquadIds: string[],
   calibration: Calibration | null,
   mae: number | null
-): PlayerRow[] {
+): EigenesTeamRow[] {
   return ownSquadIds
     .map((pid) => players[pid])
     .filter((p): p is PlayerRecord => !!p)
     .map((p) => buildPlayerRow(p, calibration))
-    .filter((row) => sellSignal(row.ml_prediction, mae) === "verkaufen");
+    .filter((row) => row.ml_prediction !== null)
+    .sort((a, b) => (a.ml_prediction ?? 0) - (b.ml_prediction ?? 0))
+    .slice(0, 3)
+    .map((row) => ({ ...row, sell_signal: sellSignal(row.ml_prediction, mae) }));
 }
 
 export function buildDashboardBuyCandidates(

@@ -127,10 +127,32 @@ describe("buildDashboardSellCandidates", () => {
   const players = {
     p1: { player_id: "p1", name: "A", position: "Sturm", team_name: null, status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 100, ml_prediction: -50_000, ml_prediction_3d: -100_000 },
     p2: { player_id: "p2", name: "B", position: "Abwehr", team_name: null, status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 100, ml_prediction: 50_000, ml_prediction_3d: 100_000 },
+    p3: { player_id: "p3", name: "C", position: "Mittelfeld", team_name: null, status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 100, ml_prediction: 10_000, ml_prediction_3d: 20_000 },
+    p4: { player_id: "p4", name: "D", position: "Torwart", team_name: null, status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 100, ml_prediction: 200_000, ml_prediction_3d: 300_000 },
   };
-  it("returns only players with sellSignal 'verkaufen'", () => {
-    const result = buildDashboardSellCandidates(players, ["p1", "p2"], null, null);
+
+  it("returns the 3 lowest-Prognose-1T players even when all values are positive", () => {
+    const result = buildDashboardSellCandidates(players, ["p1", "p2", "p3", "p4"], null, null);
+    expect(result.map((r) => r.player_id)).toEqual(["p1", "p3", "p2"]);
+  });
+
+  it("attaches the real sellSignal per row instead of hardcoding 'verkaufen'", () => {
+    // mae=30_000: p1 (-50k) klar unter der Schwelle -> "verkaufen", p3 (10k) innerhalb
+    // der Ungenauigkeit -> "unklar", p2 (50k) klar darueber -> "halten".
+    const result = buildDashboardSellCandidates(players, ["p1", "p2", "p3", "p4"], null, 30_000);
+    expect(result.map((r) => r.sell_signal)).toEqual(["verkaufen", "unklar", "halten"]);
+  });
+
+  it("returns fewer than 3 rows if fewer than 3 owned players have a prediction", () => {
+    const onePlayer = { p1: players.p1 };
+    const result = buildDashboardSellCandidates(onePlayer, ["p1"], null, null);
     expect(result.map((r) => r.player_id)).toEqual(["p1"]);
+  });
+
+  it("excludes players without a 1T prediction from the ranking", () => {
+    const withUndefined = { ...players, p5: { ...players.p4, player_id: "p5", ml_prediction: undefined } };
+    const result = buildDashboardSellCandidates(withUndefined, ["p1", "p2", "p3", "p4", "p5"], null, null);
+    expect(result.map((r) => r.player_id)).not.toContain("p5");
   });
 });
 
