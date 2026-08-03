@@ -1,5 +1,4 @@
 import { defineConfig, devices } from "@playwright/experimental-ct-react";
-import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +15,6 @@ export default defineConfig({
   use: {
     trace: "on-first-retry",
     ctViteConfig: {
-      plugins: [react()],
       resolve: {
         alias: [
           {

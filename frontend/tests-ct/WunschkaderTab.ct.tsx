@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/experimental-ct-react";
+import { test, expect, type ComponentFixtures } from "@playwright/experimental-ct-react";
 import WunschkaderTab from "../src/components/WunschkaderTab";
 import { buildFixtureSnapshot, FIXTURE_PLAYERS } from "../src/test-fixtures/dashboardSnapshot.fixture";
 
@@ -36,7 +36,7 @@ test.describe("Bug A - Add-Dialog ohne Positions-Zwang", () => {
 });
 
 test.describe("Bug B - Vorschlaege vs. Freitext im Wechsel-Dialog", () => {
-  async function openWechsel(mount: Parameters<Parameters<typeof test>[1]>[0]["mount"]) {
+  async function openWechsel(mount: ComponentFixtures["mount"]) {
     const component = await mount(
       <WunschkaderTab
         data={buildFixtureSnapshot()}

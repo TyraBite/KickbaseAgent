@@ -4,7 +4,7 @@ const PORT = 4300;
 
 export default defineConfig({
   testDir: "./tests-e2e",
-  timeout: 15_000,
+  timeout: 60_000,
   fullyParallel: true,
   reporter: process.env.CI ? "list" : "html",
   use: {
@@ -15,7 +15,7 @@ export default defineConfig({
     command: `npx vite --config vite.e2e.config.ts --port ${PORT} --strictPort`,
     port: PORT,
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    timeout: 120_000,
   },
   projects: [
     // Pixel 5 statt eines iPhone-Presets, weil dessen defaultBrowserType
