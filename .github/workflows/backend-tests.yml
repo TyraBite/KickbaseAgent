@@ -36,4 +36,9 @@ jobs:
           pip install pytest==9.1.1
 
       - name: Run tests
-        run: pytest tests/ -v
+        # "python -m pytest" statt bloss "pytest": tests/ hat kein __init__.py,
+        # daher fuegt der bare pytest-Befehl nur tests/ selbst zu sys.path
+        # hinzu, nicht das Repo-Root - "from src.xxx import ..." schlaegt dann
+        # mit ModuleNotFoundError fehl (live in CI verifiziert). "python -m"
+        # stellt sicher, dass das CWD (Repo-Root) auf sys.path[0] landet.
+        run: python -m pytest tests/ -v
