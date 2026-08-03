@@ -1,0 +1,58 @@
+name: Frontend Playwright Tests (Component + E2E)
+
+# Zwei unabhaengige, NICHT blockierende Playwright-Testlaeufe - component-tests
+# (frontend/tests-ct/, mounten einzelne Tab-Komponenten, firebase/firestore
+# komplett wegaliasiert) und e2e-touch-swipe (frontend/tests-e2e/, startet die
+# komplette App gegen einen echten Vite-Dev-Server mit wegaliastem
+# firebase/auth+firebase/firestore). Beide laufen parallel zu "Frontend Deploy
+# (GitHub Pages)" (frontend-pilot.yml), ohne "needs:"-Abhaengigkeit - blockieren
+# den Deploy nie, auch nicht gegenseitig.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-playwright-tests.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  component-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run component tests
+        working-directory: frontend
+        run: npm run test:ct
+
+  e2e-touch-swipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E tests
+        working-directory: frontend
+        run: npm run test:e2e
