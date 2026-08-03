@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
@@ -206,6 +206,7 @@ export default function WunschkaderTab({
   }, [selected, resolvedByPlayerId, listingsByPlayerId, ownSquadIds]);
 
   function toggleBench(uid: number) {
+    pendingSaveKind.current = "immediate";
     setEditState((prev) =>
       prev.map((t) => (t._uid === uid ? { ...t, role: isBench(t) ? "Starter" : "Bank/Backup-Option" } : t))
     );
@@ -213,11 +214,13 @@ export default function WunschkaderTab({
   }
 
   function removeTarget(uid: number) {
+    pendingSaveKind.current = "immediate";
     setEditState((prev) => prev.filter((t) => t._uid !== uid));
     setSelected(null);
   }
 
   function replaceTarget(uid: number, playerId: string) {
+    pendingSaveKind.current = "immediate";
     setEditState((prev) =>
       prev.map((t) => {
         if (t._uid !== uid) return t;
@@ -234,6 +237,7 @@ export default function WunschkaderTab({
   }
 
   function addTarget(target: { player_id: string; position: Position; role: string }) {
+    pendingSaveKind.current = "immediate";
     setEditState((prev) => [
       ...prev,
       { player_id: target.player_id, role: target.role, _uid: prev.length ? Math.max(...prev.map((t) => t._uid)) + 1 : 0 },
@@ -282,6 +286,22 @@ export default function WunschkaderTab({
     }
   }
 
+  // Merkt sich, WELCHE Art Save nach der naechsten editState-Aenderung
+  // faellig ist: "immediate" fuer diskrete Aktionen (Ziel hinzufuegen/
+  // entfernen/tauschen, Bank-Toggle - kein Freitext, darf sofort schreiben),
+  // "debounced" fuer die Notiz (Freitext, siehe Task 4). Ein Ref statt
+  // State, weil das Setzen synchron VOR dem setEditState()-Aufruf passieren
+  // muss und selbst keinen Re-Render braucht. null bedeutet "editState hat
+  // sich aus einem anderen Grund geaendert (z.B. initiales Mount) - nicht
+  // speichern", verhindert also einen Auto-Save direkt beim Laden der Seite.
+  const pendingSaveKind = useRef<"immediate" | "debounced" | null>(null);
+
+  useEffect(() => {
+    if (pendingSaveKind.current !== "immediate") return;
+    pendingSaveKind.current = null;
+    saveTargets(editState);
+  }, [editState]);
+
   const totalCount = editState.length;
 
   return (
@@ -312,13 +332,6 @@ export default function WunschkaderTab({
       </div>
 
       <div className="mb-6 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => saveTargets(editState)}
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-        >
-          Speichern
-        </button>
         {saveStatus.kind === "saving" && (
           <span className="text-sm text-slate-500 dark:text-slate-400">Speichere…</span>
         )}
