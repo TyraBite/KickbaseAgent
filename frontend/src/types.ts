@@ -52,7 +52,14 @@ export interface RawWunschkaderTarget {
   note?: string;
 }
 
-
+export interface RecentTransferEntry {
+  player_id: string;
+  player_name: string;
+  buyer: string;
+  seller: string;
+  price: number;
+  date: string;
+}
 
 export interface SignalThresholds {
   good: number;
@@ -169,5 +176,6 @@ export interface DashboardSnapshot {
   position_need?: PositionNeed;
   ml_metrics_3d?: MlMetrics | null;
   ml_accuracy_trend_3d?: MlAccuracyTrendEntry[] | null;
+  recent_transfers?: RecentTransferEntry[];
   [key: string]: unknown;
 }

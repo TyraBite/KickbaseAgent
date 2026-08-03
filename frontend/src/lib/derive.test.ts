@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildBudgetPlan, normalizeSearchText, plannedPriceFor, suggestBid } from "./derive";
+import { buildBudgetPlan, normalizeSearchText, plannedPriceFor, suggestBid, buildDashboardSellCandidates, buildDashboardBuyCandidates, buildInvestmentSwaps, recentTransfersWithin24h } from "./derive";
 import type { BidPremiumEntry, PlayerRecord, RawWunschkaderTarget } from "../types";
+import type { PlayerRow, TransfermarktRow } from "./derive";
 
 describe("normalizeSearchText", () => {
   it("lowercases plain ASCII", () => {
@@ -119,5 +120,58 @@ describe("buildBudgetPlan", () => {
     const expectedEstimate = suggestBid(players.p1, bidHistory)!.p75;
     expect(plan.committed).toBe(expectedEstimate);
     expect(plan.committed).not.toBe(players.p1.market_value);
+  });
+});
+
+describe("buildDashboardSellCandidates", () => {
+  const players = {
+    p1: { player_id: "p1", name: "A", position: "Sturm", team_name: null, status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 100, ml_prediction: -50_000, ml_prediction_3d: -100_000 },
+    p2: { player_id: "p2", name: "B", position: "Abwehr", team_name: null, status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 100, ml_prediction: 50_000, ml_prediction_3d: 100_000 },
+  };
+  it("returns only players with sellSignal 'verkaufen'", () => {
+    const result = buildDashboardSellCandidates(players, ["p1", "p2"], null, null);
+    expect(result.map((r) => r.player_id)).toEqual(["p1"]);
+  });
+});
+
+describe("buildDashboardBuyCandidates", () => {
+  it("returns transfermarkt rows whose player_id is a wunschkader target", () => {
+    const rows = [
+      { player_id: "p1", name: "A" } as TransfermarktRow,
+      { player_id: "p2", name: "B" } as TransfermarktRow,
+    ];
+    const targets = [{ player_id: "p2" }] as RawWunschkaderTarget[];
+    const result = buildDashboardBuyCandidates(rows, targets);
+    expect(result.map((r) => r.player_id)).toEqual(["p2"]);
+  });
+});
+
+describe("buildInvestmentSwaps", () => {
+  const ownRows = [
+    { player_id: "own1", name: "Own1", ml_prediction_3d: -300_000 } as PlayerRow,
+    { player_id: "own2", name: "Own2", ml_prediction_3d: 100_000 } as PlayerRow,
+  ];
+  const marketRows = [
+    { player_id: "m1", name: "M1", ml_prediction_3d: 400_000 } as TransfermarktRow,
+    { player_id: "m2", name: "M2", ml_prediction_3d: -50_000 } as TransfermarktRow,
+  ];
+  it("pairs worst-owned with best-market when the gap exceeds the strong threshold", () => {
+    const result = buildInvestmentSwaps(ownRows, marketRows, 420_000);
+    expect(result).toEqual([{ sell: ownRows[0], buy: marketRows[0] }]);
+  });
+  it("skips a pair whose gap does not reach the threshold", () => {
+    const result = buildInvestmentSwaps([{ player_id: "own3", name: "Own3", ml_prediction_3d: 0 } as PlayerRow], marketRows, 420_000);
+    expect(result).toEqual([]);
+  });
+});
+
+describe("recentTransfersWithin24h", () => {
+  it("keeps entries within the last 24 hours and drops older ones", () => {
+    const now = new Date("2026-08-03T12:00:00Z");
+    const entries = [
+      { player_id: "p1", player_name: "A", buyer: "X", seller: "Y", price: 1, date: "2026-08-03T10:00:00Z" },
+      { player_id: "p2", player_name: "B", buyer: "X", seller: "Y", price: 1, date: "2026-08-01T10:00:00Z" },
+    ];
+    expect(recentTransfersWithin24h(entries, now).map((e) => e.player_id)).toEqual(["p1"]);
   });
 });

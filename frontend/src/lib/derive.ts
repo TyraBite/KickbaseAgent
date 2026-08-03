@@ -1,5 +1,5 @@
 import { formatDurationMs } from "../format";
-import type { BidPremiumEntry, Calibration, MlMetrics, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
+import type { BidPremiumEntry, Calibration, MlMetrics, PlayerRecord, RawWunschkaderTarget, RecentTransferEntry, TransfermarktListing } from "../types";
 
 // MAE des aktuell LIVE geschalteten Modells (nicht pauschal irgendein
 // Modell) - dasselbe Modell erzeugt gerade die ml_prediction-Werte, die
@@ -390,6 +390,61 @@ export function buildAlleSpielerRows(
     ...buildPlayerRow(p, calibration),
     owner: ownerFor(p.player_id, ownSet, ownedBy),
   }));
+}
+
+export function buildDashboardSellCandidates(
+  players: Record<string, PlayerRecord>,
+  ownSquadIds: string[],
+  calibration: Calibration | null,
+  mae: number | null
+): PlayerRow[] {
+  return ownSquadIds
+    .map((pid) => players[pid])
+    .filter((p): p is PlayerRecord => !!p)
+    .map((p) => buildPlayerRow(p, calibration))
+    .filter((row) => sellSignal(row.ml_prediction, mae) === "verkaufen");
+}
+
+export function buildDashboardBuyCandidates(
+  transfermarktRows: TransfermarktRow[],
+  targets: RawWunschkaderTarget[]
+): TransfermarktRow[] {
+  const targetIds = new Set(targets.map((t) => t.player_id));
+  return transfermarktRows.filter((r) => targetIds.has(r.player_id));
+}
+
+export interface InvestmentSwap { sell: PlayerRow; buy: TransfermarktRow }
+
+export function buildInvestmentSwaps(
+  ownRows: PlayerRow[],
+  marketRows: TransfermarktRow[],
+  minGap: number
+): InvestmentSwap[] {
+  const worstOwned = [...ownRows]
+    .filter((r) => r.ml_prediction_3d !== null)
+    .sort((a, b) => (a.ml_prediction_3d ?? 0) - (b.ml_prediction_3d ?? 0))
+    .slice(0, 3);
+  const bestMarket = [...marketRows]
+    .filter((r) => r.ml_prediction_3d !== null)
+    .sort((a, b) => (b.ml_prediction_3d ?? 0) - (a.ml_prediction_3d ?? 0))
+    .slice(0, 3);
+  const pairs: InvestmentSwap[] = [];
+  for (let i = 0; i < Math.min(worstOwned.length, bestMarket.length); i++) {
+    const sell = worstOwned[i];
+    const buy = bestMarket[i];
+    if ((buy.ml_prediction_3d ?? 0) - (sell.ml_prediction_3d ?? 0) >= minGap) {
+      pairs.push({ sell, buy });
+    }
+  }
+  return pairs;
+}
+
+export function recentTransfersWithin24h(entries: RecentTransferEntry[], now: Date): RecentTransferEntry[] {
+  const cutoffMs = now.getTime() - 24 * 60 * 60 * 1000;
+  return entries.filter((e) => {
+    const t = parseIsoZ(e.date);
+    return t !== null && t.getTime() >= cutoffMs;
+  });
 }
 
 export interface BudgetPlanSellRow { player_id: string; market_value: number | null }
