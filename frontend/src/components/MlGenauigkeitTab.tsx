@@ -1,7 +1,7 @@
-import { useMemo, useState, type TouchEvent as ReactTouchEvent } from "react";
+import { useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlMetrics, MlModelType } from "../types";
 import { POSITIONS } from "../lib/formations";
-import { nearestTrendIndex } from "../lib/mlChartMobile";
+import { clampTooltipLeftPercent, nearestTrendIndex } from "../lib/mlChartMobile";
 import { Badge } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum } from "../format";
@@ -151,6 +151,9 @@ function TrendSection({ heading, trend }: { heading: string; trend: MlAccuracyTr
 
 const CHART_WIDTH = 760;
 const CHART_HEIGHT = 240;
+// Fester Schaetzwert statt dynamischer Messung - deckt Datum + bis zu 2
+// Modell-Zeilen in text-xs ab (siehe Tooltip-Inhalt weiter unten).
+const TOOLTIP_WIDTH_PX = 140;
 const PAD = { top: 16, right: 88, bottom: 28, left: 36 };
 const X_TICK_COUNT = 6;
 // Vertikaler Mindestabstand zwischen zwei Modell-Endlabels (px) - verhindert
@@ -177,6 +180,7 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
   const [showTable, setShowTable] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [isMobile] = useState(isMobileViewport);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Mobile: nur die letzten 14 Eintraege im Chart (User-Feedback 2026-08-01,
   // Punkte lagen auf schmalen Viewports zu eng beieinander) - die
@@ -230,6 +234,18 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
     return <p className="text-xs text-slate-400 dark:text-slate-500">Noch keine Trend-Daten vorhanden…</p>;
   }
 
+  // Klemmt die Tooltip-Position an der tatsaechlich gemessenen
+  // Container-Breite, damit er auf schmalen Mobile-Viewports nie ueber den
+  // rechten Rand hinausragt (kein ResizeObserver - Breite wird nur beim
+  // Render gelesen, Fenster-Resize ist ein akzeptiertes Nicht-Ziel).
+  const tooltipLeftPercent =
+    hoverIndex !== null
+      ? clampTooltipLeftPercent(
+          (xFor(hoverIndex) / CHART_WIDTH) * 100,
+          (TOOLTIP_WIDTH_PX / (containerRef.current?.getBoundingClientRect().width ?? CHART_WIDTH)) * 100
+        )
+      : 0;
+
   const columns: TableColumn<MlAccuracyTrendEntry>[] = [
     { key: "date", label: "Datum", sortValue: (e) => e.date, render: (e) => e.date },
     { key: "rf", label: "Random Forest", align: "right", sortValue: (e) => e.RandomForest, render: (e) => fmtAccPct(e.RandomForest) },
@@ -277,6 +293,7 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
         <SortableTable columns={columns} rows={trend} rowKey={(e) => e.date} />
       ) : (
         <div
+          ref={containerRef}
           data-swipe-ignore
           className="relative rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900"
         >
@@ -355,7 +372,7 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
           {hoverIndex !== null && (
             <div
               className="pointer-events-none absolute top-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs shadow-md dark:border-slate-700 dark:bg-slate-800"
-              style={{ left: `${(xFor(hoverIndex) / CHART_WIDTH) * 100}%` }}
+              style={{ left: `${tooltipLeftPercent}%` }}
             >
               <div className="font-medium text-slate-900 dark:text-slate-50">{chartTrend[hoverIndex].date}</div>
               {MODEL_ORDER.map((name) => (
