@@ -64,4 +64,13 @@ describe("cursorIndexForDigitCount", () => {
   it("falls back to the string end if there are fewer digits than requested", () => {
     expect(cursorIndexForDigitCount("50", 6)).toBe(2);
   });
+
+  it("places cursor correctly when a thousands separator is first introduced by reformatting", () => {
+    // User types "1000" (4 digits, no separator yet), cursor positioned after 4th digit at index 4
+    const digitCount = digitCountBefore("1000", 4);
+    expect(digitCount).toBe(4);
+    // After reformatting: "1000" → "1.000" (dot now appears at index 1)
+    // Cursor should land at index 5 (after 4th digit, which moved from index 3 to index 4)
+    expect(cursorIndexForDigitCount("1.000", digitCount)).toBe(5);
+  });
 });
