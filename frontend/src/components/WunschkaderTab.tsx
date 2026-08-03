@@ -127,6 +127,18 @@ export default function WunschkaderTab({
   const [selected, setSelected] = useState<EditTarget | null>(null);
   const [addDialog, setAddDialog] = useState<{ presetPosition: Position | null } | null>(null);
 
+  // Planungsmodus: Auto-Save wird fuer die Dauer der Session ausgesetzt,
+  // Aenderungen werden erst per commitSimulation()/discardSimulation() am
+  // Ende gespeichert oder verworfen. simulationModeRef ist noetig, weil ein
+  // bereits laufender Notiz-Debounce-Timer (debouncedSaveTargets) beim
+  // Fristablauf den AKTUELLEN Modus sehen muss, nicht den zum Zeitpunkt des
+  // Timer-Starts eingefangenen - gleiches Muster wie latestEditStateRef oben.
+  const [simulationMode, setSimulationMode] = useState(false);
+  const simulationModeRef = useRef(false);
+  simulationModeRef.current = simulationMode;
+  const [baseline, setBaseline] = useState<EditTarget[] | null>(null);
+  const [pendingChangeCount, setPendingChangeCount] = useState(0);
+
   const alleSpieler = useMemo(
     () => buildAlleSpielerRows(data.players, data.own_squad_ids, data.owned_by, data.calibration),
     [data.players, data.own_squad_ids, data.owned_by, data.calibration]
@@ -229,6 +241,7 @@ export default function WunschkaderTab({
 
   function toggleBench(uid: number) {
     pendingSaveKind.current = "immediate";
+    if (simulationModeRef.current) setPendingChangeCount((n) => n + 1);
     setEditState((prev) =>
       prev.map((t) => (t._uid === uid ? { ...t, role: isBench(t) ? "Starter" : "Bank/Backup-Option" } : t))
     );
@@ -237,12 +250,14 @@ export default function WunschkaderTab({
 
   function removeTarget(uid: number) {
     pendingSaveKind.current = "immediate";
+    if (simulationModeRef.current) setPendingChangeCount((n) => n + 1);
     setEditState((prev) => prev.filter((t) => t._uid !== uid));
     setSelected(null);
   }
 
   function replaceTarget(uid: number, playerId: string) {
     pendingSaveKind.current = "immediate";
+    if (simulationModeRef.current) setPendingChangeCount((n) => n + 1);
     setEditState((prev) =>
       prev.map((t) => {
         if (t._uid !== uid) return t;
@@ -255,12 +270,14 @@ export default function WunschkaderTab({
 
   function updateNote(uid: number, note: string) {
     pendingSaveKind.current = "debounced";
+    if (simulationModeRef.current) setPendingChangeCount((n) => n + 1);
     setEditState((prev) => prev.map((t) => (t._uid === uid ? { ...t, note } : t)));
     setSelected((prev) => (prev && prev._uid === uid ? { ...prev, note } : prev));
   }
 
   function addTarget(target: { player_id: string; position: Position; role: string }) {
     pendingSaveKind.current = "immediate";
+    if (simulationModeRef.current) setPendingChangeCount((n) => n + 1);
     setEditState((prev) => [
       ...prev,
       { player_id: target.player_id, role: target.role, _uid: prev.length ? Math.max(...prev.map((t) => t._uid)) + 1 : 0 },
@@ -285,6 +302,12 @@ export default function WunschkaderTab({
   const saveSeqRef = useRef(0);
 
   async function saveTargets(next: EditTarget[]) {
+    // Waehrend des Planungsmodus schreibt nichts nach Firestore - weder der
+    // Sofort-Pfad (direkter Aufruf aus dem editState-Effect) noch der
+    // debounced Notiz-Pfad (debouncedSaveTargets() ruft ebenfalls saveTargets()
+    // auf). Ref statt State, damit ein spaet feuernder Debounce-Timer den
+    // aktuellen Modus sieht.
+    if (simulationModeRef.current) return;
     // Absicherung gegen die einmalige Migration (migrate_wunschkader_player_ids.py):
     // solange die noch nicht gegen den aktuellen Firestore-Wunschkader-Doc
     // gelaufen ist, kann _build_wunschkader_targets() (dashboard_export.py)
@@ -353,6 +376,46 @@ export default function WunschkaderTab({
     }
   }, [editState, debouncedSaveTargets]);
 
+  function enterSimulationMode() {
+    setBaseline(editState);
+    setPendingChangeCount(0);
+    simulationModeRef.current = true;
+    setSimulationMode(true);
+  }
+
+  async function commitSimulation() {
+    // Ref MUSS synchron gesetzt werden, nicht nur ueber setSimulationMode(false) -
+    // die Ref-Zuweisung "simulationModeRef.current = simulationMode" oben im
+    // Funktionskoerper passiert erst beim naechsten Render, saveTargets() wird
+    // aber noch VOR diesem Render aufgerufen und wuerde den Guard sonst
+    // faelschlich noch aktiv sehen.
+    simulationModeRef.current = false;
+    setSimulationMode(false);
+    await saveTargets(editState);
+    setBaseline(null);
+  }
+
+  function discardSimulation() {
+    // Verhindert, dass der editState-Effect das gleich folgende Zuruecksetzen
+    // auf die Baseline als faelligen Save interpretiert (waere durch den
+    // saveTargets()-Guard ohnehin harmlos, macht die Absicht aber explizit
+    // statt sich auf die Guard-Reihenfolge zu verlassen).
+    pendingSaveKind.current = null;
+    simulationModeRef.current = false;
+    setSimulationMode(false);
+    if (baseline) setEditState(baseline);
+    setBaseline(null);
+  }
+
+  useEffect(() => {
+    if (!simulationMode || pendingChangeCount === 0) return;
+    function handler(e: BeforeUnloadEvent) {
+      e.preventDefault();
+    }
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [simulationMode, pendingChangeCount]);
+
   const totalCount = editState.length;
 
   return (
@@ -382,14 +445,47 @@ export default function WunschkaderTab({
         )}
       </div>
 
-      <div className="mb-6 flex items-center gap-3">
-        {saveStatus.kind === "saving" && (
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        {!simulationMode && (
+          <button
+            type="button"
+            onClick={enterSimulationMode}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Planungsmodus starten
+          </button>
+        )}
+        {simulationMode && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800 dark:bg-amber-950/40">
+            <span className="font-medium text-amber-800 dark:text-amber-300">
+              Planungsmodus aktiv — Änderungen werden erst beim Speichern übernommen
+            </span>
+            <span className="text-amber-700 dark:text-amber-400">
+              {pendingChangeCount} ungespeicherte {pendingChangeCount === 1 ? "Änderung" : "Änderungen"}
+            </span>
+            <button
+              type="button"
+              onClick={discardSimulation}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Verwerfen
+            </button>
+            <button
+              type="button"
+              onClick={commitSimulation}
+              className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              Speichern
+            </button>
+          </div>
+        )}
+        {!simulationMode && saveStatus.kind === "saving" && (
           <span className="text-sm text-slate-500 dark:text-slate-400">Speichere…</span>
         )}
-        {saveStatus.kind === "saved" && (
+        {!simulationMode && saveStatus.kind === "saved" && (
           <span className="text-sm text-emerald-600 dark:text-emerald-400">✓ Gespeichert</span>
         )}
-        {saveStatus.kind === "error" && (
+        {!simulationMode && saveStatus.kind === "error" && (
           <span className="text-sm text-red-600 dark:text-red-400">
             {saveStatus.message}{" "}
             <button type="button" onClick={() => saveTargets(editState)} className="underline hover:no-underline">
