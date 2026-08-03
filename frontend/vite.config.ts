@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // Wird von GitHub Pages unter https://tyrabite.github.io/KickbaseAgent/
@@ -13,5 +13,13 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "node",
+    // tests-e2e/ (Playwright E2E, eigener Runner: `npm run test:e2e`) matcht
+    // sonst zusaetzlich Vitests eigenen Default-Include ("**/*.spec.ts") und
+    // crasht dort mit "Playwright Test did not expect test.describe() to be
+    // called here" (Lueckenfund beim Tages-Dashboard-Merge 2026-08-03, siehe
+    // HEAD-Merge-Commit). tests-ct/ kollidiert bereits nicht (nutzt ".ct.tsx",
+    // matcht Vitests Default-Include gar nicht erst), aber explizit
+    // ausgeschlossen fuer Robustheit gegen kuenftige Konventionsaenderungen.
+    exclude: [...configDefaults.exclude, "tests-e2e/**", "tests-ct/**"],
   },
 });
