@@ -60,26 +60,52 @@ export function statusLabel(statusCode: number | null): string | null {
   return `Status-Code ${statusCode} (Bedeutung in v4-API nicht zweifelsfrei bestätigt)`;
 }
 
-// Eingeplanter Preis fuer ein Ziel: 0 wenn schon im eigenen Kader (bereits
-// bezahlt, nicht nochmal einplanen), sonst das eigene laufende Hoechstgebot
-// falls eins existiert (echte Kickbase-Daten aus dem Transfermarkt-Listing -
-// praeziser als jede Schaetzung), sonst eine Aufschlags-Schaetzung ueber
-// suggestBid() (p75-Perzentil aehnlicher historischer Kaeufe derselben
-// Position, siehe suggestBid() weiter unten), sonst - falls fuer diese
-// Position noch keine Kaufhistorie existiert - der reine Marktwert
-// (User-Feedback 297fc4aa, 2026-08-02: reiner Marktwert ohne jeden Aufschlag
-// war zu optimistisch).
+// Eingeplanter Preis fuer ein Ziel + Metadaten dazu, WORAUS sich der Preis
+// ergeben hat - einzige Quelle fuer beides, damit kein Aufrufer die
+// Prioritaets-Logik nochmal selbst nachbauen muss (Review-Fund, Final-Review
+// 2026-08-02/03: WunschkaderTab.tsx's selectedPlannedPrice hat vorher
+// isOwn/liveBid/suggestBid() ein zweites Mal selbst ausgewertet, nur um die
+// "(Schätzung)"-Beschriftung abzuleiten - genau die Art Duplikation, die eine
+// spaetere Aenderung an der Prioritaet/den Guards hier still von der
+// Anzeige-Logik abkoppeln kann).
+export interface PlannedPrice {
+  price: number | null;
+  source: "own" | "liveBid" | "estimate" | "marketValue";
+  suggestionN: number | null;
+}
+
+// price: 0 wenn schon im eigenen Kader (bereits bezahlt, nicht nochmal
+// einplanen), sonst das eigene laufende Hoechstgebot falls eins existiert
+// (echte Kickbase-Daten aus dem Transfermarkt-Listing - praeziser als jede
+// Schaetzung), sonst eine Aufschlags-Schaetzung ueber suggestBid()
+// (p75-Perzentil aehnlicher historischer Kaeufe derselben Position, siehe
+// suggestBid() weiter unten), sonst - falls fuer diese Position noch keine
+// Kaufhistorie existiert - der reine Marktwert (User-Feedback 297fc4aa,
+// 2026-08-02: reiner Marktwert ohne jeden Aufschlag war zu optimistisch).
+//
+// suggestion.p75 > 0 wird explizit geprueft (Review-Fund, Final-Review
+// 2026-08-02/03, Critical #1): suggestBid() liefert bei market_value: null/0
+// trotzdem ein Nicht-null-Ergebnis (alle Perzentile runden auf 0, da
+// mv = listing.market_value || 0 in suggestBid()), sobald irgendeine
+// gleichpositionierte Kaufhistorie existiert - ohne diesen Guard wuerde ein
+// Spieler mit unbekanntem Marktwert faelschlich "0 (Schätzung)" statt "–"
+// anzeigen (wirkt wie "kostet garantiert nichts" statt "unbekannt"). Derselbe
+// Guard existiert bereits in TransfermarktTab.tsx/SpekulationTab.tsx als
+// hasValidSuggestion; hier zentral, damit er nicht ein drittes/viertes Mal
+// separat gepflegt werden muss.
 export function plannedPriceFor(
   player: { market_value: number | null; position: string; average_points: number | null },
   isOwn: boolean,
   liveBid: number | null,
   bidHistory: BidPremiumEntry[]
-): number | null {
-  if (isOwn) return 0;
-  if (liveBid !== null) return liveBid;
+): PlannedPrice {
+  if (isOwn) return { price: 0, source: "own", suggestionN: null };
+  if (liveBid !== null) return { price: liveBid, source: "liveBid", suggestionN: null };
   const suggestion = suggestBid(player, bidHistory);
-  if (suggestion !== null) return suggestion.p75;
-  return player.market_value;
+  if (suggestion !== null && suggestion.p75 > 0) {
+    return { price: suggestion.p75, source: "estimate", suggestionN: suggestion.n };
+  }
+  return { price: player.market_value, source: "marketValue", suggestionN: null };
 }
 
 const NEXT_MARKET_VALUE_UPDATE_HOUR = 22;
@@ -418,7 +444,7 @@ export function buildBudgetPlan(params: {
     // passende Historie).
     const player = players[t.player_id] ?? { market_value: null, position: "", average_points: null };
     const liveBid = liveBidFor(t.player_id, listingsByPlayerId);
-    return sum + (plannedPriceFor(player, isOwn, liveBid, bidHistory) || 0);
+    return sum + (plannedPriceFor(player, isOwn, liveBid, bidHistory).price || 0);
   }, 0);
   return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
 }

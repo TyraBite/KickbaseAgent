@@ -3,7 +3,7 @@ import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
-import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, plannedPriceFor, suggestBid, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
+import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, plannedPriceFor, type AlleSpielerRow, type BudgetPlan, type PlannedPrice } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { canAddStarter, matchedFormation, POSITIONS, type Position, type PositionCounts } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
@@ -211,23 +211,20 @@ export default function WunschkaderTab({
   // liveBidFor()/plannedPriceFor() (derive.ts) - dieselben Funktionen, die
   // buildBudgetPlan() intern nutzt, damit Kachel-Einzelpreis und Budget-Summe
   // garantiert nie divergieren (Review-Fund 2026-07-29: vorher war der
-  // Live-Gebots-Ausdruck hier separat dupliziert). Jetzt ein kleines Objekt
-  // statt nur einer Zahl (Feedback 297fc4aa, 2026-08-02): die Detailansicht
-  // muss zwischen "echte Zahl" (isOwn/liveBid) und "Schaetzung" (suggestBid()
-  // p75) unterscheiden koennen, um denselben Zusatztext wie Transfermarkt/
-  // Spekulation zu zeigen.
+  // Live-Gebots-Ausdruck hier separat dupliziert). plannedPriceFor() liefert
+  // seit dem Final-Review (2026-08-02/03, Minor #3) direkt Preis + Quelle +
+  // Stichprobengroesse in einem Objekt zurueck - diese Stelle ruft
+  // suggestBid()/isOwn/liveBid NICHT mehr selbst ein zweites Mal auf, um die
+  // "(Schätzung)"-Beschriftung abzuleiten (das war das Duplikations-Risiko,
+  // das den fehlenden p75>0-Guard erst unbemerkt durchrutschen liess).
   const selectedPlannedPrice = useMemo(() => {
-    const empty = { price: null as number | null, isEstimate: false, suggestionN: null as number | null };
-    if (!selected) return empty;
+    if (!selected) return { price: null, source: "marketValue" as const, suggestionN: null };
     const computed = resolvedByPlayerId.get(selected.player_id);
-    if (!computed) return empty;
+    if (!computed) return { price: null, source: "marketValue" as const, suggestionN: null };
     const isOwn = ownSquadIds.has(selected.player_id);
     const liveBid = liveBidFor(selected.player_id, listingsByPlayerId);
     const bidHistory = data.bid_premium_history ?? [];
-    const price = plannedPriceFor(computed, isOwn, liveBid, bidHistory);
-    if (isOwn || liveBid !== null) return { price, isEstimate: false, suggestionN: null };
-    const suggestion = suggestBid(computed, bidHistory);
-    return { price, isEstimate: suggestion !== null, suggestionN: suggestion?.n ?? null };
+    return plannedPriceFor(computed, isOwn, liveBid, bidHistory);
   }, [selected, resolvedByPlayerId, listingsByPlayerId, ownSquadIds, data.bid_premium_history]);
 
   function toggleBench(uid: number) {
@@ -567,7 +564,7 @@ function DetailModal({
 }: {
   target: EditTarget;
   computed: ResolvedTarget;
-  plannedPrice: { price: number | null; isEstimate: boolean; suggestionN: number | null };
+  plannedPrice: PlannedPrice;
   thresholds: DashboardSnapshot["signal_thresholds"];
   mae: number | null;
   mae3d: number | null;
@@ -654,9 +651,9 @@ function DetailModal({
           ) : (
             <Row label="Geplanter Preis">
               {fmtNum(plannedPrice.price)}
-              {plannedPrice.isEstimate && plannedPrice.suggestionN !== null && plannedPrice.suggestionN < MIN_N_FOR_PERCENTILE_SPREAD ? (
+              {plannedPrice.source === "estimate" && plannedPrice.suggestionN !== null && plannedPrice.suggestionN < MIN_N_FOR_PERCENTILE_SPREAD ? (
                 <span className="text-slate-400 dark:text-slate-500"> (geringe Datenbasis, n={plannedPrice.suggestionN})</span>
-              ) : plannedPrice.isEstimate ? (
+              ) : plannedPrice.source === "estimate" ? (
                 <span className="text-slate-400 dark:text-slate-500"> (Schätzung)</span>
               ) : null}
             </Row>
@@ -815,6 +812,10 @@ function BudgetPlanCard({ plan }: { plan: BudgetPlan }) {
           <div className={`font-semibold tabular-nums ${remainingTone}`}>{fmtNum(plan.remaining)}</div>
         </div>
       </div>
+      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+        Eingeplant enthält für Ziele ohne eigenes Live-Gebot eine p75-Aufschlagsschätzung aus ähnlichen historischen
+        Käufen (siehe Detailansicht).
+      </p>
     </div>
   );
 }
