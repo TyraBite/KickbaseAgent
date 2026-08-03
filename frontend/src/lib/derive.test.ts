@@ -197,6 +197,48 @@ describe("buildBudgetPlan", () => {
     expect(plan.committed).toBe(expectedEstimate);
     expect(plan.committed).not.toBe(players.p1.market_value);
   });
+
+  it("computes sell_proceeds/pool/cash/remaining correctly when a sell candidate AND a live bid on a target both exist", () => {
+    const players: Record<string, PlayerRecord> = {
+      // Im eigenen Kader, aber NICHT unter den Zielen -> Verkaufskandidat.
+      p1: {
+        player_id: "p1", name: "Verkaufskandidat", position: "Abwehr", team_name: null,
+        status_code: null, starting_rank: null, market_value: 800_000, average_points: 120,
+      },
+      // Ziel, nicht im eigenen Kader, hat ein laufendes eigenes Hoechstgebot.
+      p2: {
+        player_id: "p2", name: "Wunschziel", position: "Mittelfeld", team_name: null,
+        status_code: null, starting_rank: null, market_value: 500_000, average_points: 150,
+      },
+    };
+    const targets: RawWunschkaderTarget[] = [{ player_id: "p2", role: "Starter" }];
+    const listingsByPlayerId = new Map([
+      [
+        "p2",
+        {
+          player_id: "p2", price: 650_000, price_delta_pct: null, offering_username: null,
+          is_system_offer: false, leading_bid_price: 600_000, is_own_leading_bid: true,
+          listed_at: null, expires_at: null, expiry_is_estimate: false,
+        },
+      ],
+    ]);
+
+    const plan = buildBudgetPlan({
+      players,
+      ownSquadIds: new Set(["p1"]),
+      targets,
+      ownBudgetExact: 2_000_000,
+      listingsByPlayerId,
+      bidHistory: [],
+    });
+
+    expect(plan.cash).toBe(2_000_000);
+    expect(plan.sell_rows).toEqual([{ player_id: "p1", market_value: 800_000 }]);
+    expect(plan.sell_proceeds).toBe(800_000);
+    expect(plan.pool).toBe(2_800_000); // cash + sell_proceeds
+    expect(plan.committed).toBe(600_000); // liveBid hat Vorrang vor jeder Schaetzung
+    expect(plan.remaining).toBe(2_200_000); // pool - committed
+  });
 });
 
 describe("buildDashboardSellCandidates", () => {
