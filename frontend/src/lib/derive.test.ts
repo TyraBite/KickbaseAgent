@@ -72,6 +72,33 @@ describe("signalFor", () => {
   });
 });
 
+describe("nextUpdateCutoff", () => {
+  // DST-Regressionstest fuer Commit 779b413 (derive.ts: DST-Cutoff-Bug gefixt).
+  // Der Bug: der UTC-Offset wurde nur EINMAL an `now` aufgeloest - an den zwei
+  // jaehrlichen Umstellungstagen weicht der Offset von `now` aber vom Offset
+  // des Cutoffs (22 Uhr desselben Tages) ab, das ergab bis zu 1h Abweichung.
+
+  it("resolves the correct 22:00 Berlin cutoff across the spring-forward transition (2026-03-29, CET->CEST)", () => {
+    // now = kurz vor der Umstellung (01:30 CET, Umstellung selbst um 02:00->03:00
+    // CEST via 01:00 UTC). Der Cutoff liegt am selben Tag um 22:00 Uhr - zu diesem
+    // Zeitpunkt gilt bereits CEST (UTC+2), also 20:00 UTC. Der alte, nur an `now`
+    // aufgeloeste Offset (CET, UTC+1) haette faelschlich 21:00 UTC (23:00 CEST,
+    // 1h zu spaet) geliefert.
+    const now = new Date("2026-03-29T00:30:00Z");
+    expect(nextUpdateCutoff(now)).toEqual(new Date("2026-03-29T20:00:00Z"));
+  });
+
+  it("resolves the correct 22:00 Berlin cutoff across the fall-back transition (2026-10-25, CEST->CET)", () => {
+    // now = kurz vor der Umstellung (02:30 CEST, Umstellung selbst um 03:00->02:00
+    // CET via 01:00 UTC). Der Cutoff liegt am selben Tag um 22:00 Uhr - zu diesem
+    // Zeitpunkt gilt bereits CET (UTC+1), also 21:00 UTC. Der alte, nur an `now`
+    // aufgeloeste Offset (CEST, UTC+2) haette faelschlich 20:00 UTC (21:00 CET,
+    // 1h zu frueh) geliefert.
+    const now = new Date("2026-10-25T00:30:00Z");
+    expect(nextUpdateCutoff(now)).toEqual(new Date("2026-10-25T21:00:00Z"));
+  });
+});
+
 describe("plannedPriceFor", () => {
   const player = { market_value: 1_000_000, position: "Sturm", average_points: 250 };
   const bidHistory: BidPremiumEntry[] = [
