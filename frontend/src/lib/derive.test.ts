@@ -169,6 +169,80 @@ describe("plannedPriceFor", () => {
   });
 });
 
+describe("suggestBid", () => {
+  it("computes p50/p75/p90 as distinct percentiles from an n>=MIN_N_FOR_PERCENTILE_SPREAD same-position history", () => {
+    const listing = { position: "Abwehr", market_value: 500_000, average_points: 100 };
+    // Alle 8 Eintraege haben dieselbe market_value_then/average_points_then wie das
+    // Listing -> distance 0 fuer alle, stabile Sortierung erhaelt die hier bereits
+    // aufsteigend sortierte premium_pct-Reihenfolge.
+    const history: BidPremiumEntry[] = [0.01, 0.03, 0.05, 0.07, 0.09, 0.11, 0.13, 0.15].map((premium_pct, i) => ({
+      player_id: `hist${i}`, position: "Abwehr", market_value_then: 500_000, average_points_then: 100,
+      premium_pct, purchased_at: "2026-01-01T00:00:00Z",
+    }));
+
+    const result = suggestBid(listing, history);
+    expect(result).not.toBeNull();
+    expect(result!.n).toBe(8);
+    expect(result!.n).toBeGreaterThanOrEqual(MIN_N_FOR_PERCENTILE_SPREAD);
+    // pct(0.5) -> index floor(0.5*7)=3 -> premiums[3]=0.07 -> round(500_000*1.07)
+    expect(result!.p50).toBe(535_000);
+    // pct(0.75) -> index floor(0.75*7)=5 -> premiums[5]=0.11 -> round(500_000*1.11)
+    expect(result!.p75).toBe(555_000);
+    // pct(0.9) -> index floor(0.9*7)=6 -> premiums[6]=0.13 -> round(500_000*1.13)
+    expect(result!.p90).toBe(565_000);
+    expect(new Set([result!.p50, result!.p75, result!.p90]).size).toBe(3); // alle drei unterscheiden sich
+  });
+
+  it("only considers the k nearest-by-distance entries, ignoring far-away history even if it exists", () => {
+    const listing = { position: "Sturm", market_value: 1_000_000, average_points: 200 };
+    const history: BidPremiumEntry[] = [
+      // distance 0 (identisch zum Listing).
+      { player_id: "close1", position: "Sturm", market_value_then: 1_000_000, average_points_then: 200, premium_pct: 0.10, purchased_at: "2026-01-01T00:00:00Z" },
+      // distance 0.1 (leicht abweichend).
+      { player_id: "close2", position: "Sturm", market_value_then: 1_050_000, average_points_then: 210, premium_pct: 0.20, purchased_at: "2026-01-02T00:00:00Z" },
+      // distance 5.5 (weit entfernt) - darf bei k=2 NICHT in die Perzentile einfliessen,
+      // obwohl sein premium_pct (0.99) das Ergebnis stark verzerren wuerde.
+      { player_id: "far", position: "Sturm", market_value_then: 3_000_000, average_points_then: 900, premium_pct: 0.99, purchased_at: "2026-01-03T00:00:00Z" },
+    ];
+
+    const result = suggestBid(listing, history, 2);
+    expect(result).not.toBeNull();
+    expect(result!.n).toBe(2); // nur die 2 naechstliegenden, nicht alle 3 Eintraege
+    // n=2 kollabiert alle Perzentile auf denselben Index (premiums[0]=0.10).
+    expect(result!.p50).toBe(1_100_000);
+    expect(result!.p75).toBe(1_100_000);
+    expect(result!.p90).toBe(1_100_000);
+    // Waere der weit entfernte Eintrag mit eingeflossen, laege p90 bei round(1_000_000*1.99)=1_990_000.
+    expect(result!.p90).not.toBe(1_990_000);
+  });
+
+  it("flags a low data basis (n < MIN_N_FOR_PERCENTILE_SPREAD) via a small suggestionN, percentiles collapse to one value", () => {
+    const listing = { position: "Torwart", market_value: 300_000, average_points: 50 };
+    const history: BidPremiumEntry[] = [0.02, 0.06, 0.10].map((premium_pct, i) => ({
+      player_id: `tw${i}`, position: "Torwart", market_value_then: 300_000, average_points_then: 50,
+      premium_pct, purchased_at: "2026-01-01T00:00:00Z",
+    }));
+
+    const result = suggestBid(listing, history);
+    expect(result).not.toBeNull();
+    expect(result!.n).toBe(3);
+    expect(result!.n).toBeLessThan(MIN_N_FOR_PERCENTILE_SPREAD); // "geringe Datenbasis"
+    // n=3 -> (n-1)=2, floor(0.5*2)=1, floor(0.75*2)=1, floor(0.9*2)=1 -> alle 3 Perzentile identisch.
+    expect(result!.p50).toBe(318_000);
+    expect(result!.p75).toBe(318_000);
+    expect(result!.p90).toBe(318_000);
+  });
+
+  it("returns null when no history entry matches the listing's position", () => {
+    const listing = { position: "Sturm", market_value: 1_000_000, average_points: 200 };
+    const otherPosition: BidPremiumEntry[] = [
+      { player_id: "gk1", position: "Torwart", market_value_then: 500_000, average_points_then: 100, premium_pct: 0.05, purchased_at: "2026-01-01T00:00:00Z" },
+    ];
+    expect(suggestBid(listing, otherPosition)).toBeNull();
+    expect(suggestBid(listing, [])).toBeNull();
+  });
+});
+
 describe("buildBudgetPlan", () => {
   it("uses suggestBid()'s p75 estimate for committed, not the raw market_value, when no liveBid exists", () => {
     const players: Record<string, PlayerRecord> = {
