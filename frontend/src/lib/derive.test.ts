@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSearchText, plannedPriceFor, suggestBid } from "./derive";
-import type { BidPremiumEntry } from "../types";
+import { buildBudgetPlan, normalizeSearchText, plannedPriceFor, suggestBid } from "./derive";
+import type { BidPremiumEntry, PlayerRecord, RawWunschkaderTarget } from "../types";
 
 describe("normalizeSearchText", () => {
   it("lowercases plain ASCII", () => {
@@ -50,5 +50,35 @@ describe("plannedPriceFor", () => {
       { player_id: "hist4", position: "Torwart", market_value_then: 500_000, average_points_then: 150, premium_pct: 0.03, purchased_at: "2026-01-04T00:00:00Z" },
     ];
     expect(plannedPriceFor(player, false, null, otherPositionHistory)).toBe(player.market_value);
+  });
+});
+
+describe("buildBudgetPlan", () => {
+  it("uses suggestBid()'s p75 estimate for committed, not the raw market_value, when no liveBid exists", () => {
+    const players: Record<string, PlayerRecord> = {
+      p1: {
+        player_id: "p1", name: "Test Stuermer", position: "Sturm", team_name: null,
+        status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 250,
+      },
+    };
+    const bidHistory: BidPremiumEntry[] = [
+      { player_id: "hist1", position: "Sturm", market_value_then: 900_000, average_points_then: 240, premium_pct: 0.05, purchased_at: "2026-01-01T00:00:00Z" },
+      { player_id: "hist2", position: "Sturm", market_value_then: 1_100_000, average_points_then: 260, premium_pct: 0.08, purchased_at: "2026-01-02T00:00:00Z" },
+      { player_id: "hist3", position: "Sturm", market_value_then: 950_000, average_points_then: 245, premium_pct: 0.1, purchased_at: "2026-01-03T00:00:00Z" },
+    ];
+    const targets: RawWunschkaderTarget[] = [{ player_id: "p1", role: "Starter" }];
+
+    const plan = buildBudgetPlan({
+      players,
+      ownSquadIds: new Set(),
+      targets,
+      ownBudgetExact: 5_000_000,
+      listingsByPlayerId: new Map(),
+      bidHistory,
+    });
+
+    const expectedEstimate = suggestBid(players.p1, bidHistory)!.p75;
+    expect(plan.committed).toBe(expectedEstimate);
+    expect(plan.committed).not.toBe(players.p1.market_value);
   });
 });

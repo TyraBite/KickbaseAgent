@@ -390,8 +390,9 @@ export function buildBudgetPlan(params: {
   targets: RawWunschkaderTarget[];
   ownBudgetExact: number | null;
   listingsByPlayerId: ReadonlyMap<string, TransfermarktListing>;
+  bidHistory: BidPremiumEntry[];
 }): BudgetPlan {
-  const { players, ownSquadIds, targets, ownBudgetExact, listingsByPlayerId } = params;
+  const { players, ownSquadIds, targets, ownBudgetExact, listingsByPlayerId, bidHistory } = params;
   // Verkaufserloese: nicht aus einer separaten, manuell gepflegten Liste
   // (Bug, gefunden 2026-07-29, siehe WunschkaderTab.tsx), sondern automatisch
   // aus dem eigenen Kader abgeleitet - jeder Spieler im eigenen Kader, der
@@ -410,9 +411,14 @@ export function buildBudgetPlan(params: {
   const committed = targets.reduce((sum, t) => {
     const isOwn = ownSquadIds.has(t.player_id);
     if (isOwn) return sum;
-    const marketValue = players[t.player_id]?.market_value ?? null;
+    // players[t.player_id] kann fehlen (Ziel-player_id nicht in der players-Map,
+    // siehe resolveTarget()'s "Nicht gefunden"-Fall) - das Fallback-Objekt haelt
+    // plannedPriceFor()'s Signatur ein und landet beim selben Marktwert-null-
+    // Ergebnis wie vorher (suggestBid() findet fuer position: "" nie eine
+    // passende Historie).
+    const player = players[t.player_id] ?? { market_value: null, position: "", average_points: null };
     const liveBid = liveBidFor(t.player_id, listingsByPlayerId);
-    return sum + (plannedPriceFor(marketValue, isOwn, liveBid) || 0);
+    return sum + (plannedPriceFor(player, isOwn, liveBid, bidHistory) || 0);
   }, 0);
   return { cash, sell_rows: sellRows, sell_proceeds: sellProceeds, pool, committed, remaining: pool - committed };
 }
