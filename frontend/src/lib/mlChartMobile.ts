@@ -9,3 +9,11 @@ export function nearestTrendIndex(relX: number, plotW: number, padLeft: number, 
   const i = Math.round(((relX - padLeft) / plotW) * (pointCount - 1));
   return Math.min(Math.max(i, 0), pointCount - 1);
 }
+
+// Haelt die linke Tooltip-Position (in % der Container-Breite) innerhalb
+// [0, 100 - tooltipWidthPercent], damit der Tooltip nie ueber den rechten
+// (oder bei sehr breitem Tooltip: linken) Rand hinausragt.
+export function clampTooltipLeftPercent(pointXPercent: number, tooltipWidthPercent: number): number {
+  const maxLeft = Math.max(0, 100 - tooltipWidthPercent);
+  return Math.min(Math.max(pointXPercent, 0), maxLeft);
+}
