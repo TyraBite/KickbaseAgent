@@ -210,15 +210,22 @@ def get_activities_feed(token: str, league_id: str, max_entries: int = 5000) -> 
     """Liga-Activity-Feed (Trades, Login-Boni, Achievements) - Basis fuer die
     Budget-Schaetzung anderer Manager in src/manager_budgets.py.
 
-    UNBESTAETIGT gegen echte Daten (aus einem fremden Referenz-Client
-    uebernommen, siehe github.com/LennardFe/Kickbase-Trading-Advisor):
+    Teilweise UNBESTAETIGT gegen echte Daten (aus einem fremden Referenz-
+    Client uebernommen, siehe github.com/LennardFe/Kickbase-Trading-Advisor):
     Response hat Feld "af" (Liste). Jeder Eintrag hat "t" (Activity-Typ) und
-    "dt" (Datum). Typ 15 = Trade mit "data.byr" (Kaeufer-User-Id),
-    "data.slr" (Verkaeufer-User-Id), "data.trp" (Preis) - fehlt "byr" war es
+    "dt" (Datum). Typ 15 = Trade mit "data.trp" (Preis) - fehlt "byr" war es
     ein Systemverkauf, fehlt "slr" ein Systemkauf. Typ 22 = Login-Bonus mit
     "data.bn" (Betrag). Typ 26 = Achievement mit "data.t" (Achievement-Id).
-    Vor Vertrauen: rohes JSON eines echten Laufs ausgeben und Typen/Felder
-    gegenchecken."""
+
+    "data.byr"/"data.slr" sind KEINE User-Ids, sondern bereits die
+    aufgeloesten Manager-Anzeigenamen als String - unabhaengig bestaetigt an
+    echten Daten am 27.07.2026 (siehe src/manager_budgets.py, Modul-
+    Docstring) und erneut am 03.08.2026 (siehe
+    src/dashboard_export.py._build_recent_transfers()). Der Name matcht
+    exakt das "name"-Feld aus der Liga-Ranking-Response.
+
+    Alles andere hier ist weiterhin unbestaetigt: vor Vertrauen rohes JSON
+    eines echten Laufs ausgeben und Typen/Felder gegenchecken."""
     response = requests.get(
         f"{BASE_URL}/v4/leagues/{league_id}/activitiesFeed",
         headers=_headers(token),

@@ -87,7 +87,7 @@ const TAB_ICON: Record<string, (props: import("react").SVGProps<SVGSVGElement>) 
 
 // Reload ist der einzige Weg an frische Daten zu kommen (Client pollt nicht,
 // reiner Pull) - der zuletzt offene Tab soll dabei erhalten bleiben, statt
-// immer auf einen festen Tab zurueckzufallen. "team" (Eigenes Team) ist der
+// immer auf einen festen Tab zurueckzufallen. "dashboard" ist der
 // Fallback, wenn noch nichts gespeichert ist oder der gespeicherte Tab nicht
 // (mehr) existiert.
 const ACTIVE_TAB_STORAGE_KEY = "kickbaseagent_active_tab";
