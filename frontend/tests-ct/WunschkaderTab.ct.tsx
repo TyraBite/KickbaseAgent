@@ -34,3 +34,55 @@ test.describe("Bug A - Add-Dialog ohne Positions-Zwang", () => {
     await expect(bankGrid.getByText(FIXTURE_PLAYERS.torwart.name)).toBeVisible();
   });
 });
+
+test.describe("Bug B - Vorschlaege vs. Freitext im Wechsel-Dialog", () => {
+  async function openWechsel(mount: Parameters<Parameters<typeof test>[1]>[0]["mount"]) {
+    const component = await mount(
+      <WunschkaderTab
+        data={buildFixtureSnapshot()}
+        wunschkader={{ targets: [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }] }}
+        onSaved={() => {}}
+      />
+    );
+    await component.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
+    await component.getByRole("button", { name: "Wechsel" }).click();
+    return component;
+  }
+
+  test("Vorschlag-Chip oeffnet weiterhin zuerst den Vergleich, tauscht nicht direkt", async ({ mount }) => {
+    const component = await openWechsel(mount);
+
+    await component.getByRole("button", { name: new RegExp(FIXTURE_PLAYERS.suggestion1.name) }).click();
+
+    await expect(component.getByText("Diesen als Ersatz wählen").first()).toBeVisible();
+    await expect(component.getByText(FIXTURE_PLAYERS.target.name).first()).toBeVisible();
+  });
+
+  test("Freitext-Ergebnis (Hauptlabel) tauscht direkt, ohne den Vergleich zu oeffnen", async ({ mount }) => {
+    const component = await openWechsel(mount);
+
+    await component.getByPlaceholder("Anderen freien Spieler gleicher Position suchen…").fill("Weitweg");
+    await component.getByRole("button", { name: new RegExp(FIXTURE_PLAYERS.searchOnly.name) }).click();
+
+    await expect(component.getByText("Diesen als Ersatz wählen")).toHaveCount(0);
+
+    const abwehrHeading = component.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await expect(abwehrGrid.getByText(FIXTURE_PLAYERS.searchOnly.name)).toBeVisible();
+    await expect(abwehrGrid.getByText(FIXTURE_PLAYERS.target.name)).toHaveCount(0);
+  });
+
+  test("Freitext-Ergebnis 'Vergleichen'-Button oeffnet den Vergleich, ohne zu tauschen", async ({ mount }) => {
+    const component = await openWechsel(mount);
+
+    await component.getByPlaceholder("Anderen freien Spieler gleicher Position suchen…").fill("Weitweg");
+    await component.getByRole("button", { name: "Vergleichen", exact: true }).click();
+
+    await expect(component.getByText("Diesen als Ersatz wählen").first()).toBeVisible();
+
+    const abwehrHeading = component.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await expect(abwehrGrid.getByText(FIXTURE_PLAYERS.target.name)).toBeVisible();
+    await expect(abwehrGrid.getByText(FIXTURE_PLAYERS.searchOnly.name)).toHaveCount(0);
+  });
+});
