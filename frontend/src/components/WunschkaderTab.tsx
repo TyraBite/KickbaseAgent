@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import { useDebouncedCallback } from "../lib/useDebouncedCallback";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, normalizeSearchText, plannedPriceFor, type AlleSpielerRow, type BudgetPlan } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
@@ -20,6 +21,10 @@ const MAX_SQUAD_SIZE = 17;
 // tut (User-Feedback f462d415: "ausser es gibt beim Schreiben einen
 // Fehler der sollte angezeigt werden").
 const SAVE_INDICATOR_DISMISS_MS = 2500;
+// Wie lange nach dem letzten Tastendruck in der Notiz gewartet wird, bevor
+// automatisch gespeichert wird - verhindert einen Firestore-Write pro
+// Zeichen (User-Feedback f462d415, "wirkliches Auto-Save").
+const NOTE_SAVE_DEBOUNCE_MS = 800;
 
 type SaveStatus = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string };
 
@@ -232,6 +237,7 @@ export default function WunschkaderTab({
   }
 
   function updateNote(uid: number, note: string) {
+    pendingSaveKind.current = "debounced";
     setEditState((prev) => prev.map((t) => (t._uid === uid ? { ...t, note } : t)));
     setSelected((prev) => (prev && prev._uid === uid ? { ...prev, note } : prev));
   }
@@ -295,12 +301,18 @@ export default function WunschkaderTab({
   // sich aus einem anderen Grund geaendert (z.B. initiales Mount) - nicht
   // speichern", verhindert also einen Auto-Save direkt beim Laden der Seite.
   const pendingSaveKind = useRef<"immediate" | "debounced" | null>(null);
+  const debouncedSaveTargets = useDebouncedCallback(saveTargets, NOTE_SAVE_DEBOUNCE_MS);
 
   useEffect(() => {
-    if (pendingSaveKind.current !== "immediate") return;
+    const kind = pendingSaveKind.current;
+    if (kind === null) return;
     pendingSaveKind.current = null;
-    saveTargets(editState);
-  }, [editState]);
+    if (kind === "immediate") {
+      saveTargets(editState);
+    } else {
+      debouncedSaveTargets(editState);
+    }
+  }, [editState, debouncedSaveTargets]);
 
   const totalCount = editState.length;
 
