@@ -315,6 +315,174 @@ describe("buildBudgetPlan", () => {
   });
 });
 
+describe("buildPlayerRow", () => {
+  const calibration: Calibration = {
+    n: 10,
+    global_k: null,
+    position_k: { Sturm: { k: 5000, n: 10 } },
+  };
+
+  it("builds a full row with computed fairwert/signal and status_label, all optional fields populated", () => {
+    const player: PlayerRecord = {
+      player_id: "p1", name: "Test Spieler", position: "Sturm", team_name: "Bayern",
+      status_code: 1, starting_rank: 2, market_value: 900_000, average_points: 200,
+      market_value_change_7d: 5_000, market_value_low_92d: 800_000, market_value_high_92d: 950_000,
+      ml_prediction: 10_000, ml_prediction_3d: 20_000,
+    };
+    expect(buildPlayerRow(player, calibration)).toEqual({
+      player_id: "p1", name: "Test Spieler", position: "Sturm", team_name: "Bayern",
+      status_label: "Verletzt", starting_rank: 2,
+      market_value: 900_000, market_value_change_7d: 5_000,
+      market_value_low_92d: 800_000, market_value_high_92d: 950_000,
+      average_points: 200,
+      fairwert: 1_000_000, signal: 1.11,
+      ml_prediction: 10_000, ml_prediction_3d: 20_000,
+    });
+  });
+
+  it("defaults every optional field to null when absent from the PlayerRecord", () => {
+    const player: PlayerRecord = {
+      player_id: "p2", name: "Minimal Spieler", position: "Torwart", team_name: null,
+      status_code: null, starting_rank: null, market_value: null, average_points: null,
+    };
+    const row = buildPlayerRow(player, calibration);
+    expect(row.status_label).toBeNull();
+    expect(row.market_value_change_7d).toBeNull();
+    expect(row.market_value_low_92d).toBeNull();
+    expect(row.market_value_high_92d).toBeNull();
+    expect(row.ml_prediction).toBeNull();
+    expect(row.ml_prediction_3d).toBeNull();
+    expect(row.fairwert).toBeNull(); // market_value ist null -> Guard greift
+    expect(row.signal).toBeNull();
+  });
+});
+
+describe("buildTransfermarktRows", () => {
+  it("joins listings against the players map, drops listings for unknown players, copies auction fields through", () => {
+    const players: Record<string, PlayerRecord> = {
+      p1: {
+        player_id: "p1", name: "Gelisteter Spieler", position: "Sturm", team_name: null,
+        status_code: null, starting_rank: null, market_value: 900_000, average_points: 200,
+      },
+    };
+    const now = new Date("2026-08-03T12:00:00Z");
+    const listings: TransfermarktListing[] = [
+      {
+        player_id: "p1", price: 950_000, price_delta_pct: 5.5, offering_username: "RivalManager",
+        is_system_offer: false, leading_bid_price: null, is_own_leading_bid: false,
+        listed_at: "2026-08-03T10:00:00Z", expires_at: "2026-08-03T14:00:00Z", expiry_is_estimate: false,
+      },
+      // Listing fuer einen Spieler, der nicht in der players-Map existiert -> muss rausgefiltert werden.
+      {
+        player_id: "unknown", price: 100_000, price_delta_pct: null, offering_username: null,
+        is_system_offer: true, leading_bid_price: null, is_own_leading_bid: false,
+        listed_at: null, expires_at: null, expiry_is_estimate: false,
+      },
+    ];
+
+    const rows = buildTransfermarktRows(players, listings, null, now);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.player_id).toBe("p1");
+    expect(row.name).toBe("Gelisteter Spieler");
+    expect(row.price).toBe(950_000);
+    expect(row.price_delta_pct).toBe(5.5);
+    expect(row.offering_username).toBe("RivalManager");
+    expect(row.is_system_offer).toBe(false);
+    expect(row.auction_expires_at).toBe("2026-08-03T14:00:00Z");
+    // 2h Restlaufzeit ab now bis expires_at, nicht geschaetzt -> kein "(geschätzt)"-Suffix.
+    expect(row.auction_status).toBe("läuft ab in 2h 0m");
+    expect(row.auction_remaining_seconds).toBe(2 * 60 * 60);
+    // Listing laeuft um 14:00 ab, der naechste 22-Uhr-Cutoff ist noch 8h entfernt ->
+    // die Auktion endet VOR dem Cutoff, also urgent. Nicht critical (2h > 60min-Schwelle).
+    expect(row.auction_urgent).toBe(true);
+    expect(row.auction_critical).toBe(false);
+  });
+});
+
+describe("buildSpekulationRows", () => {
+  it("filters to system offers with a positive roi_pct and sorts descending by roi_pct", () => {
+    const rows = [
+      { player_id: "row1", name: "R1", is_system_offer: true, ml_prediction: 50_000, price: 1_000_000 } as TransfermarktRow,
+      // Nicht is_system_offer -> ausgeschlossen, obwohl roi_pct positiv waere.
+      { player_id: "row2", name: "R2", is_system_offer: false, ml_prediction: 80_000, price: 1_000_000 } as TransfermarktRow,
+      // ml_prediction null -> roiPct() liefert null -> ausgeschlossen.
+      { player_id: "row3", name: "R3", is_system_offer: true, ml_prediction: null, price: 500_000 } as TransfermarktRow,
+      { player_id: "row4", name: "R4", is_system_offer: true, ml_prediction: 200_000, price: 1_000_000 } as TransfermarktRow,
+      // ml_prediction negativ -> roiPct() liefert null (mlPrediction<=0) -> ausgeschlossen.
+      { player_id: "row5", name: "R5", is_system_offer: true, ml_prediction: -10_000, price: 1_000_000 } as TransfermarktRow,
+    ];
+
+    const result = buildSpekulationRows(rows);
+    expect(result.map((r) => r.player_id)).toEqual(["row4", "row1"]);
+    expect(result.map((r) => r.roi_pct)).toEqual([20, 5]);
+  });
+});
+
+describe("buildEigenesTeamSplit", () => {
+  it("splits own-squad players into bleibt (still a target) vs verkaufen (no longer a target, gets sell_signal)", () => {
+    const players: Record<string, PlayerRecord> = {
+      p1: {
+        player_id: "p1", name: "Bleibt-Spieler", position: "Sturm", team_name: null,
+        status_code: null, starting_rank: null, market_value: 900_000, average_points: 200,
+      },
+      p2: {
+        player_id: "p2", name: "Verkaufs-Spieler", position: "Abwehr", team_name: null,
+        status_code: null, starting_rank: null, market_value: 500_000, average_points: 100,
+        ml_prediction: -50_000,
+      },
+    };
+    const targets: RawWunschkaderTarget[] = [{ player_id: "p1", role: "Starter" }];
+
+    const split = buildEigenesTeamSplit(players, ["p1", "p2"], targets, null, 30_000);
+
+    expect(split.bleibt.map((r) => r.player_id)).toEqual(["p1"]);
+    expect(split.bleibt[0].sell_signal).toBeUndefined();
+
+    expect(split.verkaufen.map((r) => r.player_id)).toEqual(["p2"]);
+    // mae=30_000, ml_prediction=-50_000: |−50_000| > 30_000 -> klar "verkaufen" (nicht "unklar").
+    expect(split.verkaufen[0].sell_signal).toBe("verkaufen");
+  });
+});
+
+describe("ownerFor", () => {
+  it("returns 'Eigener Kader' when the player is in the own squad, taking priority over ownedBy", () => {
+    expect(ownerFor("p1", new Set(["p1"]), {})).toBe("Eigener Kader");
+    expect(ownerFor("p1", new Set(["p1"]), { p1: "Jemand Anders" })).toBe("Eigener Kader");
+  });
+
+  it("returns the ownedBy manager name when set and not in the own squad", () => {
+    expect(ownerFor("p2", new Set(), { p2: "Manager Meier" })).toBe("Manager Meier");
+  });
+
+  it("returns 'Frei' when neither in the own squad nor in ownedBy", () => {
+    expect(ownerFor("p3", new Set(), {})).toBe("Frei");
+  });
+});
+
+describe("buildAlleSpielerRows", () => {
+  it("attaches the correct owner category (own squad / ownedBy manager / Frei) to every player", () => {
+    const players: Record<string, PlayerRecord> = {
+      p1: {
+        player_id: "p1", name: "Eigener", position: "Sturm", team_name: null,
+        status_code: null, starting_rank: null, market_value: 900_000, average_points: 200,
+      },
+      p2: {
+        player_id: "p2", name: "Fremdbesitz", position: "Abwehr", team_name: null,
+        status_code: null, starting_rank: null, market_value: 500_000, average_points: 100,
+      },
+      p3: {
+        player_id: "p3", name: "Freier Spieler", position: "Mittelfeld", team_name: null,
+        status_code: null, starting_rank: null, market_value: 300_000, average_points: 80,
+      },
+    };
+    const rows = buildAlleSpielerRows(players, ["p1"], { p2: "Manager Meier" }, null);
+    expect(rows).toHaveLength(3);
+    const owners = Object.fromEntries(rows.map((r) => [r.player_id, r.owner]));
+    expect(owners).toEqual({ p1: "Eigener Kader", p2: "Manager Meier", p3: "Frei" });
+  });
+});
+
 describe("buildDashboardSellCandidates", () => {
   const players = {
     p1: { player_id: "p1", name: "A", position: "Sturm", team_name: null, status_code: null, starting_rank: null, market_value: 1_000_000, average_points: 100, ml_prediction: -50_000, ml_prediction_3d: -100_000 },
