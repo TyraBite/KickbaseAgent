@@ -7,6 +7,7 @@ from src.dashboard_export import (
     _assemble_snapshot,
     _build_ligaanalyse,
     _build_players_map,
+    _build_recent_transfers,
     _build_transfermarkt_listings,
     _build_wunschkader_targets,
     _detect_field_changes,
@@ -978,7 +979,7 @@ class AssembleSnapshotContractTests(unittest.TestCase):
         "ml_metrics", "ml_accuracy_trend", "ml_metrics_3d", "ml_accuracy_trend_3d", "signal_thresholds", "players",
         "bid_premium_history", "bid_premium_outcome_counts", "transfermarkt_listings",
         "own_squad_ids", "owned_by", "wunschkader_targets",
-        "ligaanalyse", "position_need",
+        "ligaanalyse", "position_need", "recent_transfers",
     }
 
     def test_returns_exactly_the_expected_top_level_keys(self):
@@ -1001,6 +1002,55 @@ class AssembleSnapshotContractTests(unittest.TestCase):
             wunschkader_targets=[],
             ligaanalyse_rows=[],
             position_need={},
+            recent_transfers=[],
         )
 
         self.assertEqual(set(result.keys()), self.EXPECTED_KEYS)
+
+
+class BuildRecentTransfersTests(unittest.TestCase):
+    """Live-Check am 2026-08-03 gegen den echten Activity-Feed (siehe
+    task-1-report.md) hat gezeigt: 'dt' ist wie im Plan angenommen ein
+    ISO-8601-UTC-Timestamp mit Z-Suffix (String-Vergleich fuer den Cutoff
+    ist also unveraendert korrekt) - ABER 'data.byr'/'data.slr' sind ENTGEGEN
+    der bisherigen (als unbestaetigt dokumentierten) Annahme in
+    get_activities_feed() bereits die aufgeloesten Manager-Anzeigenamen als
+    String (z.B. "Thommi Kessler"), keine User-Ids. Deckt sich mit
+    manager_budgets.py's _parse_trades()/_replay_trade_ledger(), die
+    dieselben Felder unabhaengig schon per Name statt User-Id verarbeiten.
+    Deshalb hier keine ranking_rows-basierte Id->Name-Aufloesung mehr noetig:
+    buyer/seller kommen direkt aus data.byr/data.slr, eigene Trades werden
+    per Namensvergleich (own_name) ausgeschlossen."""
+
+    PLAYERS_MAP = {
+        "p1": {"player_id": "p1", "name": "Spieler Eins"},
+        "p2": {"player_id": "p2", "name": "Spieler Zwei"},
+    }
+
+    def test_resolves_player_and_manager_names(self):
+        activities = [
+            {"t": 15, "dt": "2026-08-03T10:00:00Z", "data": {"pi": "p1", "byr": "Rivale", "slr": "Ich", "trp": 500000}},
+        ]
+        result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
+        self.assertEqual(result, [
+            {"player_id": "p1", "player_name": "Spieler Eins", "buyer": "Rivale", "seller": "Ich", "price": 500000, "date": "2026-08-03T10:00:00Z"},
+        ])
+
+    def test_marks_system_trade_as_kickbase(self):
+        activities = [
+            {"t": 15, "dt": "2026-08-03T10:00:00Z", "data": {"pi": "p2", "byr": "Rivale", "trp": 300000}},
+        ]
+        result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
+        self.assertEqual(result[0]["seller"], "Kickbase")
+
+    def test_excludes_own_trades(self):
+        activities = [
+            {"t": 15, "dt": "2026-08-03T10:00:00Z", "data": {"pi": "p1", "byr": "Ich", "slr": "Rivale", "trp": 500000}},
+        ]
+        result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name="Ich", cutoff_hours=72)
+        self.assertEqual(result, [])
+
+    def test_excludes_non_trade_activity_types(self):
+        activities = [{"t": 22, "dt": "2026-08-03T10:00:00Z", "data": {"bn": 1000}}]
+        result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
+        self.assertEqual(result, [])

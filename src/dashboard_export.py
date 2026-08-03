@@ -71,6 +71,66 @@ def _count_regulars(starting_ranks) -> int:
 POSITIONS_FOR_NEED = ("Torwart", "Abwehr", "Mittelfeld", "Sturm")
 
 
+TRADE_ACTIVITY_TYPE = 15
+
+
+def _build_recent_transfers(
+    activities: list[dict],
+    players_map: dict,
+    own_name: str | None,
+    cutoff_hours: int = 72,
+) -> list[dict]:
+    """Transfer-Feed fuers Tages-Dashboard - reine Ableitung aus dem bereits
+    fuer bid_premium.py gezogenen Activity-Feed, kein zusaetzlicher
+    Kickbase-API-Call. Eigene Trades werden ausgeschlossen (stehen bereits in
+    der Verkaufen/Kaufen-Sektion des Dashboards).
+
+    Live gegengecheckt am 03.08.2026 (siehe .superpowers/sdd/2026-08-03-
+    tages-dashboard/task-1-report.md): "dt" ist wie angenommen ein ISO-8601-
+    UTC-Timestamp mit Z-Suffix (z.B. "2026-08-03T10:02:09Z") - lexikografischer
+    String-Vergleich fuer den Cutoff ist also korrekt, genau wie in
+    manager_budgets.py._parse_trades() bereits fuer den aehnlichen
+    league_start_date-Cutoff genutzt.
+
+    ABWEICHUNG von der urspruenglich in get_activities_feed() dokumentierten
+    (als "UNBESTAETIGT" markierten) Annahme: "data.byr"/"data.slr" sind KEINE
+    User-Ids, sondern bereits die aufgeloesten Manager-Anzeigenamen als String
+    (bestaetigt an 8 echten Trade-Eintraegen, z.B. "Thommi Kessler"). Das
+    deckt sich mit manager_budgets.py._parse_trades()/_replay_trade_ledger(),
+    die dieselben Felder unabhaengig schon per Name statt User-Id
+    verarbeiten. Deshalb braucht es hier KEINE ranking_rows-basierte
+    Id->Name-Aufloesung mehr (anders als urspruenglich geplant) - buyer/
+    seller werden direkt aus data.byr/data.slr uebernommen ("Kickbase" falls
+    das Feld fehlt = System-Kauf/-Verkauf), eigene Trades werden per
+    Namensvergleich (own_name, z.B. own_budget_row["name"]) ausgeschlossen."""
+    cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=cutoff_hours)).isoformat()
+    result = []
+    for entry in activities:
+        if entry.get("t") != TRADE_ACTIVITY_TYPE:
+            continue
+        dt = entry.get("dt", "")
+        if dt < cutoff:
+            continue
+        data = entry.get("data", {})
+        player_id = data.get("pi")
+        player = players_map.get(player_id)
+        if not player:
+            continue
+        buyer_name = data.get("byr") or "Kickbase"
+        seller_name = data.get("slr") or "Kickbase"
+        if own_name and (buyer_name == own_name or seller_name == own_name):
+            continue
+        result.append({
+            "player_id": player_id,
+            "player_name": player["name"],
+            "buyer": buyer_name,
+            "seller": seller_name,
+            "price": data.get("trp"),
+            "date": dt,
+        })
+    return result
+
+
 def _build_ligaanalyse(
     token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, players_map
 ) -> dict:
@@ -583,6 +643,7 @@ def export() -> dict:
     ligaanalyse_result = _build_ligaanalyse(
         token, league_id, ranking_rows, manager_budget_rows, market_listings, own_squad, players_map,
     )
+    recent_transfers = _build_recent_transfers(activities, players_map, own_name)
 
     data = _assemble_snapshot(
         fetched_at=fetched_at,
@@ -603,6 +664,7 @@ def export() -> dict:
         wunschkader_targets=wunschkader_targets,
         ligaanalyse_rows=ligaanalyse_result["rows"],
         position_need=ligaanalyse_result["position_need"],
+        recent_transfers=recent_transfers,
     )
 
     _finalize_firestore_write(data)
@@ -628,6 +690,7 @@ def _assemble_snapshot(
     wunschkader_targets,
     ligaanalyse_rows,
     position_need,
+    recent_transfers,
 ) -> dict:
     """Isoliert das Snapshot-Key-Set von der Datenbeschaffung (Login/
     Kickbase-API/Firestore) - dadurch kann ein Contract-Test (siehe
@@ -654,6 +717,7 @@ def _assemble_snapshot(
         "wunschkader_targets": wunschkader_targets,
         "ligaanalyse": ligaanalyse_rows,
         "position_need": position_need,
+        "recent_transfers": recent_transfers,
     }
 
 
