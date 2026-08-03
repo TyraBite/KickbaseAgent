@@ -23,6 +23,18 @@ export function trendClass(n: number | null | undefined): string {
   return "text-slate-400 dark:text-slate-500";
 }
 
+// Kapital (own_budget_exact/estimated_budget) kann laut Kickbase-
+// Ueberziehungsregel real negativ sein - kein Fehlerzustand, aber
+// hervorhebungswuerdig. Bewusst kein gruener/brand Ton fuer positive Werte
+// (anders als remainingTone bei "Spielraum" in WunschkaderTab) - nur die
+// negative Hervorhebung ist angefragt. Bewusst kein Wiederverwenden von
+// trendClass() (behandelt 0 als neutral-grau statt "in Ordnung", passt nicht
+// zu einem Kontostand).
+export function budgetTone(n: number | null | undefined): string {
+  if (n !== null && n !== undefined && n < 0) return "text-red-600 dark:text-red-400";
+  return "text-slate-900 dark:text-slate-100";
+}
+
 // Analog zu _format_duration() in src/dashboard_export.py, fuer den
 // client-seitig live nachgerechneten Auktions-Countdown (auction_expires_at).
 export function formatDurationMs(ms: number): string {

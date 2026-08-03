@@ -3,7 +3,7 @@ import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types"
 import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, suggestBid, type TransfermarktRow } from "../lib/derive";
 import { Badge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
-import { fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
+import { budgetTone, fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
 import { useViewMode } from "../lib/useViewMode";
 
 // cost_per_point bewusst weggelassen (redundant zu Signal, schneller Port
@@ -182,7 +182,7 @@ export default function TransfermarktTab({
       <div className="mb-4 flex flex-wrap gap-4 text-sm">
         <div>
           <span className="text-xs text-slate-500 dark:text-slate-400">Kapital</span>{" "}
-          <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{fmtNum(data.own_budget_exact)}</span>
+          <span className={`font-medium tabular-nums ${budgetTone(data.own_budget_exact)}`}>{fmtNum(data.own_budget_exact)}</span>
         </div>
         <div>
           <span className="text-xs text-slate-500 dark:text-slate-400">Budget</span>{" "}

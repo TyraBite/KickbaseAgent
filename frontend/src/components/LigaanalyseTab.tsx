@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DashboardSnapshot, LigaanalyseRow } from "../types";
 import { groupSquadByPosition } from "../lib/derive";
 import { Badge, POSITION_ABBR, POSITION_ICON, Row } from "./ui";
-import { fmtNum } from "../format";
+import { budgetTone, fmtNum } from "../format";
 
 const HINT =
   "Kapital/Budget außer der eigenen Zeile sind Schätzungen aus dem Activity-Feed (siehe MDs/methodik.md). " +
@@ -62,7 +62,9 @@ function LigaanalyseCard({ row, onClick }: { row: LigaanalyseRow; onClick: () =>
         <Row label="Verkaufsangebote">{fmtNum(row.sell_count)}</Row>
         <Row label="Teamwert">{fmtNum(row.team_value)}</Row>
         <Row label="Kaderwert">{fmtNum(row.squad_value)}</Row>
-        <Row label={row.is_self ? "Kapital" : "Kapital (geschätzt)"}>{fmtNum(row.estimated_budget)}</Row>
+        <Row label={row.is_self ? "Kapital" : "Kapital (geschätzt)"}>
+          <span className={budgetTone(row.estimated_budget)}>{fmtNum(row.estimated_budget)}</span>
+        </Row>
         <Row label="Budget">{fmtNum(row.available_budget)}</Row>
       </dl>
     </div>
@@ -111,7 +113,9 @@ function LigaanalyseDetailModal({
         <dl className="mb-4 space-y-1.5 text-sm">
           <Row label="Platz">{fmtNum(row.season_placement)}</Row>
           <Row label="Punkte">{fmtNum(row.season_points)}</Row>
-          <Row label={row.is_self ? "Budget" : "Budget (geschätzt)"}>{fmtNum(row.estimated_budget)}</Row>
+          <Row label={row.is_self ? "Kapital" : "Kapital (geschätzt)"}>
+            <span className={budgetTone(row.estimated_budget)}>{fmtNum(row.estimated_budget)}</span>
+          </Row>
         </dl>
         {groups.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">Keine Kaderdaten verfügbar.</p>

@@ -7,7 +7,7 @@ import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, MIN_N_
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { canAddStarter, matchedFormation, POSITIONS, type Position, type PositionCounts } from "../lib/formations";
 import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
-import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
+import { budgetTone, fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerCompareModal from "./PlayerCompareModal";
 import { IconActionBank, IconActionField, IconActionSwap, IconActionTrash } from "./icons";
@@ -793,7 +793,7 @@ function BudgetPlanCard({ plan }: { plan: BudgetPlan }) {
       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
         <div>
           <div className="text-xs text-slate-500 dark:text-slate-400">Kapital</div>
-          <div className="font-medium tabular-nums text-slate-900 dark:text-slate-100">{fmtNum(plan.cash)}</div>
+          <div className={`font-medium tabular-nums ${budgetTone(plan.cash)}`}>{fmtNum(plan.cash)}</div>
         </div>
         <div>
           <div className="text-xs text-slate-500 dark:text-slate-400">+ Verkaufserlöse</div>
