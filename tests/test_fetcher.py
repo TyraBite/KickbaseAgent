@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from src.fetcher import (
+    _apply_market_value_history,
     _apply_or_reuse_market_value_history,
     _compute_expiry,
     _market_item_to_row,
@@ -111,3 +112,40 @@ class MarketItemToRowLeadingBidTests(unittest.TestCase):
         row = _market_item_to_row(item, {}, {})
         self.assertEqual(row["leading_bid_username"], "Fuehrender")
         self.assertEqual(row["leading_bid_price"], 1_200_000)
+
+
+class ApplyMarketValueHistoryTests(unittest.TestCase):
+    """Direkt gegen die echte Funktion getestet (nicht durch den
+    _apply_or_reuse_market_value_history-Wrapper, der sie in den anderen
+    Tests bereits wegmockt) - deckt den len(entries)>=8-Grenzfall ab."""
+
+    @patch("src.fetcher.get_market_value_history")
+    def test_seven_entries_stays_below_threshold_change_7d_remains_none(self, mock_history):
+        mock_history.return_value = {
+            "it": [{"mv": 1_000_000 + i * 10_000} for i in range(7)],
+            "lmv": 900_000, "hmv": 1_100_000, "idp": False,
+        }
+        row = {"player_id": "p1", "name": "Foo", "market_value_change_7d": None}
+
+        _apply_market_value_history("tok", "l1", row)
+
+        self.assertIsNone(row["market_value_change_7d"])
+        self.assertEqual(row["market_value_low_92d"], 900_000)
+        self.assertEqual(row["market_value_high_92d"], 1_100_000)
+        self.assertEqual(row["market_value_in_drop_phase"], 0)
+
+    @patch("src.fetcher.get_market_value_history")
+    def test_eight_entries_computes_change_7d_from_first_and_last(self, mock_history):
+        mock_history.return_value = {
+            "it": [
+                {"mv": v}
+                for v in [1_000_000, 1_010_000, 1_020_000, 1_030_000, 1_040_000, 1_050_000, 1_060_000, 1_070_000]
+            ],
+            "lmv": 950_000, "hmv": 1_100_000, "idp": True,
+        }
+        row = {"player_id": "p2", "name": "Bar", "market_value_change_7d": None}
+
+        _apply_market_value_history("tok", "l1", row)
+
+        self.assertEqual(row["market_value_change_7d"], 70_000)
+        self.assertEqual(row["market_value_in_drop_phase"], 1)
