@@ -14,7 +14,7 @@
 - Chart zeigt auf Mobile nur die letzten **14** Einträge von `trend` (`trend.slice(-14)`); die "Als Tabelle anzeigen"-Ansicht (`showTable`) bleibt unverändert und zeigt weiterhin die volle Historie.
 - Keine neue Chart-Bibliothek (kein recharts/d3/etc.) — das bestehende handgebaute SVG bleibt.
 - `TOOLTIP_WIDTH_PX = 140` ist ein fester Schätzwert, keine dynamische Messung der tatsächlichen Tooltip-Breite.
-- Desktop-Verhalten bleibt vollständig unverändert: voller Zeitraum, reine Maus-Interaktion, unlimitierte Tooltip-Position.
+- Desktop-Verhalten bleibt größtenteils unverändert: voller Zeitraum, reine Maus-Interaktion. **Korrektur nach finalem Review (echter Browser-Test, 2026-08-03):** die Tooltip-Klemmung wirkt tatsächlich ab Container-Breiten unter ~1210px — vorher lief der Tooltip bei mittleren Desktop-/Tablet-Breiten (z.B. 820px) unbemerkt über den rechten Rand hinaus (`left: 88.4%` bei einem 375-820px-Container). Die Klemmung behebt das (Verbesserung, keine Regression), macht aber die ursprüngliche "unlimitierte Tooltip-Position"-Aussage falsch — nur bei sehr breiten Containern (≥1210px) bleibt der Tooltip tatsächlich unlimitiert.
 - Die zwei neuen pure functions leben in `frontend/src/lib/mlChartMobile.ts` (eigene Datei, nicht in `derive.ts` — thematisch eng an `TrendChart`, nicht app-weite Logik).
 - Touch-Event-Verdrahtung (JSX-Handler) ist ohne echten Browser nicht sinnvoll unit-testbar — Verifikation dafür ist `npm run typecheck` + `npm run build`, nicht vitest.
 
