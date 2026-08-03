@@ -94,6 +94,38 @@ test.describe("DashboardTab - Sektionsreihenfolge nach Kaderlimit", () => {
   });
 });
 
+test.describe("DashboardTab - Verkaufen schliesst Wunschkader-Ziele aus", () => {
+  test("Ein eigener Spieler mit fallender Prognose, der zugleich Wunschkader-Ziel ist, erscheint NICHT in Verkaufen", async ({ mount }) => {
+    const wunschkaderOwnedSellCandidate: PlayerRecord = {
+      ...SELL_PLAYER,
+      player_id: "p-sell-aber-wunschkader",
+      name: "Wanda Wunschkader",
+    };
+    const data = buildFixtureSnapshot({
+      players: {
+        [SELL_PLAYER.player_id]: SELL_PLAYER,
+        [wunschkaderOwnedSellCandidate.player_id]: wunschkaderOwnedSellCandidate,
+      },
+      own_squad_ids: [SELL_PLAYER.player_id, wunschkaderOwnedSellCandidate.player_id],
+    });
+    const targets: RawWunschkaderTarget[] = [
+      ...WUNSCHKADER_TARGETS,
+      { player_id: wunschkaderOwnedSellCandidate.player_id, role: "Starter" },
+    ];
+
+    const component = await mount(
+      <DashboardTab data={data} wunschkader={{ targets }} transfermarktRows={[BUY_ROW]} now={NOW} />
+    );
+
+    // Positiv: der NICHT-Wunschkader-Verkaufskandidat erscheint weiterhin.
+    await expect(component.getByRole("button", { name: new RegExp(SELL_PLAYER.name) })).toBeVisible();
+    // Negativ: der Wunschkader-Ziel-Spieler, obwohl er dieselbe fallende
+    // Prognose hat, taucht in Verkaufen nicht auf (User-Feedback 2026-08-03,
+    // Item 00d627fe).
+    await expect(component.getByRole("button", { name: new RegExp(wunschkaderOwnedSellCandidate.name) })).toHaveCount(0);
+  });
+});
+
 test.describe("DashboardTab - richtiges Detail-Modal je Kartentyp", () => {
   test("Klick auf Verkaufen-Karte oeffnet PlayerDetailModal, nicht TransfermarktDetailModal", async ({ mount }) => {
     const data = buildData([SELL_PLAYER.player_id]);
