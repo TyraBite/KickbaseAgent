@@ -1,11 +1,11 @@
 name: Backend Tests (pytest)
 
-# Erster CI-Lauf ueberhaupt fuer die 290 Backend-Tests (tests/*.py) - vorher
+# Erster CI-Lauf ueberhaupt fuer die Backend-Tests (tests/*.py) - vorher
 # liefen sie nur lokal in Sandbox-Sessions, nie automatisiert. Kein
 # Firebase-Secret noetig: alle Tests laufen gegen Mocks. requirements-news.txt
 # (inkl. CPU-only-Torch) ist noetig, weil src/news_sentiment.py germansentiment
-# unconditional importiert - ohne diesen Schritt wuerden 28 von 290 Tests
-# (tests/test_news_sentiment.py) schon beim Import scheitern.
+# unconditional importiert - ohne diesen Schritt wuerde tests/test_news_sentiment.py
+# schon beim Import scheitern.
 
 on:
   push:

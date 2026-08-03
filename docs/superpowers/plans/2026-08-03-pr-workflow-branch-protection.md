@@ -79,12 +79,18 @@ jobs:
           pip install pytest==<PYTEST_VERSION>
 
       - name: Run tests
-        run: pytest tests/ -v
+        # "python -m pytest" statt bloss "pytest": tests/ hat kein __init__.py,
+        # daher fuegt der bare pytest-Befehl nur tests/ selbst zu sys.path
+        # hinzu, nicht das Repo-Root - "from src.xxx import ..." schlaegt dann
+        # mit ModuleNotFoundError fehl (live in CI verifiziert, urspruenglich
+        # als bare "pytest" ausgefuehrt gewesen und live gefixt). "python -m"
+        # stellt sicher, dass das CWD (Repo-Root) auf sys.path[0] landet.
+        run: python -m pytest tests/ -v
 ```
 
 - [ ] **Step 3: Lokal gegenchecken, dass die Tests mit dieser pytest-Version durchlaufen**
 
-Run: `python3 -m venv /tmp/backend-ci-check && /tmp/backend-ci-check/bin/pip install -r requirements.txt -r requirements-news.txt pytest==<PYTEST_VERSION> 2>&1 | tail -5 && /tmp/backend-ci-check/bin/pytest tests/ -v 2>&1 | tail -20`
+Run: `python3 -m venv /tmp/backend-ci-check && /tmp/backend-ci-check/bin/pip install -r requirements.txt -r requirements-news.txt pytest==<PYTEST_VERSION> 2>&1 | tail -5 && /tmp/backend-ci-check/bin/python -m pytest tests/ -v 2>&1 | tail -20`
 
 (Torch-CPU-Install lokal nicht nötig zu erzwingen — die Sandbox hat ausreichend Platz, ein normaler `pip install -r requirements-news.txt` funktioniert hier auch ohne den CI-spezifischen CPU-only-Trick, der nur in CI wegen Download-Zeit/Kosten relevant ist.)
 
@@ -287,7 +293,7 @@ Expected (Ausgangszustand, zur Doku): `allow_auto_merge: false`, die drei Merge-
 Run:
 ```bash
 gh api -X PATCH repos/TyraBite/KickbaseAgent \
-  -f allow_auto_merge=true \
+  -F allow_auto_merge=true \
   -F allow_merge_commit=false \
   -F allow_rebase_merge=false \
   -F allow_squash_merge=true
