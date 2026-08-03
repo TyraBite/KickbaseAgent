@@ -13,13 +13,11 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "node",
-    // tests-e2e/ (Playwright E2E, eigener Runner: `npm run test:e2e`) matcht
-    // sonst zusaetzlich Vitests eigenen Default-Include ("**/*.spec.ts") und
-    // crasht dort mit "Playwright Test did not expect test.describe() to be
-    // called here" (Lueckenfund beim Tages-Dashboard-Merge 2026-08-03, siehe
-    // HEAD-Merge-Commit). tests-ct/ kollidiert bereits nicht (nutzt ".ct.tsx",
-    // matcht Vitests Default-Include gar nicht erst), aber explizit
-    // ausgeschlossen fuer Robustheit gegen kuenftige Konventionsaenderungen.
+    // tests-e2e/*.spec.ts nutzt Playwrights eigenes test()/describe() (siehe
+    // playwright-e2e.config.ts) - matcht sonst vitests Default-Include-Muster
+    // fuer *.spec.ts und schlaegt fehl, weil Playwrights Test-API nicht
+    // vitest-kompatibel ist. tests-ct/ (*.ct.tsx) kollidiert aktuell nicht mit
+    // vitests Default-Include, aber vorsorglich mit ausgeschlossen.
     exclude: [...configDefaults.exclude, "tests-e2e/**", "tests-ct/**"],
   },
 });
