@@ -36,7 +36,13 @@ export default function DashboardTab({
 
   const squadFull = data.own_squad_ids.length >= MAX_OWNED_SQUAD_SIZE;
 
-  const sellCandidates = buildDashboardSellCandidates(data.players, data.own_squad_ids, data.calibration, mae);
+  // Wunschkader-Ziele sind fest im Kader eingeplant und keine Verkaufs-/
+  // Kapitalanlagen-Kandidaten - schliesst mittlerweile sowohl Verkaufen ALS
+  // AUCH Investment aus (User-Feedback 2026-08-03, Revision der urspruenglichen
+  // "Verkaufen zeigt ALLE eigenen Spieler"-Entscheidung nach Live-Test).
+  const wunschkaderTargetIds = new Set(wunschkader.targets.map((t) => t.player_id));
+  const sellCandidateSquadIds = data.own_squad_ids.filter((pid) => !wunschkaderTargetIds.has(pid));
+  const sellCandidates = buildDashboardSellCandidates(data.players, sellCandidateSquadIds, data.calibration, mae);
   const buyCandidates = buildDashboardBuyCandidates(transfermarktRows, wunschkader.targets);
 
   // Investment betrachtet ALLE eigenen Spieler (nicht nur die sellSignal-
@@ -46,10 +52,6 @@ export default function DashboardTab({
     .map((pid) => data.players[pid])
     .filter((p): p is (typeof data.players)[string] => !!p)
     .map((p) => buildPlayerRow(p, data.calibration));
-  // Investment schliesst Wunschkader-Ziele aus - das sind Spieler, die fest im
-  // Kader eingeplant sind, keine reinen Kapitalanlagen-Verkaufskandidaten
-  // (User-Feedback 2026-08-03, nach dem initialen Dashboard-Merge).
-  const wunschkaderTargetIds = new Set(wunschkader.targets.map((t) => t.player_id));
   const investmentOwnRows = ownPlayerRows.filter((r) => !wunschkaderTargetIds.has(r.player_id));
   // Nur Auktionen, die vor dem naechsten 22-Uhr-Marktwert-Update enden, sind
   // heute noch handlungsrelevant - laeuft eine Auktion erst danach aus, gibt
