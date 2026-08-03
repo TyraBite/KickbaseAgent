@@ -261,6 +261,16 @@ prüfen, nicht davon ausgehen, dass ein lokaler Commit schon gepusht ist.
 - Bei Architekturentscheidungen, mehreren betroffenen Dateien, neuen
   Dependencies oder Refactors: kurz den Plan skizzieren (was, warum), bevor
   Code entsteht. Bei Tippfehlern und Einzeilern einfach machen.
+- **Jedes größere Feature und jeder nicht-triviale Bugfix läuft über
+  Spec + Plan, bevor Code entsteht** — Design/Kontext/Entscheidungen als Spec
+  nach `docs/superpowers/specs/YYYY-MM-DD-<thema>-design.md`, danach die
+  Umsetzung als Task-für-Task-Plan nach `docs/superpowers/plans/YYYY-MM-DD-
+  <thema>.md`. Beide Dokumente werden committet (Doku-Commit, Direkt-Push
+  erlaubt), bevor die eigentliche Umsetzung beginnt. Bei einer reinen
+  Umsetzung ohne offene Design-Fragen (z. B. eine bereits im Chat
+  durchgesprochene, klar gescopte Änderung) reicht ein Plan ohne separate
+  Spec. Ausführung danach bevorzugt subagent-driven (frischer Implementer +
+  Reviewer pro Task), nicht inline im Hauptkontext.
 - Existieren mehrere sinnvolle Wege mit relevanten Konsequenzen: Optionen mit
   Trade-offs nennen statt still einen auszuwählen.
 - **Jeden Plan gegen den echten, aktuellen Code verifizieren, nicht gegen den

@@ -13,9 +13,9 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
 - **ML-Charts mobil kaum lesbar** (`5a182f9d`) — Tooltip-Position/Punktdichte/Zeitraum, braucht Entscheidungen zu
   Mobile-Breakpoints/Sampling.
 
-**Hinweis**: `bef54eff` (Tages-Dashboard) und `89aaaa7d` (Grafische Tab-Indikatoren) sind technisch fertig und live
-(2026-08-03), aber noch nicht auf `status:"done"` gesetzt — der Firestore-Schreibversuch wird vom
-Auto-Mode-Classifier geblockt. Bitte selbst auf `status:"done"` setzen, sobald bestätigt.
+(`bef54eff` Tages-Dashboard und `89aaaa7d` Grafische Tab-Indikatoren sind fertig, live und seit 2026-08-03 auf
+`status:"done"` gesetzt — Firestore-Writes für Status-Änderungen laufen über eine Skript-Datei, nicht inline
+`python3 -c`, siehe [[project_kickbaseagent_firestore_status_write_blocked]].)
 
 ## Technische Schulden
 
