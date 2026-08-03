@@ -13,10 +13,6 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
 - **ML-Charts mobil kaum lesbar** (`5a182f9d`) — Tooltip-Position/Punktdichte/Zeitraum, braucht Entscheidungen zu
   Mobile-Breakpoints/Sampling.
 
-(`bef54eff` Tages-Dashboard und `89aaaa7d` Grafische Tab-Indikatoren sind fertig, live und seit 2026-08-03 auf
-`status:"done"` gesetzt — Firestore-Writes für Status-Änderungen laufen über eine Skript-Datei, nicht inline
-`python3 -c`, siehe [[project_kickbaseagent_firestore_status_write_blocked]].)
-
 ## Technische Schulden
 
 - **`market_predictor.py::_walk_forward_backtest()` hat kein Embargo für Mehrtage-Horizonte** — verzerrt vermutlich
