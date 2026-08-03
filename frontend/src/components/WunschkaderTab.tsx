@@ -14,6 +14,14 @@ import { IconActionBank, IconActionField, IconActionSwap, IconActionTrash } from
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
 const MAX_SQUAD_SIZE = 17;
+// Wie lange die kurze "Gespeichert"-Anzeige nach einem erfolgreichen
+// Auto-Save sichtbar bleibt, bevor sie automatisch verschwindet. Fehler
+// nutzen diesen Timer NICHT - die bleiben stehen, bis der Nutzer etwas
+// tut (User-Feedback f462d415: "ausser es gibt beim Schreiben einen
+// Fehler der sollte angezeigt werden").
+const SAVE_INDICATOR_DISMISS_MS = 2500;
+
+type SaveStatus = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string };
 
 export type EditTarget = RawWunschkaderTarget & { _uid: number };
 
@@ -232,9 +240,20 @@ export default function WunschkaderTab({
     ]);
   }
 
-  const [saveStatus, setSaveStatus] = useState("");
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: "idle" });
 
-  async function handleSave() {
+  // Auto-Save macht den expliziten "Speichern"-Moment ueberfluessig - die
+  // Erfolgsmeldung darf deshalb nur noch ein kurzer, sich selbst
+  // wegraeumender Hinweis sein ("gespeichert reicht", User-Feedback
+  // f462d415), keine dauerhafte Statuszeile mehr. Fehler bleiben bewusst
+  // stehen (kein Timer in diesem Zweig).
+  useEffect(() => {
+    if (saveStatus.kind !== "saved") return;
+    const timer = setTimeout(() => setSaveStatus({ kind: "idle" }), SAVE_INDICATOR_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [saveStatus]);
+
+  async function saveTargets(next: EditTarget[]) {
     // Absicherung gegen die einmalige Migration (migrate_wunschkader_player_ids.py):
     // solange die noch nicht gegen den aktuellen Firestore-Wunschkader-Doc
     // gelaufen ist, kann _build_wunschkader_targets() (dashboard_export.py)
@@ -243,21 +262,23 @@ export default function WunschkaderTab({
     // targets-Array ersetzen und damit die name-Felder unwiderruflich
     // wegwerfen, die das Migrationsskript zum Aufloesen braucht - deshalb
     // lieber hart blockieren als stillschweigend Daten verlieren.
-    if (editState.some((t) => !t.player_id)) {
-      setSaveStatus(
-        "Speichern blockiert: mindestens ein Ziel hat keine player_id (Migration noch nicht gelaufen?) — Firestore-Konsole pruefen."
-      );
+    if (next.some((t) => !t.player_id)) {
+      setSaveStatus({
+        kind: "error",
+        message:
+          "Speichern blockiert: mindestens ein Ziel hat keine player_id (Migration noch nicht gelaufen?) — Firestore-Konsole pruefen.",
+      });
       return;
     }
-    setSaveStatus("Speichere…");
+    setSaveStatus({ kind: "saving" });
     try {
       const updatedAt = new Date().toISOString().slice(0, 10);
-      const targets = editState.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
+      const targets = next.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
       await setDoc(doc(db, "wunschkader", "current"), { targets, updated_at: updatedAt }, { merge: true });
       onSaved(targets);
-      setSaveStatus("Gespeichert - überall sofort sichtbar (auch Eigenes Team), kein Reload nötig. Andere Werte wie Marktwerte/ML-Prognosen für ggf. neu hinzugefügte Spieler folgen weiterhin erst mit dem nächsten Pipeline-Lauf.");
+      setSaveStatus({ kind: "saved" });
     } catch (err) {
-      setSaveStatus("Fehler beim Speichern: " + (err as Error).message);
+      setSaveStatus({ kind: "error", message: "Fehler beim Speichern: " + (err as Error).message });
     }
   }
 
@@ -293,12 +314,25 @@ export default function WunschkaderTab({
       <div className="mb-6 flex items-center gap-3">
         <button
           type="button"
-          onClick={handleSave}
+          onClick={() => saveTargets(editState)}
           className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
         >
           Speichern
         </button>
-        {saveStatus && <span className="text-sm text-slate-500 dark:text-slate-400">{saveStatus}</span>}
+        {saveStatus.kind === "saving" && (
+          <span className="text-sm text-slate-500 dark:text-slate-400">Speichere…</span>
+        )}
+        {saveStatus.kind === "saved" && (
+          <span className="text-sm text-emerald-600 dark:text-emerald-400">✓ Gespeichert</span>
+        )}
+        {saveStatus.kind === "error" && (
+          <span className="text-sm text-red-600 dark:text-red-400">
+            {saveStatus.message}{" "}
+            <button type="button" onClick={() => saveTargets(editState)} className="underline hover:no-underline">
+              Erneut versuchen
+            </button>
+          </span>
+        )}
       </div>
 
       {POSITIONS.map((position) => {
