@@ -280,7 +280,7 @@ export default function TransfermarktTab({
 const selectClass =
   "rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
 
-function TransfermarktDetailModal({
+export function TransfermarktDetailModal({
   row,
   mae,
   mae3d,
@@ -385,7 +385,7 @@ function TransfermarktDetailModal({
   );
 }
 
-function TransfermarktCard({
+export function TransfermarktCard({
   row,
   bidHistory,
   thresholds,
