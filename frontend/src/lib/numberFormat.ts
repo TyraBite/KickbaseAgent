@@ -53,3 +53,29 @@ export function cursorIndexForDigitCount(formatted: string, digitCount: number):
   }
   return formatted.length;
 }
+
+// Entfernt genau die Ziffer an Zeichenposition `digitPosition` in `formatted`
+// und formatiert das Ergebnis neu - fuer den expliziten Backspace/Delete-
+// Tastendruck-Handler in AlleSpielerTab.tsx (MarketValueInput), wenn das
+// zu loeschende Zeichen selbst ein Tausenderpunkt ist. Ein simples
+// formatThousands(rawDigitsAfterDeletion) reicht dafuer nicht: entfernt man
+// nur den Trennpunkt, aendern sich die zugrunde liegenden Ziffern gar nicht -
+// React sieht denselben Wert, rendert nicht neu, und der Cursor springt beim
+// naechsten Tastendruck ans Feldende (Review-Fund, Critical #2). Diese
+// Funktion loescht deshalb stattdessen explizit die dem Trennpunkt
+// benachbarte Ziffer (die tatsaechliche Nutzerabsicht bei Backspace/Delete
+// neben einem Trennpunkt).
+//
+// `digitPosition` muss auf eine Ziffer in `formatted` zeigen (nicht auf den
+// Trennpunkt selbst) - der Aufrufer waehlt je nach Richtung die Ziffer vor
+// (Backspace) bzw. nach (Delete) dem Trennpunkt.
+export function deleteDigitAt(formatted: string, digitPosition: number): { formatted: string; cursorIndex: number } {
+  const digits = formatted.replace(/\D/g, "");
+  const digitOrdinal = digitCountBefore(formatted, digitPosition);
+  if (digitOrdinal < 0 || digitOrdinal >= digits.length) {
+    return { formatted, cursorIndex: formatted.length };
+  }
+  const newDigits = digits.slice(0, digitOrdinal) + digits.slice(digitOrdinal + 1);
+  const newFormatted = formatThousands(newDigits);
+  return { formatted: newFormatted, cursorIndex: cursorIndexForDigitCount(newFormatted, digitOrdinal) };
+}

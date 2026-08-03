@@ -115,6 +115,15 @@ export default function WunschkaderTab({
   const [editState, setEditState] = useState<EditTarget[]>(() =>
     (wunschkader.targets ?? []).map((t) => ({ ...t, _uid: nextUid++ }))
   );
+  // Immer der aktuellste editState-Stand, synchron waehrend des Renders
+  // gepflegt (kein useEffect) - Grundlage fuer den debounced Notiz-Save
+  // unten, der bei Feuern NICHT den zum Aufrufzeitpunkt eingefangenen
+  // (potenziell veralteten) Stand schreiben darf, sondern immer den
+  // neuesten (Review-Fund: ein spaeterer Sofort-Save (Bank-Toggle/Entfernen/
+  // Tauschen) innerhalb der 800ms-Debounce-Zeit wurde durch den verspaetet
+  // feuernden Notiz-Save wieder ueberschrieben - stale write).
+  const latestEditStateRef = useRef(editState);
+  latestEditStateRef.current = editState;
   const [selected, setSelected] = useState<EditTarget | null>(null);
   const [addDialog, setAddDialog] = useState<{ presetPosition: Position | null } | null>(null);
 
@@ -263,6 +272,10 @@ export default function WunschkaderTab({
     return () => clearTimeout(timer);
   }, [saveStatus]);
 
+  // Monoton steigende Sequenznummer fuer in-flight saveTargets()-Aufrufe -
+  // siehe Kommentar in saveTargets() unten.
+  const saveSeqRef = useRef(0);
+
   async function saveTargets(next: EditTarget[]) {
     // Absicherung gegen die einmalige Migration (migrate_wunschkader_player_ids.py):
     // solange die noch nicht gegen den aktuellen Firestore-Wunschkader-Doc
@@ -280,14 +293,24 @@ export default function WunschkaderTab({
       });
       return;
     }
+    // Sequenznummer VOR dem await einfangen - falls waehrend dieses Writes
+    // (Netzwerk-Latenz) bereits ein neuerer saveTargets()-Aufruf gestartet
+    // wurde, darf dieser hier bei Abschluss NICHT mehr onSaved()/setSaveStatus()
+    // aufrufen: ein langsamerer, aelterer Write, der nach einem schnelleren,
+    // neueren Write ankommt, wuerde sonst veraltete Daten an den Parent
+    // durchreichen (Review-Fund, Important #3) bzw. eine erfolgreiche neuere
+    // Meldung mit dem Fehler/Erfolg des aelteren Writes uebermalen.
+    const seq = ++saveSeqRef.current;
     setSaveStatus({ kind: "saving" });
     try {
       const updatedAt = new Date().toISOString().slice(0, 10);
       const targets = next.map(({ _uid, ...rest }) => ({ ...rest, role: rest.role ?? "Starter" }));
       await setDoc(doc(db, "wunschkader", "current"), { targets, updated_at: updatedAt }, { merge: true });
+      if (seq !== saveSeqRef.current) return;
       onSaved(targets);
       setSaveStatus({ kind: "saved" });
     } catch (err) {
+      if (seq !== saveSeqRef.current) return;
       setSaveStatus({ kind: "error", message: "Fehler beim Speichern: " + (err as Error).message });
     }
   }
@@ -301,7 +324,15 @@ export default function WunschkaderTab({
   // sich aus einem anderen Grund geaendert (z.B. initiales Mount) - nicht
   // speichern", verhindert also einen Auto-Save direkt beim Laden der Seite.
   const pendingSaveKind = useRef<"immediate" | "debounced" | null>(null);
-  const debouncedSaveTargets = useDebouncedCallback(saveTargets, NOTE_SAVE_DEBOUNCE_MS);
+  // Liest bei Fristablauf latestEditStateRef.current statt den editState-Stand
+  // vom Aufrufzeitpunkt als Argument einzufangen - siehe Kommentar bei
+  // latestEditStateRef oben (Review-Fund, Critical #1). Faellt der Timer erst
+  // NACH einem inzwischen passierten Sofort-Save, ist das dann nur noch ein
+  // harmloser, idempotenter Re-Save desselben (bereits korrekten) Stands statt
+  // eines ueberschreibenden Writes mit veralteten Daten.
+  const debouncedSaveTargets = useDebouncedCallback(() => {
+    saveTargets(latestEditStateRef.current);
+  }, NOTE_SAVE_DEBOUNCE_MS);
 
   useEffect(() => {
     const kind = pendingSaveKind.current;
@@ -310,7 +341,7 @@ export default function WunschkaderTab({
     if (kind === "immediate") {
       saveTargets(editState);
     } else {
-      debouncedSaveTargets(editState);
+      debouncedSaveTargets();
     }
   }, [editState, debouncedSaveTargets]);
 

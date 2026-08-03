@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { DashboardSnapshot } from "../types";
 import { buildAlleSpielerRows, normalizeSearchText, type AlleSpielerRow } from "../lib/derive";
-import { cursorIndexForDigitCount, digitCountBefore, formatThousands, parseThousands } from "../lib/numberFormat";
+import { cursorIndexForDigitCount, deleteDigitAt, digitCountBefore, formatThousands, parseThousands } from "../lib/numberFormat";
 import { Badge, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
@@ -45,7 +45,7 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
   // Felds sofort auf den Default zurueck, weil Number("") = 0 und
   // 0 || default zum Default auswertet - unmoeglich, eine neue Zahl
   // einzutippen (User-Fund 2026-07-30).
-  const [marketValueMinInput, setMarketValueMinInput] = useState(formatThousands(String(500_000)));
+  const [marketValueMinInput, setMarketValueMinInput] = useState(() => formatThousands(String(500_000)));
   const [marketValueMaxInput, setMarketValueMaxInput] = useState(() => formatThousands(String(maxMarketValue)));
   const marketValueMin = marketValueMinInput.trim() === "" ? 500_000 : parseThousands(marketValueMinInput) || 500_000;
   const marketValueMax = marketValueMaxInput.trim() === "" ? maxMarketValue : parseThousands(marketValueMaxInput) || maxMarketValue;
@@ -179,10 +179,15 @@ const selectClass =
 // das Tippen selbst laut Feedback das Problem ist. digitCountBefore()/
 // cursorIndexForDigitCount() (lib/numberFormat.ts) halten den Cursor dabei
 // an der gleichen "logischen" Ziffer-Position, sonst wuerde er nach jedem
-// Zeichen ans Feldende springen. Bekannte kleine Einschraenkung: Backspace
-// direkt auf einem frisch eingefuegten Punkt loescht beim ersten Druck
-// nichts sichtbares (der Punkt traegt keine eigene Ziffer) - ein zweiter
-// Backspace entfernt dann die Ziffer davor.
+// Zeichen ans Feldende springen. Backspace/Delete direkt neben einem
+// Trennpunkt wird explizit in handleKeyDown() abgefangen (statt ueber
+// onChange): der Browser wuerde sonst nur den Punkt selbst entfernen, die
+// zugrunde liegenden Ziffern blieben unveraendert, React sehe denselben
+// formatierten Wert und wuerde nicht neu rendern - der Cursor waere dann
+// vom nativen Reconciliation-Verhalten ans Feldende gesprungen (Review-Fund,
+// Critical #2). handleKeyDown() loescht in diesem Fall stattdessen gezielt
+// die dem Trennpunkt benachbarte Ziffer (siehe deleteDigitAt() in
+// lib/numberFormat.ts) und setzt Wert+Cursor selbst.
 function MarketValueInput({
   label,
   value,
@@ -211,6 +216,36 @@ function MarketValueInput({
     onChange(formatted);
   }
 
+  // Faengt Backspace/Delete ab, wenn das zu loeschende Zeichen ein
+  // Trennpunkt (kein Ziffer) ist - siehe Kommentar oben. Ist das zu
+  // loeschende Zeichen dagegen eine Ziffer, wird preventDefault() bewusst
+  // NICHT aufgerufen: der Browser loescht normal, und das bestehende
+  // onChange (handleChange oben) formatiert/positioniert den Cursor wie
+  // gewohnt korrekt.
+  function handleKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Backspace" && e.key !== "Delete") return;
+    const input = e.currentTarget;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    if (start === null || end === null || start !== end) return; // nur bei leerer Auswahl (kollabierter Cursor)
+
+    if (e.key === "Backspace") {
+      if (start <= 0 || /\d/.test(value[start - 1])) return; // Ziffer davor -> Browser macht das normal
+      e.preventDefault();
+      const { formatted, cursorIndex } = deleteDigitAt(value, start - 2);
+      pendingCursorRef.current = cursorIndex;
+      onChange(formatted);
+      return;
+    }
+
+    // e.key === "Delete" (Forward-Delete)
+    if (start >= value.length || /\d/.test(value[start])) return; // Ziffer danach -> Browser macht das normal
+    e.preventDefault();
+    const { formatted, cursorIndex } = deleteDigitAt(value, start + 1);
+    pendingCursorRef.current = cursorIndex;
+    onChange(formatted);
+  }
+
   return (
     <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
       {label}
@@ -220,6 +255,7 @@ function MarketValueInput({
         inputMode="numeric"
         value={value}
         onChange={handleChange}
+        onKeyDown={handleKeyDown}
         className="w-32 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
       />
     </label>

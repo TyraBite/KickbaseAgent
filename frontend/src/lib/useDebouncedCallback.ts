@@ -37,15 +37,15 @@ export function createDebouncedFunction<Args extends unknown[]>(
 // wirklich ausgefuehrt werden sollen (z.B. Firestore-Save nach einer
 // Freitext-Eingabe, nicht bei jedem Tastendruck). callbackRef haelt immer
 // die aktuellste Callback-Version, ohne die Debounce-Instanz selbst bei
-// jedem Render neu zu erzeugen.
+// jedem Render neu zu erzeugen. Plain Render-Zeit-Zuweisung statt useEffect
+// (mirrort latestEditStateRef in WunschkaderTab.tsx) - garantiert aktuell,
+// auch wenn ein Effekt aus irgendeinem Grund noch nicht gelaufen ist.
 export function useDebouncedCallback<Args extends unknown[]>(
   callback: (...args: Args) => void,
   delayMs: number
-): (...args: Args) => void {
+): DebouncedFunction<Args> {
   const callbackRef = useRef(callback);
-  useEffect(() => {
-    callbackRef.current = callback;
-  }, [callback]);
+  callbackRef.current = callback;
 
   const debouncedRef = useRef<DebouncedFunction<Args> | null>(null);
   if (debouncedRef.current === null) {

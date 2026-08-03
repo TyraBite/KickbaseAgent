@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cursorIndexForDigitCount, digitCountBefore, formatThousands, parseThousands } from "./numberFormat";
+import { cursorIndexForDigitCount, deleteDigitAt, digitCountBefore, formatThousands, parseThousands } from "./numberFormat";
 
 describe("formatThousands", () => {
   it("returns an empty string for empty input", () => {
@@ -72,5 +72,39 @@ describe("cursorIndexForDigitCount", () => {
     // After reformatting: "1000" → "1.000" (dot now appears at index 1)
     // Cursor should land at index 5 (after 4th digit, which moved from index 3 to index 4)
     expect(cursorIndexForDigitCount("1.000", digitCount)).toBe(5);
+  });
+});
+
+describe("deleteDigitAt", () => {
+  it("removes the digit immediately before a separator (Backspace repro, Critical #2)", () => {
+    // "123.456" with caret right after the dot (index 4), Backspace should
+    // remove the "3" (the digit before the separator), not the dot itself.
+    const result = deleteDigitAt("123.456", 2);
+    expect(result.formatted).toBe("12.456");
+    // Cursor should land right before the (now earlier) separator, i.e. with
+    // exactly 2 digits before it - the same digit count that preceded the
+    // deleted digit.
+    expect(result.cursorIndex).toBe(2);
+  });
+
+  it("removes the digit immediately after a separator (Delete/forward-delete mirror)", () => {
+    // "123.456" with caret right before the dot (index 3), Delete should
+    // remove the "4" (the digit after the separator) -> "12356" regroups to "12.356".
+    const result = deleteDigitAt("123.456", 4);
+    expect(result.formatted).toBe("12.356");
+    expect(result.cursorIndex).toBe(4);
+  });
+
+  it("re-groups thousands separators after the deletion shrinks the digit count", () => {
+    // 7 digits -> 6 digits changes the grouping boundary.
+    const result = deleteDigitAt("1.234.567", 2); // remove the "2"
+    expect(result.formatted).toBe("134.567");
+    expect(result.cursorIndex).toBe(1);
+  });
+
+  it("collapses to an empty string when deleting the only digit", () => {
+    const result = deleteDigitAt("5", 0);
+    expect(result.formatted).toBe("");
+    expect(result.cursorIndex).toBe(0);
   });
 });

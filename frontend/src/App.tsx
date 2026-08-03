@@ -222,8 +222,9 @@ export default function App() {
         const snapshotData = snap.data() as DashboardSnapshot;
         setData(snapshotData);
 
-        // Live-Stand bevorzugt (wird von WunschkaderTab.handleSave() sofort
-        // beschrieben, ohne auf den naechsten Pipeline-Lauf zu warten) -
+        // Live-Stand bevorzugt (wird von WunschkaderTab per Auto-Save-Effekt
+        // ueber saveTargets() sofort beschrieben, ohne auf den naechsten
+        // Pipeline-Lauf zu warten) -
         // eigenstaendig abgefangen: ein Wunschkader-Lesefehler darf NICHT den
         // gesamten Dashboard-Ladevorgang scheitern lassen, deshalb kein
         // gemeinsames Promise.all() mit dem Snapshot-Read oben. Fallback auf
