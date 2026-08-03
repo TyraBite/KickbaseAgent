@@ -63,11 +63,23 @@ export function statusLabel(statusCode: number | null): string | null {
 // Eingeplanter Preis fuer ein Ziel: 0 wenn schon im eigenen Kader (bereits
 // bezahlt, nicht nochmal einplanen), sonst das eigene laufende Hoechstgebot
 // falls eins existiert (echte Kickbase-Daten aus dem Transfermarkt-Listing -
-// praeziser als jede Schaetzung), sonst der reine Marktwert.
-export function plannedPriceFor(marketValue: number | null, isOwn: boolean, liveBid: number | null): number | null {
+// praeziser als jede Schaetzung), sonst eine Aufschlags-Schaetzung ueber
+// suggestBid() (p75-Perzentil aehnlicher historischer Kaeufe derselben
+// Position, siehe suggestBid() weiter unten), sonst - falls fuer diese
+// Position noch keine Kaufhistorie existiert - der reine Marktwert
+// (User-Feedback 297fc4aa, 2026-08-02: reiner Marktwert ohne jeden Aufschlag
+// war zu optimistisch).
+export function plannedPriceFor(
+  player: { market_value: number | null; position: string; average_points: number | null },
+  isOwn: boolean,
+  liveBid: number | null,
+  bidHistory: BidPremiumEntry[]
+): number | null {
   if (isOwn) return 0;
   if (liveBid !== null) return liveBid;
-  return marketValue;
+  const suggestion = suggestBid(player, bidHistory);
+  if (suggestion !== null) return suggestion.p75;
+  return player.market_value;
 }
 
 const NEXT_MARKET_VALUE_UPDATE_HOUR = 22;
