@@ -1,0 +1,36 @@
+name: Frontend Tests (Typecheck + Unit)
+
+# Bewusst getrennt von frontend-pilot.yml (das bleibt push-only zu main und
+# macht zusaetzlich den GitHub-Pages-Deploy, den wir nicht auf jedem PR
+# wollen). Dieser Workflow deckt NUR Typecheck+Vitest ab, kein Build/Deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck-and-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
