@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import type { DashboardSnapshot } from "../types";
 import { buildAlleSpielerRows, normalizeSearchText, type AlleSpielerRow } from "../lib/derive";
+import { cursorIndexForDigitCount, digitCountBefore, formatThousands, parseThousands } from "../lib/numberFormat";
 import { Badge, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
@@ -44,10 +45,10 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
   // Felds sofort auf den Default zurueck, weil Number("") = 0 und
   // 0 || default zum Default auswertet - unmoeglich, eine neue Zahl
   // einzutippen (User-Fund 2026-07-30).
-  const [marketValueMinInput, setMarketValueMinInput] = useState(String(500_000));
-  const [marketValueMaxInput, setMarketValueMaxInput] = useState(String(maxMarketValue));
-  const marketValueMin = marketValueMinInput.trim() === "" ? 500_000 : Number(marketValueMinInput) || 500_000;
-  const marketValueMax = marketValueMaxInput.trim() === "" ? maxMarketValue : Number(marketValueMaxInput) || maxMarketValue;
+  const [marketValueMinInput, setMarketValueMinInput] = useState(formatThousands(String(500_000)));
+  const [marketValueMaxInput, setMarketValueMaxInput] = useState(() => formatThousands(String(maxMarketValue)));
+  const marketValueMin = marketValueMinInput.trim() === "" ? 500_000 : parseThousands(marketValueMinInput) || 500_000;
+  const marketValueMax = marketValueMaxInput.trim() === "" ? maxMarketValue : parseThousands(marketValueMaxInput) || maxMarketValue;
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
   const [viewMode, setViewMode] = useViewMode("kickbaseagent_view_alle_spieler");
@@ -117,28 +118,8 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
           </select>
         </label>
         <RankFilter available={availableRanks} selected={ranks} onChange={setRanks} />
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          Marktwert min
-          <input
-            type="number"
-            min={500_000}
-            step={100_000}
-            value={marketValueMinInput}
-            onChange={(e) => setMarketValueMinInput(e.target.value)}
-            className="w-32 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          />
-        </label>
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          Marktwert max
-          <input
-            type="number"
-            min={500_000}
-            step={100_000}
-            value={marketValueMaxInput}
-            onChange={(e) => setMarketValueMaxInput(e.target.value)}
-            className="w-32 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          />
-        </label>
+        <MarketValueInput label="Marktwert min" value={marketValueMinInput} onChange={setMarketValueMinInput} />
+        <MarketValueInput label="Marktwert max" value={marketValueMaxInput} onChange={setMarketValueMaxInput} />
         <input
           type="text"
           value={search}
@@ -190,6 +171,60 @@ export default function AlleSpielerTab({ data }: { data: DashboardSnapshot }) {
 
 const selectClass =
   "rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100";
+
+// type="text" + inputMode="numeric" statt type="number", weil ein nativer
+// Zahlen-Input Punkte als Tausendertrennzeichen als ungueltiges Zeichen
+// ablehnt (User-Feedback d390f441: Nullen beim Eintragen schwer lesbar).
+// Formatiert bei jedem Tastendruck neu (nicht erst beim Blur), weil genau
+// das Tippen selbst laut Feedback das Problem ist. digitCountBefore()/
+// cursorIndexForDigitCount() (lib/numberFormat.ts) halten den Cursor dabei
+// an der gleichen "logischen" Ziffer-Position, sonst wuerde er nach jedem
+// Zeichen ans Feldende springen. Bekannte kleine Einschraenkung: Backspace
+// direkt auf einem frisch eingefuegten Punkt loescht beim ersten Druck
+// nichts sichtbares (der Punkt traegt keine eigene Ziffer) - ein zweiter
+// Backspace entfernt dann die Ziffer davor.
+function MarketValueInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (raw: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const pendingCursorRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (pendingCursorRef.current !== null && inputRef.current) {
+      inputRef.current.setSelectionRange(pendingCursorRef.current, pendingCursorRef.current);
+      pendingCursorRef.current = null;
+    }
+  }, [value]);
+
+  function handleChange(e: ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value;
+    const cursorBefore = e.target.selectionStart ?? raw.length;
+    const digitsBefore = digitCountBefore(raw, cursorBefore);
+    const formatted = formatThousands(raw);
+    pendingCursorRef.current = cursorIndexForDigitCount(formatted, digitsBefore);
+    onChange(formatted);
+  }
+
+  return (
+    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+      {label}
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="numeric"
+        value={value}
+        onChange={handleChange}
+        className="w-32 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+    </label>
+  );
+}
 
 function RankFilter({
   available,
