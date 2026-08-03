@@ -37,7 +37,6 @@ export default function DashboardTab({
   const squadFull = data.own_squad_ids.length >= MAX_OWNED_SQUAD_SIZE;
 
   const sellCandidates = buildDashboardSellCandidates(data.players, data.own_squad_ids, data.calibration, mae);
-  const sellCandidatesWithSignal: EigenesTeamRow[] = sellCandidates.map((r) => ({ ...r, sell_signal: "verkaufen" as const }));
   const buyCandidates = buildDashboardBuyCandidates(transfermarktRows, wunschkader.targets);
 
   // Investment betrachtet ALLE eigenen Spieler (nicht nur die sellSignal-
@@ -62,9 +61,9 @@ export default function DashboardTab({
   const recentTransfers = recentTransfersWithin24h(data.recent_transfers ?? [], new Date(now));
 
   const SellSection = (
-    <Section key="verkaufen" title="Verkaufen" emptyText="Aktuell keine Verkaufskandidaten." isEmpty={sellCandidatesWithSignal.length === 0}>
+    <Section key="verkaufen" title="Verkaufen" emptyText="Aktuell keine Verkaufskandidaten." isEmpty={sellCandidates.length === 0}>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-        {sellCandidatesWithSignal.map((r) => (
+        {sellCandidates.map((r) => (
           <PlayerCard key={r.player_id} row={r} onSelect={() => setSelectedOwned(r)} />
         ))}
       </div>
