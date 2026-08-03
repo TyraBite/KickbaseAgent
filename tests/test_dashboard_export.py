@@ -1084,3 +1084,13 @@ class BuildRecentTransfersTests(unittest.TestCase):
         ]
         result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
         self.assertEqual([row["player_id"] for row in result], ["p2"])
+
+    def test_unknown_player_id_is_silently_dropped(self):
+        # players_map.get(player_id) -> None bei unbekannter Id -> "if not
+        # player: continue". Dokumentiert das aktuelle Silent-Drop-Verhalten
+        # als bewusst (kein KeyError, kein Platzhalter-Eintrag), nicht als Bug.
+        activities = [
+            {"t": 15, "dt": self._dt(), "data": {"pi": "p_unbekannt", "byr": "Rivale", "slr": "Ich", "trp": 500000}},
+        ]
+        result = _build_recent_transfers(activities, self.PLAYERS_MAP, own_name=None, cutoff_hours=72)
+        self.assertEqual(result, [])

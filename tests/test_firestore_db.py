@@ -19,6 +19,21 @@ def _batch_set_payloads(batch):
     return [c.args[1] for c in batch.set.call_args_list]
 
 
+class WriteInBatchesChunkingTests(unittest.TestCase):
+    """MAX_BATCH_OPS = 500 (Firestore-WriteBatch-Limit) - alle bisherigen
+    Tests schreiben nur 1-2 Docs, der Chunking-Pfad selbst lief nie."""
+
+    def test_more_than_500_docs_split_into_two_batches_both_committed(self):
+        client = MagicMock()
+        docs = {f"doc_{i}": {"n": i} for i in range(501)}
+
+        firestore_db._write_in_batches(client, "some_collection", docs)
+
+        self.assertEqual(client.batch.call_count, 2)
+        self.assertEqual(client.batch.return_value.commit.call_count, 2)
+        self.assertEqual(client.batch.return_value.set.call_count, 501)
+
+
 class UpsertPredictionLogEntriesTests(unittest.TestCase):
     def test_writes_docs_keyed_by_date_and_player_id_and_model_type(self):
         client = MagicMock()
