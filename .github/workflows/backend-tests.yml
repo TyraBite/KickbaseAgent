@@ -1,0 +1,39 @@
+name: Backend Tests (pytest)
+
+# Erster CI-Lauf ueberhaupt fuer die 290 Backend-Tests (tests/*.py) - vorher
+# liefen sie nur lokal in Sandbox-Sessions, nie automatisiert. Kein
+# Firebase-Secret noetig: alle Tests laufen gegen Mocks. requirements-news.txt
+# (inkl. CPU-only-Torch) ist noetig, weil src/news_sentiment.py germansentiment
+# unconditional importiert - ohne diesen Schritt wuerden 28 von 290 Tests
+# (tests/test_news_sentiment.py) schon beim Import scheitern.
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install torch (CPU-only, vermeidet ~5GB CUDA-Download von germansentiment)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-news.txt
+          pip install pytest==9.1.1
+
+      - name: Run tests
+        run: pytest tests/ -v
