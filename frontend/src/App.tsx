@@ -12,7 +12,18 @@ import SpekulationTab from "./components/SpekulationTab";
 import TransfermarktTab from "./components/TransfermarktTab";
 import WunschkaderTab from "./components/WunschkaderTab";
 import FeedbackTab from "./components/FeedbackTab";
-import { IconMenu } from "./components/icons";
+import {
+  IconMenu,
+  IconTabDashboard,
+  IconTabTeam,
+  IconTabSpekulation,
+  IconTabWunschkader,
+  IconTabTransfermarkt,
+  IconTabLiga,
+  IconTabAlleSpieler,
+  IconTabMlGenauigkeit,
+  IconTabFeedback,
+} from "./components/icons";
 import { buildSpekulationRows, buildTransfermarktRows, formatRelativeTime } from "./lib/derive";
 import { useHideOnScroll } from "./lib/useHideOnScroll";
 import { isAnyModalOpen, useModalOpenTracking } from "./lib/modalOpenTracker";
@@ -56,6 +67,23 @@ const ACTIVE_TABS = new Set([
   "ml-genauigkeit",
   "feedback",
 ]);
+
+// Grafische Tab-Indikatoren (siehe docs/superpowers/plans/2026-08-03-tab-icons.md).
+// "dashboard" hat hier bewusst schon einen Eintrag, obwohl der Tab-Key selbst
+// noch nicht in TABS/ACTIVE_TABS existiert (der kommt separat mit dem
+// Tages-Dashboard-Feature) - schadet nicht, TAB_ICON wird generisch ueber
+// TABS.map() aufgeloest, ein ueberzaehliger Key bleibt einfach ungenutzt.
+const TAB_ICON: Record<string, (props: import("react").SVGProps<SVGSVGElement>) => JSX.Element> = {
+  dashboard: IconTabDashboard,
+  team: IconTabTeam,
+  spekulation: IconTabSpekulation,
+  wunschkader: IconTabWunschkader,
+  transfermarkt: IconTabTransfermarkt,
+  liga: IconTabLiga,
+  "alle-spieler": IconTabAlleSpieler,
+  "ml-genauigkeit": IconTabMlGenauigkeit,
+  feedback: IconTabFeedback,
+};
 
 // Reload ist der einzige Weg an frische Daten zu kommen (Client pollt nicht,
 // reiner Pull) - der zuletzt offene Tab soll dabei erhalten bleiben, statt
@@ -154,6 +182,12 @@ function MobileTabMenu({
         {TABS.map((tab) => {
           const isActive = ACTIVE_TABS.has(tab.key);
           const isSelected = tab.key === activeTab;
+          const Icon = TAB_ICON[tab.key];
+          const iconTone = !isActive
+            ? "text-slate-500"
+            : isSelected
+              ? "text-brand-600 dark:text-brand-400"
+              : "text-slate-500 hover:text-slate-600 dark:hover:text-slate-300";
           return (
             <button
               key={tab.key}
@@ -164,7 +198,7 @@ function MobileTabMenu({
                 onSelect(tab.key);
                 onClose();
               }}
-              className={`rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+              className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
                 isSelected
                   ? "bg-brand-50 font-semibold text-brand-800 dark:bg-brand-950 dark:text-brand-300"
                   : isActive
@@ -172,6 +206,7 @@ function MobileTabMenu({
                     : "cursor-not-allowed text-slate-400 dark:text-slate-600"
               }`}
             >
+              {Icon && <Icon className={`h-6 w-6 shrink-0 ${iconTone}`} aria-hidden="true" />}
               {tab.label}
               {!isActive && <span className="ml-1 text-xs">(bald)</span>}
             </button>
@@ -291,13 +326,19 @@ export default function App() {
         {TABS.map((tab) => {
           const isActive = ACTIVE_TABS.has(tab.key);
           const isSelected = tab.key === activeTab;
+          const Icon = TAB_ICON[tab.key];
+          const iconTone = !isActive
+            ? "text-slate-500"
+            : isSelected
+              ? "text-brand-600 dark:text-brand-400"
+              : "text-slate-500 hover:text-slate-600 dark:hover:text-slate-300";
           return (
             <button
               key={tab.key}
               type="button"
               disabled={!isActive}
               onClick={() => isActive && setActiveTab(tab.key)}
-              className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors ${
+              className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors ${
                 isSelected
                   ? "border-brand-500 font-semibold text-slate-900 dark:text-slate-50"
                   : isActive
@@ -305,6 +346,7 @@ export default function App() {
                     : "cursor-not-allowed border-transparent text-slate-400 dark:text-slate-600"
               }`}
             >
+              {Icon && <Icon className={`h-5 w-5 shrink-0 ${iconTone}`} aria-hidden="true" />}
               {tab.label}
               {!isActive && <span className="ml-1 text-xs">(bald)</span>}
             </button>

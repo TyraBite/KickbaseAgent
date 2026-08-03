@@ -322,6 +322,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   testDir: "./tests-ct",
+  // Playwrights Default-testMatch ("**/*.@(spec|test).?(c|m)[jt]s?(x)")
+  // trifft NICHT auf "*.ct.tsx" (kein ".spec."/".test."-Segment) - ohne
+  // diese Zeile findet "npm run test:ct" 0 Tests (in Task 1 empirisch
+  // verifiziert). Diese Zeile MUSS bei jeder vollstaendigen Ersetzung
+  // dieser Datei (auch in Task 5) erhalten bleiben.
+  testMatch: /.*\.ct\.tsx$/,
   timeout: 10_000,
   fullyParallel: true,
   reporter: process.env.CI ? "list" : "html",
@@ -343,7 +349,7 @@ export default defineConfig({
 });
 ```
 
-(`path`/`fileURLToPath` statt eines rohen `__dirname`, weil `package.json`s `"type": "module"` echtes CommonJS-`__dirname` in diesem ESM-Kontext nicht existieren laesst. Die Regex trifft den Import unabhaengig von der Verzeichnistiefe.)
+(`path`/`fileURLToPath` statt eines rohen `__dirname`, weil `package.json`s `"type": "module"` echtes CommonJS-`__dirname` in diesem ESM-Kontext nicht existieren laesst. Die Regex trifft den Import unabhaengig von der Verzeichnistiefe. `testMatch` siehe Kommentar oben — Task 1 hat das bereits live gefixt, dieser Plan-Text war stale.)
 
 - [ ] **Step 5: Bisherige Tests laufen weiterhin**
 
@@ -621,6 +627,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   testDir: "./tests-ct",
+  // Muss aus Task 2 erhalten bleiben - siehe Kommentar dort. Ohne diese
+  // Zeile findet "npm run test:ct" 0 Tests.
+  testMatch: /.*\.ct\.tsx$/,
   timeout: 10_000,
   fullyParallel: true,
   reporter: process.env.CI ? "list" : "html",

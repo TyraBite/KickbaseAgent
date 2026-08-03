@@ -169,3 +169,122 @@ export function IconMenu(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+// Tab-Icons (siehe docs/superpowers/plans/2026-08-03-tab-icons.md, Task 1) -
+// Rohdateien liegen unverändert unter frontend/public/icons-src/tab-*.svg,
+// hier 1:1 als JSX übernommen (nur Bindestrich-Attribute -> camelCase, siehe
+// Format-Invarianten im Plan). Kein <title> (aria-hidden im Aufrufer, siehe
+// App.tsx) - aria-label bleibt trotzdem gesetzt fuer den Fall einer isolierten
+// Wiederverwendung ohne aria-hidden.
+
+export function IconTabDashboard(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Dashboard" {...props}>
+      <rect x="3" y="3.5" width="8.5" height="6" rx="1.3" />
+      <rect x="13.5" y="3.5" width="7.5" height="9.5" rx="1.3" />
+      <rect x="3" y="11.5" width="8.5" height="9" rx="1.3" />
+      <rect x="13.5" y="15" width="7.5" height="5.5" rx="1.3" />
+    </svg>
+  );
+}
+
+export function IconTabTeam(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Eigenes Team" {...props}>
+      <circle cx="4.8" cy="10.4" r="2.4" />
+      <path d="M1 19.8v-2.2a3.81 3.81 0 0 1 7.6 0v2.2z" />
+      <circle cx="19.2" cy="10.4" r="2.4" />
+      <path d="M15.4 19.8v-2.2a3.81 3.81 0 0 1 7.6 0v2.2z" />
+      <circle cx="12" cy="7.2" r="3.4" />
+      <path d="M6 19.8v-3.6a6.1 6.1 0 0 1 12 0v3.6z" />
+    </svg>
+  );
+}
+
+// Falle 2 (siehe Plan): die Linie besteht aus drei gefuellten Vierecken PLUS
+// drei Kreisen exakt auf den Knickpunkten (die Kreise ersetzen
+// stroke-linejoin: round, da stroke nicht erlaubt ist). Alle Elemente 1:1 aus
+// der Rohdatei uebernommen - keinen Kreis weglassen, sonst entsteht eine
+// sichtbare spitze Kerbe an einem Knick.
+export function IconTabSpekulation(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Spekulation" {...props}>
+      <path d="M4.05 18.01 9.05 13.01 7.43 11.39 2.43 16.39z" />
+      <path d="M7.5 13.08 11.1 16.08 12.58 14.32 8.98 11.32z" />
+      <path d="M12.74 15.92 18.34 8.97 16.55 7.53 10.95 14.48z" />
+      <circle cx="3.24" cy="17.2" r="1.15" />
+      <circle cx="8.24" cy="12.2" r="1.15" />
+      <circle cx="11.84" cy="15.2" r="1.15" />
+      <path d="M19.5 5.7 18.95 9.88 15.53 7.12z" />
+    </svg>
+  );
+}
+
+export function IconTabWunschkader(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Wunschkader" {...props}>
+      <path d="M12 2.5 14.23 9.13 21.22 9.2 15.61 13.37 17.7 20.05 12 16 6.3 20.05 8.39 13.37 2.78 9.2 9.77 9.13z" />
+    </svg>
+  );
+}
+
+export function IconTabTransfermarkt(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Transfermarkt" {...props}>
+      <rect x="3" y="6.9" width="13" height="2.2" rx="1.1" />
+      <path d="M15 4.9 20.5 8 15 11.1z" />
+      <rect x="8" y="14.9" width="13" height="2.2" rx="1.1" />
+      <path d="M9 12.9 3.5 16 9 19.1z" />
+    </svg>
+  );
+}
+
+export function IconTabLiga(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Ligaanalyse" {...props}>
+      <rect x="5.5" y="3" width="13" height="2.2" rx="1.1" />
+      <path d="M6.5 4.5h11V8a5.5 5.5 0 0 1-11 0z" />
+      <rect x="11" y="13" width="2" height="3.6" />
+      <rect x="7" y="16.3" width="10" height="2.4" rx="1.1" />
+    </svg>
+  );
+}
+
+export function IconTabAlleSpieler(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Alle Spieler" {...props}>
+      <circle cx="5.5" cy="6.5" r="2.3" />
+      <rect x="10" y="5.4" width="11" height="2.2" rx="1.1" />
+      <circle cx="5.5" cy="12" r="2.3" />
+      <rect x="10" y="10.9" width="11" height="2.2" rx="1.1" />
+      <circle cx="5.5" cy="17.5" r="2.3" />
+      <rect x="10" y="16.4" width="11" height="2.2" rx="1.1" />
+    </svg>
+  );
+}
+
+// Falle 1 (siehe Plan): das Skalenband ist EIN <path> mit zwei gegenlaeufigen
+// Boegen - der Ausschnitt in der Mitte entsteht ausschliesslich aus der
+// Wicklungsrichtung (Nonzero-Fill-Regel). NICHT in zwei <path>-Elemente
+// auftrennen, sonst wird das Band zur gefuellten Halbscheibe und die Nadel
+// verschwindet darin.
+export function IconTabMlGenauigkeit(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Modell-Tracking" {...props}>
+      <path d="M3 15A9 9 0 0 1 21 15h-2.8A6.2 6.2 0 0 0 5.8 15z" />
+      <path d="M15.28 11.09 12.84 15.71 11.16 14.29z" />
+      <circle cx="12" cy="15" r="1.7" />
+      <rect x="8.4" y="16.4" width="7.2" height="2" rx="1" />
+    </svg>
+  );
+}
+
+export function IconTabFeedback(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Bugs & Ideen" {...props}>
+      <path d="M8.5 14.6A6.5 6.5 0 1 1 15.5 14.6c-.5.3-.8.9-.8 1.5v.4H9.3v-.4c0-.6-.3-1.2-.8-1.5z" />
+      <rect x="9.3" y="17.1" width="5.4" height="2" rx="1" />
+      <rect x="10.5" y="19.8" width="3" height="1.8" rx=".9" />
+    </svg>
+  );
+}
