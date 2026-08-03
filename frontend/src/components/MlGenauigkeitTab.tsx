@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type TouchEvent as ReactTouchEvent } from "react";
 import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlMetrics, MlModelType } from "../types";
 import { POSITIONS } from "../lib/formations";
 import { nearestTrendIndex } from "../lib/mlChartMobile";
@@ -242,6 +242,17 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
     },
   ];
 
+  // Mobile: Tippen setzt den Tooltip fest, Ziehen scrubbt live wie der
+  // Maus-Hover - kein onTouchEnd-Handler, damit der Tooltip nach dem
+  // Loslassen sichtbar bleibt (Lock), bis anderswo im SVG getippt wird.
+  function handleTouch(e: ReactTouchEvent<SVGSVGElement>) {
+    const touch = e.touches[0];
+    if (!touch) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = ((touch.clientX - rect.left) / rect.width) * CHART_WIDTH;
+    setHoverIndex(nearestTrendIndex(relX, plotW, PAD.left, chartTrend.length));
+  }
+
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -265,7 +276,10 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
       {showTable ? (
         <SortableTable columns={columns} rows={trend} rowKey={(e) => e.date} />
       ) : (
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+        <div
+          data-swipe-ignore
+          className="relative rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900"
+        >
           <svg
             viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
             className="w-full"
@@ -275,6 +289,8 @@ function TrendChart({ trend }: { trend: MlAccuracyTrendEntry[] }) {
               setHoverIndex(nearestTrendIndex(relX, plotW, PAD.left, chartTrend.length));
             }}
             onMouseLeave={() => setHoverIndex(null)}
+            onTouchStart={handleTouch}
+            onTouchMove={handleTouch}
           >
             {[0, 25, 50, 75, 100].map((v) => (
               <g key={v}>
