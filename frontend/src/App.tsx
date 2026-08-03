@@ -3,6 +3,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import AlleSpielerTab from "./components/AlleSpielerTab";
+import DashboardTab from "./components/DashboardTab";
 import Login from "./components/Login";
 import EigenesTeamTab from "./components/EigenesTeamTab";
 import LigaanalyseTab from "./components/LigaanalyseTab";
@@ -32,6 +33,7 @@ function useNow(intervalMs: number): number {
 type LoadState = "loading" | "error" | "ready";
 
 const TABS = [
+  { key: "dashboard", label: "Dashboard" },
   { key: "team", label: "Eigenes Team" },
   { key: "spekulation", label: "Spekulation" },
   { key: "wunschkader", label: "Wunschkader" },
@@ -44,6 +46,7 @@ const TABS = [
 
 // Sub-Projekt 3: Tabs werden nach und nach aktiviert, sobald migriert.
 const ACTIVE_TABS = new Set([
+  "dashboard",
   "spekulation",
   "wunschkader",
   "team",
@@ -63,7 +66,7 @@ const ACTIVE_TAB_STORAGE_KEY = "kickbaseagent_active_tab";
 
 function readStoredActiveTab(): string {
   const stored = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-  return stored && ACTIVE_TABS.has(stored) ? stored : "team";
+  return stored && ACTIVE_TABS.has(stored) ? stored : "dashboard";
 }
 
 // Wischen wechselt auf dem Handy schneller zwischen Tabs als die Tab-Leiste.
@@ -337,6 +340,11 @@ export default function App() {
             Snapshot noch im alten Schema — der nächste Pipeline-Lauf schreibt das neue Format automatisch (bis zu ~2h,
             oder manuell über GitHub Actions anstoßen).
           </p>
+        )}
+        {loadState === "ready" && data && data.players && wunschkader && (
+          <div className={activeTab === "dashboard" ? "" : "hidden"}>
+            <DashboardTab data={data} wunschkader={wunschkader} transfermarktRows={transfermarktRows} now={now} />
+          </div>
         )}
         {loadState === "ready" && data && data.players && (
           <div className={activeTab === "spekulation" ? "" : "hidden"}>
