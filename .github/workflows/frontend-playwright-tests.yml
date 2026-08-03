@@ -1,12 +1,20 @@
 name: Frontend Playwright Tests (Component + E2E)
 
-# Zwei unabhaengige, NICHT blockierende Playwright-Testlaeufe - component-tests
-# (frontend/tests-ct/, mounten einzelne Tab-Komponenten, firebase/firestore
-# komplett wegaliasiert) und e2e-touch-swipe (frontend/tests-e2e/, startet die
-# komplette App gegen einen echten Vite-Dev-Server mit wegaliastem
-# firebase/auth+firebase/firestore). Beide laufen parallel zu "Frontend Deploy
-# (GitHub Pages)" (frontend-pilot.yml), ohne "needs:"-Abhaengigkeit - blockieren
-# den Deploy nie, auch nicht gegenseitig.
+# Zwei unabhaengige Playwright-Testlaeufe - component-tests (frontend/tests-ct/,
+# mounten einzelne Tab-Komponenten, firebase/firestore komplett wegaliasiert)
+# und e2e-touch-swipe (frontend/tests-e2e/, startet die komplette App gegen
+# einen echten Vite-Dev-Server mit wegaliastem firebase/auth+firebase/firestore).
+# Laufen parallel zu "Frontend Deploy (GitHub Pages)" (frontend-pilot.yml),
+# ohne "needs:"-Abhaengigkeit - blockieren den Deploy nie, auch nicht
+# gegenseitig.
+#
+# Seit der Branch-Protection fuer main (2026-08-03) sind component-tests und
+# e2e-touch-swipe Required-Status-Checks - deshalb hat der pull_request-Trigger
+# BEWUSST KEINEN paths-Filter (anders als der push-Trigger unten): ein Filter
+# haette dazu gefuehrt, dass PRs ohne frontend/-Aenderung (z.B. reine
+# Backend-/Doku-PRs) diese Checks nie ausloesen und dadurch PERMANENT blockiert
+# bleiben - GitHub kennt kein "not applicable"-Timeout fuer einen Required
+# Check, der nie einen Lauf produziert (live verifiziert, Wegwerf-PR #2).
 
 on:
   push:
@@ -14,9 +22,7 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-playwright-tests.yml'
-  pull_request:
-    paths:
-      - 'frontend/**'
+  pull_request: {}
   workflow_dispatch: {}
 
 permissions:
