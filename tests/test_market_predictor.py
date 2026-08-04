@@ -1211,6 +1211,33 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             self.assertIn("baseline_sign_accuracy", result["per_model"][name])
             self.assertIn("reversal_n", result["per_model"][name])
 
+    def test_baseline_sign_accuracy_matches_hand_computed_value(self):
+        # Value-level regression (Finding 4, finaler Review): die obigen
+        # Tests pruefen nur, DASS baseline_sign_accuracy existiert - eine
+        # vertauschte _BASELINE_COLUMN_BY_HORIZON-Zuordnung (Horizont 1 auf
+        # mv_change_3d statt mv_change_1d) waere trotzdem gruen geblieben.
+        # Ueberschreibt fuer jeden der 6 Cutoff-Tage (= jeweils die einzige
+        # Testzeile dieses Folds, da hier nur ein Spieler/Tag existiert) die
+        # Baseline-Spalte mv_change_1d und den tatsaechlichen Zielwert mit
+        # einem von Hand gewaehlten Vorzeichen-Muster: in 3 von 6 Faellen
+        # stimmt das Baseline-Vorzeichen mit dem tatsaechlichen ueberein, in
+        # 3 nicht - macht die erwartete baseline_sign_accuracy exakt 50.0,
+        # ohne Rundungs-Unschaerfe.
+        target_col = "alt_target"
+        df = self._history_df(target_col)
+        baseline_signs = [1, -1, 1, -1, 1, -1]
+        target_signs = [1, -1, 1, 1, -1, 1]  # stimmt bei Index 0,1,2 mit der Baseline ueberein, bei 3,4,5 nicht
+        for offset, (baseline_sign, target_sign) in enumerate(zip(baseline_signs, target_signs)):
+            idx = len(df) - 6 + offset
+            df.loc[idx, "mv_change_1d"] = 100 * baseline_sign
+            df.loc[idx, target_col] = 100 * target_sign
+
+        result = _walk_forward_backtest(df, target_col=target_col, horizon_days=1)
+
+        self.assertIsNotNone(result)
+        for model_metrics in result["per_model"].values():
+            self.assertEqual(model_metrics["baseline_sign_accuracy"], 50.0)
+
     def test_embargo_is_actually_wired_into_the_backtest_for_horizon_3(self):
         # Mutation-Check-Regression: mit `_apply_embargo(train, cutoff,
         # horizon_days)` durch ein reines `train` ersetzt (Embargo-Aufruf
@@ -1387,6 +1414,17 @@ class ScoreCountsFromArraysTests(unittest.TestCase):
         self.assertAlmostEqual(counts["abs_error_sum"], 20 + 10 + 35 + 10, places=5)
         # abs_error_sum_given_correct_sign: Zeilen 1,2,4 (Zeile 3 hat falsches Vorzeichen)
         self.assertAlmostEqual(counts["abs_error_sum_given_correct_sign"], 20 + 10 + 10, places=5)
+
+    def test_key_set_matches_empty_counts(self):
+        # Minor-Fund (finaler Review): das Pooling in _walk_forward_backtest
+        # (`for key in existing: existing[key] += counts[key]`) iteriert ueber
+        # die Schluessel von _empty_counts() - kommt ein neuer Schluessel nur
+        # in _score_counts_from_arrays() hinzu (oder umgekehrt), wuerde er
+        # beim Pooling still auf 0 einfrieren statt aufzufallen. Dieser Test
+        # macht die stille Drift zwischen beiden Schluessel-Mengen sichtbar.
+        from src.market_predictor import _empty_counts, _score_counts_from_arrays
+        counts = _score_counts_from_arrays(y_actual=[1], y_pred=[1], baseline_pred=[1])
+        self.assertEqual(set(_empty_counts()), set(counts))
 
 
 class FinalizeScoreCountsTests(unittest.TestCase):

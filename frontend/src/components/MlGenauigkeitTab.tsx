@@ -110,6 +110,7 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
         {MODEL_ORDER.map((name) => {
           const isLive = metrics.model_type === name;
           const realized = metrics.realized_by_model?.[name]?.realized_30d;
+          const baselineDeltaPct = mlBaselineDeltaPct(realized);
           return (
             <div key={name} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
               <div className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-50">
@@ -129,9 +130,11 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
                         {" "}
                         · ggü. Trägheits-Annahme{" "}
                         <b>
-                          {mlBaselineDeltaPct(realized)! >= 0 ? "+" : ""}
-                          {fmtAccPct(mlBaselineDeltaPct(realized)!)}
+                          {baselineDeltaPct != null && baselineDeltaPct >= 0 ? "+" : ""}
+                          {fmtAccPct(baselineDeltaPct)}
                         </b>
+                        {" "}
+                        · ggü. Trägheits-MAE <b>{fmtNum(realized.baseline_mae)}</b>
                       </>
                     )}
                     {realized.mae_given_correct_sign != null && (
@@ -141,7 +144,9 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
                       </>
                     )}
                     <br />
-                    {realized.reversal_sign_accuracy != null ? (
+                    {realized.baseline_sign_accuracy == null ? (
+                      <>Bei Trendwenden: – (noch keine Baseline-Daten)</>
+                    ) : realized.reversal_sign_accuracy != null ? (
                       <>
                         Bei Trendwenden (n={realized.reversal_n}): <b>{fmtAccPct(realized.reversal_sign_accuracy)}</b> richtig
                       </>

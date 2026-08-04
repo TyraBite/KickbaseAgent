@@ -682,7 +682,7 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET, hori
         y_pred = candidate.predict(x_test)
         r2 = r2_score(y_test_actual, y_pred)
         rmse = mean_squared_error(y_test_actual, y_pred) ** 0.5
-        counts = _score_counts_from_arrays(y_test_actual, y_pred, baseline_pred)
+        counts = _score_counts_from_arrays(y_actual=y_test_actual, y_pred=y_pred, baseline_pred=baseline_pred)
         finalized = _finalize_score_counts(counts)
         models[name] = candidate
         per_model_metrics[name] = {"rmse": round(rmse, 2), "r2": round(r2, 3), **finalized}
@@ -738,7 +738,7 @@ def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET, h
         for name, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
-            counts = _score_counts_from_arrays(y_test_actual, y_pred, baseline_pred)
+            counts = _score_counts_from_arrays(y_actual=y_test_actual, y_pred=y_pred, baseline_pred=baseline_pred)
             existing = pooled_counts.setdefault(name, _empty_counts())
             for key in existing:
                 existing[key] += counts[key]
@@ -776,9 +776,9 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
     befreit. Ohne den test-seitigen Drop wuerde bei einem Mehrtage-Horizont
     (z.B. TARGET_3D) eine NaN-Zeile in y_test_actual via np.sign/np.abs in
     die aufsummierten abs_error/sign_correct-Werte dieses Folds einsickern -
-    siehe _walk_forward_backtest-Docstring fuer die volle Herleitung dieses
-    Bugs, hier dieselbe Verwundbarkeit, derselbe Schutz. Anders als
-    _walk_forward_backtest poolt dieser Pfad NICHT ueber Folds: jeder
+    dieselbe Verwundbarkeit und derselbe Schutz wie in
+    _walk_forward_backtest. Anders als _walk_forward_backtest poolt dieser
+    Pfad NICHT ueber Folds: jeder
     Cutoff-Tag schreibt sein EIGENES ml_accuracy_daily-Dokument (Rohcounts
     aus _score_counts_from_arrays direkt, ungerundet) - die spaetere
     Tages-/Zeitfenster-Aggregation (_summarize_from_daily) erwartet genau
@@ -832,7 +832,7 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
         for model_type, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
-            counts = _score_counts_from_arrays(y_test_actual, y_pred, baseline_pred)
+            counts = _score_counts_from_arrays(y_actual=y_test_actual, y_pred=y_pred, baseline_pred=baseline_pred)
             daily_updates.append({
                 "date": cutoff_date, "model_type": model_type, "horizon_days": horizon_days,
                 **counts,
