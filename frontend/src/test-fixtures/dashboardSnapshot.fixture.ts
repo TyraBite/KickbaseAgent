@@ -72,8 +72,16 @@ export const FIXTURE_ML_METRICS: MlMetrics = {
   rmse: 500_000, mae: 300_000, r2: 0.6, sign_accuracy: 62.5,
   train_rows: 1000, test_rows: 200,
   per_model: {
-    RandomForest: { rmse: 500_000, mae: 300_000, r2: 0.6, sign_accuracy: 62.5 },
-    HistGradientBoosting: { rmse: 520_000, mae: 310_000, r2: 0.58, sign_accuracy: 60.1 },
+    RandomForest: {
+      rmse: 500_000, mae: 300_000, r2: 0.6, sign_accuracy: 62.5,
+      mae_given_correct_sign: 250_000, baseline_sign_accuracy: 55.0, baseline_mae: 340_000,
+      reversal_sign_accuracy: 48.0, reversal_n: 12,
+    },
+    HistGradientBoosting: {
+      rmse: 520_000, mae: 310_000, r2: 0.58, sign_accuracy: 60.1,
+      mae_given_correct_sign: 260_000, baseline_sign_accuracy: 55.0, baseline_mae: 340_000,
+      reversal_sign_accuracy: 46.0, reversal_n: 12,
+    },
   },
 };
 export const FIXTURE_ML_TREND: MlAccuracyTrendEntry[] = [
