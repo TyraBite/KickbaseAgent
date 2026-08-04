@@ -89,6 +89,29 @@ FAMILIES = {
 SKLEARN_FAMILIES = {"RandomForest", "HistGradientBoosting"}
 
 
+class _NumericCoercingEstimator:
+    """Wrapper: manche FEATURES-Spalten (z.B. 'p') sind dtype=object trotz
+    rein numerischer Werte (siehe _performance_frame()/fillna in
+    market_predictor.py) - sklearn/RandomForest/HistGradientBoosting
+    tolerieren das stillschweigend, LightGBM/XGBoost lehnen dtype=object
+    explizit ab (mit je unterschiedlichem Fehlertext). Cast auf float statt
+    fragiles String-Pattern-Matching auf Fehlermeldungen - wirkt fuer alle
+    vier Familien identisch, kein Sonderfall pro Bibliothek noetig."""
+
+    def __init__(self, estimator):
+        self._estimator = estimator
+
+    def fit(self, X, y):
+        self._estimator.fit(X.astype(float), y)
+        return self
+
+    def predict(self, X):
+        return self._estimator.predict(X.astype(float))
+
+    def get_params(self, deep=True):
+        return self._estimator.get_params(deep=deep)
+
+
 def _print_metrics(label, metrics):
     print(
         f"{label}: sign_accuracy={metrics['sign_accuracy']}% mae={metrics['mae']} "
@@ -148,17 +171,11 @@ def main():
         trial_num += 1
 
         start = time.monotonic()
-        try:
-            result = _walk_forward_backtest(
-                history_df, target_col=TARGET_COL, horizon_days=HORIZON_DAYS,
-                candidates={family: trial_model}, n_folds=N_FOLDS,
-            )
-        except ValueError as e:
-            last_config_seconds = time.monotonic() - start
-            if "DataFrame.dtypes for data must be int, float, bool or category" in str(e):
-                print(f"[{trial_num}] {family}: XGBoost-Inkompatibilität (object-Spalten) - überspringen.")
-                continue
-            raise
+        wrapped_model = _NumericCoercingEstimator(trial_model)
+        result = _walk_forward_backtest(
+            history_df, target_col=TARGET_COL, horizon_days=HORIZON_DAYS,
+            candidates={family: wrapped_model}, n_folds=N_FOLDS,
+        )
         last_config_seconds = time.monotonic() - start
 
         if result is None or family not in result["per_model"]:
