@@ -70,8 +70,8 @@ FEATURES = [
     "days_since_last_starting_rank_change", "starting_rank_change_count_90d",
     "avg_sentiment_7d", "news_volume_7d",
 ]
-TARGET = "mv_target_clipped"
-TARGET_3D = "mv_target_3d_clipped"
+TARGET = "mv_target"
+TARGET_3D = "mv_target_3d"
 
 MARKET_VALUE_TIMEFRAME = 365
 LAST_PERFORMANCE_VALUES = 50
@@ -96,6 +96,15 @@ CHANGE_COUNT_WINDOW_DAYS = 90
 
 SENTIMENT_LABEL_SCORE = {"positive": 1, "neutral": 0, "negative": -1}
 SENTIMENT_WINDOW_DAYS = 7
+
+# Baseline-Vorhersage fuer den jeweiligen Horizont: "morgen bewegt sich der
+# Marktwert in dieselbe Richtung/Groesse wie der zuletzt bekannte Schritt
+# derselben Laenge" - beide Spalten existieren schon als Features, kein
+# neuer Fetch, kein neues Leck-Risiko (live verifiziert 2026-08-04: diese
+# triviale Baseline trifft ueber die ganze Saison 90-99% Richtungsgenauigkeit,
+# das ML-Modell muss das schlagen, um seinen Aufwand zu rechtfertigen -
+# siehe docs/superpowers/specs/2026-08-04-ml-baseline-honesty-design.md).
+_BASELINE_COLUMN_BY_HORIZON: dict[int, str] = {1: "mv_change_1d", 3: "mv_change_3d"}
 
 # Aggregierter Sicherheits-Check: schlagen zu viele der ersten Abrufe fehl,
 # lieber den ganzen Corpus-Aufbau abbrechen als auf degradierten Daten zu
@@ -446,15 +455,9 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         df["mv"] / df.groupby("md")["mv"].transform("mean")
     ).rolling(3).mean()
 
-    q1 = df["mv_target"].quantile(0.25)
-    q3 = df["mv_target"].quantile(0.75)
-    iqr = q3 - q1
-    df["mv_target_clipped"] = df["mv_target"].clip(q1 - 2.5 * iqr, q3 + 2.5 * iqr)
-
-    q1_3d = df["mv_target_3d"].quantile(0.25)
-    q3_3d = df["mv_target_3d"].quantile(0.75)
-    iqr_3d = q3_3d - q1_3d
-    df["mv_target_3d_clipped"] = df["mv_target_3d"].clip(q1_3d - 2.5 * iqr_3d, q3_3d + 2.5 * iqr_3d)
+    # Bewusst UNGEKLIPPT - Clipping passiert erst beim Training, pro Train-Split/-Fold
+    # (siehe _clip_target()), sonst kennen die Clip-Grenzen die Zukunft jedes
+    # Backtest-Cutoffs (Ziel-Clip-Leck, live gefunden 2026-08-04).
 
     df = df.fillna({"market_divergence": 1, "mv_change_3d": 0, "mv_vol_3d": 0, "p": 0, "mp_avg_3": 0})
 
@@ -462,7 +465,7 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     today_df = mv_known.sort_values("date").groupby("player_id").tail(1)
     history_df = mv_known.drop(today_df.index)
     history_df = history_df.dropna(
-        subset=["mv_change_1d", "next_md", "days_to_next", "mv_next_day", "mv_target", "mv_target_clipped"]
+        subset=["mv_change_1d", "next_md", "days_to_next", "mv_next_day", "mv_target"]
     )
 
     return history_df, today_df
@@ -521,6 +524,111 @@ def _build_candidates() -> dict[str, object]:
             l2_regularization=0.0,
             random_state=RANDOM_STATE,
         ),
+    }
+
+
+def _clip_target(unclipped: pd.Series) -> pd.Series:
+    """IQR-Clip ueber die gegebene Serie. Aufrufer uebergeben NUR die
+    Trainings-Teilmenge (nie den gesamten Corpus) - die Clip-Grenzen duerfen
+    keine Information aus der Zukunft des jeweiligen Cutoffs/Splits
+    enthalten (Ziel-Clip-Leck-Fix, live gefunden 2026-08-04)."""
+    q1 = unclipped.quantile(0.25)
+    q3 = unclipped.quantile(0.75)
+    iqr = q3 - q1
+    return unclipped.clip(q1 - 2.5 * iqr, q3 + 2.5 * iqr)
+
+
+def _apply_embargo(train: pd.DataFrame, cutoff, horizon_days: int) -> pd.DataFrame:
+    """Schliesst Trainings-Zeilen aus, deren Ziel-Label Marktwerte NACH dem
+    Cutoff kennt (Data Leakage bei Mehrtage-Horizonten). Eine Zeile mit
+    Datum d hat ein Label, das mv(d + horizon_days) nutzt - das ist ein Leck
+    wenn d + horizon_days > cutoff, d.h. d > cutoff - horizon_days. Bei
+    Tagesgranularitaet betrifft das genau horizon_days - 1 Tage vor dem
+    Cutoff (NICHT horizon_days Tage - eine Zeile horizon_days Tage vor dem
+    Cutoff hat ein Label, das GENAU am Cutoff endet, das ist noch kein
+    Blick in dessen Zukunft). Bei horizon_days<=1 ist embargo ein No-Op:
+    train enthaelt wegen train[date<cutoff] ohnehin keine Zeile, deren Label
+    ueber den Cutoff hinausreicht."""
+    if horizon_days <= 1:
+        return train
+    embargo_start = cutoff - pd.Timedelta(days=horizon_days - 1)
+    return train[train["date"] < embargo_start]
+
+
+def _score_counts_from_arrays(y_actual, y_pred, baseline_pred) -> dict:
+    """Rohe Summen/Counter aus EINEM Batch (ein Fold oder ein Split) -
+    absichtlich UNGERUNDET und nicht zu Prozent-Kennzahlen verdichtet, damit
+    _walk_forward_backtest() mehrere Folds aufsummieren kann, BEVOR einmal
+    (nicht pro Fold) _finalize_score_counts() aufgerufen wird - identisches
+    Prinzip wie das bisherige sign_hits/abs_errors-Pooling, nur ueber Counts
+    statt Rohlisten. `n_baseline` ist hier immer gleich `n` (baseline_pred
+    kommt aus derselben, bereits NaN-gefilterten DataFrame-Zeile wie
+    y_actual) - im Live-Tagespfad (_build_daily_accuracy_updates) kann
+    n_baseline dagegen kleiner als n sein, wenn der Baseline-Lookup fehlt."""
+    y_actual = np.asarray(y_actual, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    baseline_pred = np.asarray(baseline_pred, dtype=float)
+
+    sign_correct = np.sign(y_actual) == np.sign(y_pred)
+    baseline_sign_correct = np.sign(y_actual) == np.sign(baseline_pred)
+    baseline_wrong = ~baseline_sign_correct
+    abs_error = np.abs(y_actual - y_pred)
+
+    return {
+        "n": int(len(y_actual)),
+        "sign_correct": int(sign_correct.sum()),
+        "abs_error_sum": float(abs_error.sum()),
+        "abs_error_sum_given_correct_sign": float(abs_error[sign_correct].sum()),
+        "n_baseline": int(len(y_actual)),
+        "baseline_sign_correct": int(baseline_sign_correct.sum()),
+        "baseline_abs_error_sum": float(np.abs(y_actual - baseline_pred).sum()),
+        "n_baseline_wrong": int(baseline_wrong.sum()),
+        "model_sign_correct_when_baseline_wrong": int(sign_correct[baseline_wrong].sum()),
+    }
+
+
+def _empty_counts() -> dict:
+    return {
+        "n": 0, "sign_correct": 0, "abs_error_sum": 0.0,
+        "abs_error_sum_given_correct_sign": 0.0,
+        "n_baseline": 0, "baseline_sign_correct": 0, "baseline_abs_error_sum": 0.0,
+        "n_baseline_wrong": 0, "model_sign_correct_when_baseline_wrong": 0,
+    }
+
+
+def _finalize_score_counts(counts: dict) -> dict | None:
+    """Wandelt rohe Summen/Counter (aus _score_counts_from_arrays() ODER
+    aufsummiert aus mehreren ml_accuracy_daily-Tagesdokumenten in
+    _summarize_from_daily()) in die finalen, gerundeten Kennzahlen um -
+    EINE Stelle fuer die Metrik-Definition, egal ob aus einem einzelnen
+    Batch oder einem Zeitfenster ueber gespeicherte Tage berechnet. `None`
+    bei n==0 (nichts zu berichten)."""
+    n = counts["n"]
+    if n == 0:
+        return None
+    sign_accuracy = counts["sign_correct"] / n * 100
+    mae = counts["abs_error_sum"] / n
+    mae_given_correct_sign = (
+        counts["abs_error_sum_given_correct_sign"] / counts["sign_correct"]
+        if counts["sign_correct"] else None
+    )
+    n_baseline = counts["n_baseline"]
+    baseline_sign_accuracy = counts["baseline_sign_correct"] / n_baseline * 100 if n_baseline else None
+    baseline_mae = counts["baseline_abs_error_sum"] / n_baseline if n_baseline else None
+    n_baseline_wrong = counts["n_baseline_wrong"]
+    reversal_sign_accuracy = (
+        counts["model_sign_correct_when_baseline_wrong"] / n_baseline_wrong * 100
+        if n_baseline_wrong else None
+    )
+    return {
+        "n": n,
+        "sign_accuracy": round(sign_accuracy, 1),
+        "mae": round(mae, 2),
+        "mae_given_correct_sign": round(mae_given_correct_sign, 2) if mae_given_correct_sign is not None else None,
+        "baseline_sign_accuracy": round(baseline_sign_accuracy, 1) if baseline_sign_accuracy is not None else None,
+        "baseline_mae": round(baseline_mae, 2) if baseline_mae is not None else None,
+        "reversal_sign_accuracy": round(reversal_sign_accuracy, 1) if reversal_sign_accuracy is not None else None,
+        "reversal_n": n_baseline_wrong,
     }
 
 

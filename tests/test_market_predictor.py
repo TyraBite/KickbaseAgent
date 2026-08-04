@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 
 from src.market_predictor import (
@@ -1060,4 +1061,121 @@ class FeaturesListStartingRankTests(unittest.TestCase):
 class FeaturesListSentimentTests(unittest.TestCase):
     def test_features_includes_sentiment_columns(self):
         self.assertIn("avg_sentiment_7d", FEATURES)
+
+
+class ClipTargetTests(unittest.TestCase):
+    def test_clips_using_only_given_series_quantiles(self):
+        # Werte 0..99 plus ein Ausreisser 100000 - IQR-Clip muss den
+        # Ausreisser kappen, den Rest unveraendert lassen.
+        from src.market_predictor import _clip_target
+        values = pd.Series(list(range(100)) + [100000])
+        clipped = _clip_target(values)
+        self.assertLess(clipped.iloc[-1], 100000)
+        self.assertEqual(clipped.iloc[0], 0)
+        self.assertEqual(clipped.iloc[50], 50)
+
+
+class ApplyEmbargoTests(unittest.TestCase):
+    def _train(self):
+        return pd.DataFrame({
+            "date": pd.to_datetime([
+                "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05",
+            ]),
+        })
+
+    def test_horizon_1_is_noop(self):
+        from src.market_predictor import _apply_embargo
+        train = self._train()
+        result = _apply_embargo(train, pd.Timestamp("2026-08-06"), horizon_days=1)
+        self.assertEqual(len(result), 5)
+
+    def test_horizon_3_excludes_last_two_days_before_cutoff(self):
+        from src.market_predictor import _apply_embargo
+        # cutoff=08-06, horizon=3: Zeilen mit Label ueber den Cutoff hinaus
+        # sind 08-04 (Label -> 08-07) und 08-05 (Label -> 08-08) - genau
+        # horizon_days-1=2 Tage, NICHT horizon_days=3 Tage (08-03 hat ein
+        # Label das genau am Cutoff endet, 08-03+3=08-06 - das ist noch
+        # KEIN Blick in die Zukunft DES Cutoffs, bleibt also drin).
+        train = self._train()
+        result = _apply_embargo(train, pd.Timestamp("2026-08-06"), horizon_days=3)
+        self.assertEqual(
+            list(result["date"].dt.date.astype(str)),
+            ["2026-08-01", "2026-08-02", "2026-08-03"],
+        )
+
+
+class ScoreCountsFromArraysTests(unittest.TestCase):
+    def test_counts_match_hand_computation(self):
+        from src.market_predictor import _score_counts_from_arrays
+        y_actual = [100, -50, 30, -10]
+        y_pred = [80, -60, -5, -20]  # Zeile 3 (30 vs -5) hat falsches Vorzeichen
+        baseline_pred = [90, 40, 30, -5]  # Zeile 2 (-50 vs 40) hat falsches Vorzeichen
+        counts = _score_counts_from_arrays(y_actual, y_pred, baseline_pred)
+        self.assertEqual(counts["n"], 4)
+        self.assertEqual(counts["sign_correct"], 3)  # alle bis auf Zeile 3
+        self.assertEqual(counts["n_baseline"], 4)
+        self.assertEqual(counts["baseline_sign_correct"], 3)  # alle bis auf Zeile 2
+        self.assertEqual(counts["n_baseline_wrong"], 1)
+        # Zeile 2: Modell richtig (-50 vs -60, beide negativ), Baseline falsch
+        self.assertEqual(counts["model_sign_correct_when_baseline_wrong"], 1)
+        self.assertAlmostEqual(counts["abs_error_sum"], 20 + 10 + 35 + 10, places=5)
+        # abs_error_sum_given_correct_sign: Zeilen 1,2,4 (Zeile 3 hat falsches Vorzeichen)
+        self.assertAlmostEqual(counts["abs_error_sum_given_correct_sign"], 20 + 10 + 10, places=5)
+
+
+class FinalizeScoreCountsTests(unittest.TestCase):
+    def test_derives_rounded_percentages(self):
+        from src.market_predictor import _finalize_score_counts
+        counts = {
+            "n": 4, "sign_correct": 3, "abs_error_sum": 75.0,
+            "abs_error_sum_given_correct_sign": 40.0,
+            "n_baseline": 4, "baseline_sign_correct": 3, "baseline_abs_error_sum": 90.0,
+            "n_baseline_wrong": 1, "model_sign_correct_when_baseline_wrong": 1,
+        }
+        result = _finalize_score_counts(counts)
+        self.assertEqual(result["n"], 4)
+        self.assertEqual(result["sign_accuracy"], 75.0)
+        self.assertAlmostEqual(result["mae"], 18.75, places=2)
+        self.assertAlmostEqual(result["mae_given_correct_sign"], 40.0 / 3, places=2)
+        self.assertEqual(result["baseline_sign_accuracy"], 75.0)
+        self.assertAlmostEqual(result["baseline_mae"], 22.5, places=2)
+        self.assertEqual(result["reversal_sign_accuracy"], 100.0)
+        self.assertEqual(result["reversal_n"], 1)
+
+    def test_returns_none_when_n_zero(self):
+        from src.market_predictor import _finalize_score_counts, _empty_counts
+        self.assertIsNone(_finalize_score_counts(_empty_counts()))
+
+    def test_reversal_and_correct_sign_fields_are_none_when_denominator_zero(self):
+        from src.market_predictor import _finalize_score_counts, _empty_counts
+        counts = _empty_counts()
+        counts["n"] = 2
+        counts["sign_correct"] = 0
+        counts["abs_error_sum"] = 10.0
+        counts["n_baseline"] = 0
+        result = _finalize_score_counts(counts)
+        self.assertIsNone(result["mae_given_correct_sign"])
+        self.assertIsNone(result["baseline_sign_accuracy"])
+        self.assertIsNone(result["baseline_mae"])
+        self.assertIsNone(result["reversal_sign_accuracy"])
+        self.assertEqual(result["reversal_n"], 0)
+
+
+class EngineerFeaturesUnclippedTargetTests(unittest.TestCase):
+    def test_mv_target_columns_are_not_clipped(self):
+        # Ein Ausreisser-Sprung darf NICHT mehr geklippt werden - Clipping
+        # passiert jetzt erst beim Training, pro Split/Fold.
+        rows = []
+        pid, tid = "p1", "t1"
+        for i, mv in enumerate([1_000_000, 1_000_000, 1_000_000, 50_000_000]):
+            rows.append({
+                "player_id": pid, "team_id": tid, "date": pd.Timestamp("2026-01-01") + pd.Timedelta(days=i),
+                "mv": mv, "md": pd.NaT, "p": None, "mp": None, "mp_avg_3": None,
+                "t1": tid, "t2": None, "t1g": None, "t2g": None,
+            })
+        df = pd.DataFrame(rows)
+        history_df, _today_df = _engineer_features(df)
+        self.assertIn("mv_target", history_df.columns)
+        self.assertNotIn("mv_target_clipped", history_df.columns)
+        self.assertNotIn("mv_target_3d_clipped", history_df.columns)
         self.assertIn("news_volume_7d", FEATURES)
