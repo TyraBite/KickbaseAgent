@@ -47,7 +47,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score
 
 from src import firestore_db
 from src.kickbase_client import (
@@ -632,21 +632,17 @@ def _finalize_score_counts(counts: dict) -> dict | None:
     }
 
 
-def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
+def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET, horizon_days: int = 1):
     """Trainiert zwei Modell-Kandidaten per Zeit-Split (75/25, kein Shuffle,
-    verhindert Data Leakage) - RandomForestRegressor (bisherige feste
-    Parameter) gegen HistGradientBoostingRegressor (eingebautes
-    Early-Stopping, oft besser bei Feature-Interaktionen). Gibt (models,
-    metrics) oder None zurueck, wenn zu wenig Daten fuer einen sinnvollen
-    Split/Training vorhanden sind. `models` enthaelt ALLE trainierten
-    Kandidaten (Phase 4: werden beide fuer die taegliche Prognose
-    gebraucht, um beide zu loggen), nicht mehr nur den Gewinner.
-    metrics["model_type"] zeigt, welcher Kandidat nach Test-R2 gewonnen
-    hat. Erweitert um target_col: die Zeilen ohne bekannten Zielwert
-    (z.B. die letzten paar Tage pro Spieler beim 3-Tage-Ziel, siehe
-    TARGET_3D) werden hier - und nur hier, nicht global auf history_df -
-    verworfen, damit ein zweites Trainingsziel die Datenbasis des ersten
-    nicht verkleinert."""
+    verhindert Data Leakage) - RandomForestRegressor gegen
+    HistGradientBoostingRegressor. Gibt (models, metrics) oder None zurueck,
+    wenn zu wenig Daten fuer einen sinnvollen Split/Training vorhanden sind.
+    `models` enthaelt ALLE trainierten Kandidaten. `horizon_days` steuert
+    zwei Dinge: welche Spalte als Traegheits-Baseline dient
+    (_BASELINE_COLUMN_BY_HORIZON) und ob der Split-Rand embargoiert werden
+    muss (_apply_embargo - bei Mehrtage-Horizonten hat eine Trainings-Zeile
+    kurz vor split_date sonst ein Label, das Marktwerte NACH split_date
+    kennt, exakt dieselbe Leak-Klasse wie beim Walk-Forward-Backtest)."""
     df = history_df.dropna(subset=[target_col])
     if len(df) < MIN_TRAINING_ROWS:
         return None
@@ -655,13 +651,17 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
     split_idx = int(len(df) * 0.75)
     split_date = df["date"].iloc[split_idx]
     train = df[df["date"] < split_date]
+    train = _apply_embargo(train, split_date, horizon_days)
     test = df[df["date"] >= split_date]
 
     if train.empty or test.empty:
         return None
 
-    x_train, y_train = train[FEATURES], train[target_col]
-    x_test, y_test = test[FEATURES], test[target_col]
+    x_train = train[FEATURES]
+    y_train = _clip_target(train[target_col])
+    x_test = test[FEATURES]
+    y_test_actual = test[target_col]
+    baseline_pred = test[_BASELINE_COLUMN_BY_HORIZON[horizon_days]]
 
     candidates = _build_candidates()
 
@@ -670,17 +670,12 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
     for name, candidate in candidates.items():
         candidate.fit(x_train, y_train)
         y_pred = candidate.predict(x_test)
-        r2 = r2_score(y_test, y_pred)
-        rmse = mean_squared_error(y_test, y_pred) ** 0.5
-        mae = mean_absolute_error(y_test, y_pred)
-        sign_accuracy = float(np.mean(np.sign(y_test) == np.sign(y_pred)) * 100)
+        r2 = r2_score(y_test_actual, y_pred)
+        rmse = mean_squared_error(y_test_actual, y_pred) ** 0.5
+        counts = _score_counts_from_arrays(y_test_actual, y_pred, baseline_pred)
+        finalized = _finalize_score_counts(counts)
         models[name] = candidate
-        per_model_metrics[name] = {
-            "rmse": round(rmse, 2),
-            "mae": round(mae, 2),
-            "r2": round(r2, 3),
-            "sign_accuracy": round(sign_accuracy, 1),
-        }
+        per_model_metrics[name] = {"rmse": round(rmse, 2), "r2": round(r2, 3), **finalized}
 
     best_name = max(per_model_metrics, key=lambda name: per_model_metrics[name]["r2"])
     metrics = {
@@ -1107,7 +1102,7 @@ def _train_and_track_horizon(
     (target_col=TARGET_3D, Task 5) getrennt aufruft - ein fehlschlagendes
     3-Tage-Training darf die 1-Tages-Prognose nicht mitreissen, deshalb
     zwei unabhaengige Aufrufe statt einer gemeinsamen Fehlerbehandlung."""
-    trained = _train_and_evaluate(history_df, target_col)
+    trained = _train_and_evaluate(history_df, target_col, horizon_days)
     if trained is None:
         return None
     models, metrics = trained

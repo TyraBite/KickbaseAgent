@@ -893,7 +893,7 @@ class TrainAndEvaluateTargetColTests(unittest.TestCase):
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             "avg_sentiment_7d": 0, "news_volume_7d": 0,
-            "mv_target_clipped": rng.randn(n) * 5000,
+            "mv_target": rng.randn(n) * 5000,
             "alt_target_clipped": rng.randn(n) * 9000,
         })
         return df
@@ -914,6 +914,50 @@ class TrainAndEvaluateTargetColTests(unittest.TestCase):
         df = self._history_df("mv_target_clipped")
         df.loc[df.index[:5], "alt_target_clipped"] = None
         result = _train_and_evaluate(df, target_col="alt_target_clipped")
+        self.assertIsNotNone(result)
+
+
+class TrainAndEvaluateBaselineAndEmbargoTests(unittest.TestCase):
+    def _history_df(self, n=250):
+        dates = pd.date_range("2026-01-01", periods=n, freq="D")
+        rng = np.random.default_rng(42)
+        return pd.DataFrame({
+            "date": dates,
+            "p": rng.normal(size=n),
+            "mv": rng.normal(size=n) * 1000 + 1_000_000,
+            "days_to_next": rng.integers(1, 7, size=n),
+            "mv_change_1d": rng.normal(size=n) * 500,
+            "mv_trend_1d": rng.normal(size=n) * 0.01,
+            "mv_change_3d": rng.normal(size=n) * 800,
+            "mv_vol_3d": rng.normal(size=n) * 100,
+            "mv_trend_7d": rng.normal(size=n) * 0.02,
+            "market_divergence": rng.normal(size=n) + 1,
+            "days_since_last_status_change": rng.integers(0, 90, size=n),
+            "status_change_count_90d": rng.integers(0, 5, size=n),
+            "days_since_last_starting_rank_change": rng.integers(0, 90, size=n),
+            "starting_rank_change_count_90d": rng.integers(0, 5, size=n),
+            "avg_sentiment_7d": rng.normal(size=n) * 0.1,
+            "news_volume_7d": rng.integers(0, 10, size=n),
+            TARGET: rng.normal(size=n) * 500,
+        })
+
+    def test_per_model_metrics_include_baseline_fields(self):
+        result = _train_and_evaluate(self._history_df(), TARGET, horizon_days=1)
+        self.assertIsNotNone(result)
+        _models, metrics = result
+        for name in ("RandomForest", "HistGradientBoosting"):
+            self.assertIn("baseline_sign_accuracy", metrics["per_model"][name])
+            self.assertIn("reversal_n", metrics["per_model"][name])
+
+    def test_embargoes_last_two_days_before_split_for_horizon_3(self):
+        # horizon_days=3 mit derselben Fixture darf nicht crashen und muss
+        # denselben Embargo-Mechanismus wie die anderen Aufrufer nutzen -
+        # verifiziert hier nur "laeuft durch, produziert Metriken", der
+        # exakte Embargo-Mechanismus selbst ist in ApplyEmbargoTests (Task 1)
+        # abgedeckt.
+        df = self._history_df()
+        df[TARGET_3D] = df[TARGET] * 1.5
+        result = _train_and_evaluate(df, TARGET_3D, horizon_days=3)
         self.assertIsNotNone(result)
 
 
