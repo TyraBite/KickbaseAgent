@@ -297,7 +297,6 @@ class BackfillPredictionLogTests(unittest.TestCase):
 class BackfillPredictionLogTargetColTests(unittest.TestCase):
     def _history_df(self, target_col, n=210):
         import numpy as np
-        unclipped_col = target_col.removesuffix("_clipped")
         dates = pd.date_range("2026-01-01", periods=n, freq="D")
         rng = np.random.RandomState(7)
         df = pd.DataFrame({
@@ -311,7 +310,6 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             "avg_sentiment_7d": 0, "news_volume_7d": 0,
             target_col: rng.randn(n) * 5000,
-            unclipped_col: rng.randn(n) * 5000,
         })
         return df
 
@@ -331,12 +329,11 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
         # WalkForwardBacktestTargetColTests.test_partial_nan_test_rows_are_dropped_not_averaged_into_nan:
         # eine Zeile mit NaN in der ungeklippten Zielspalte am letzten
         # Cutoff-Tag darf nicht in sign_correct/abs_error_sum einsickern.
-        target_col = "alt_target_clipped"
-        unclipped_col = "alt_target"
+        target_col = "alt_target"
         df = self._history_df(target_col)
         extra_row = df.iloc[[-1]].copy()
         extra_row["player_id"] = "p2"
-        extra_row[unclipped_col] = None
+        extra_row[target_col] = None
         df = pd.concat([df, extra_row], ignore_index=True)
         mock_engineer.return_value = (df, pd.DataFrame())
 
@@ -369,6 +366,37 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
     @patch("src.market_predictor.select_league", return_value={"id": "league1"})
     @patch("src.market_predictor.login", return_value=("token", {}, []))
     @patch("src.market_predictor._engineer_features")
+    def test_daily_updates_include_baseline_fields(
+        self, mock_engineer, mock_login, mock_select_league, mock_get_me,
+        mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
+    ):
+        target_col = "alt_target"
+        df = self._history_df(target_col)
+        mock_engineer.return_value = (df, pd.DataFrame())
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "e", "KICKBASE_PASSWORD": "p", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ):
+            result = backfill_prediction_log(3, target_col=target_col, horizon_days=1)
+
+        self.assertGreater(result["folds_run"], 0)
+        entries = mock_upsert.call_args[0][1]
+        self.assertTrue(entries)
+        for entry in entries:
+            self.assertIn("baseline_sign_correct", entry)
+            self.assertIn("n_baseline_wrong", entry)
+            self.assertIn("model_sign_correct_when_baseline_wrong", entry)
+
+    @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
+    @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
+    @patch("src.market_predictor._load_change_events_by_player", return_value={})
+    @patch("src.market_predictor._build_corpus", return_value=None)
+    @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
+    @patch("src.market_predictor.select_league", return_value={"id": "league1"})
+    @patch("src.market_predictor.login", return_value=("token", {}, []))
+    @patch("src.market_predictor._engineer_features")
     def test_default_horizon_is_1_and_target_is_1d(
         self, mock_engineer, mock_login, mock_select_league, mock_get_me,
         mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
@@ -385,6 +413,47 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
 
         entries = mock_upsert.call_args[0][1]
         self.assertTrue(all(e["horizon_days"] == 1 for e in entries))
+
+    @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
+    @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
+    @patch("src.market_predictor._load_change_events_by_player", return_value={})
+    @patch("src.market_predictor._build_corpus", return_value=None)
+    @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
+    @patch("src.market_predictor.select_league", return_value={"id": "league1"})
+    @patch("src.market_predictor.login", return_value=("token", {}, []))
+    @patch("src.market_predictor._engineer_features")
+    def test_embargo_is_actually_wired_for_horizon_3(
+        self, mock_engineer, mock_login, mock_select_league, mock_get_me,
+        mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
+    ):
+        # Mutation-Check-Regression, analog
+        # WalkForwardBacktestTargetColTests.test_embargo_is_actually_wired_into_the_backtest_for_horizon_3:
+        # mit dem `_apply_embargo`-Aufruf entfernt blieb JEDER bestehende
+        # Test in dieser Klasse gruen (keiner nutzt horizon_days=3
+        # zusammen mit genug Cutoffs). days=6/n=206 ist bewusst so knapp
+        # oberhalb von BACKTEST_MIN_TRAIN_ROWS=200 gewaehlt, dass der
+        # fruehste der 6 Cutoff-Folds bei aktivem Embargo (train-Groesse =
+        # cutoff_idx - 2) knapp UNTER die Mindestgroesse faellt und
+        # deshalb geskippt wird, waehrend er ohne Embargo (train-Groesse =
+        # cutoff_idx) noch mitlaeuft - macht den Effekt in folds_run
+        # deterministisch statt auf einen zufaelligen ML-Sign-Flip zu hoffen.
+        target_col = "alt_target"
+        df = self._history_df(target_col, n=206)
+        mock_engineer.return_value = (df, pd.DataFrame())
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "e", "KICKBASE_PASSWORD": "p", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ):
+            with_embargo = backfill_prediction_log(6, target_col=target_col, horizon_days=3)
+            with patch(
+                "src.market_predictor._apply_embargo",
+                side_effect=lambda train, cutoff, horizon_days: train,
+            ):
+                without_embargo = backfill_prediction_log(6, target_col=target_col, horizon_days=3)
+
+        self.assertNotEqual(with_embargo["folds_run"], without_embargo["folds_run"])
 
 
 class BuildCandidatesTests(unittest.TestCase):

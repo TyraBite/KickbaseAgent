@@ -760,19 +760,22 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
     falls die Firestore-Historie je zurueckgesetzt werden muss.
 
     target_col/horizon_days (Default TARGET/1) spiegeln exakt das Muster von
-    _walk_forward_backtest: unclipped_col (target_col ohne "_clipped"-Suffix)
-    ist die Spalte, gegen die der TATSAECHLICHE Ausgang verglichen wird -
-    sowohl train als auch test werden vor der Nutzung auf ihre jeweils
-    relevante Zielspalte hin von NaN befreit. Ohne den test-seitigen Drop
-    wuerde bei einem Mehrtage-Horizont (z.B. TARGET_3D) eine NaN-Zeile in
-    y_test_actual via np.sign/np.abs in die aufsummierten
-    abs_error/sign_correct-Werte dieses Folds einsickern - siehe
-    _walk_forward_backtest-Docstring fuer die volle Herleitung dieses Bugs,
-    hier dieselbe Verwundbarkeit, derselbe Schutz. horizon_days wird in jedes
-    daily_updates-Element geschrieben - upsert_accuracy_daily() nutzt es als
-    Teil des Doc-Ids ({date}_{model_type}_{horizon_days}); ohne dieses Feld
-    wuerden alle Backfill-Laeufe unter Horizont 1 landen, auch ein
-    3-Tage-Backfill."""
+    _walk_forward_backtest: target_col ist die EINE (ungeklippte) Spalte,
+    gegen die der TATSAECHLICHE Ausgang verglichen wird - sowohl train als
+    auch test werden vor der Nutzung auf diese Zielspalte hin von NaN
+    befreit. Ohne den test-seitigen Drop wuerde bei einem Mehrtage-Horizont
+    (z.B. TARGET_3D) eine NaN-Zeile in y_test_actual via np.sign/np.abs in
+    die aufsummierten abs_error/sign_correct-Werte dieses Folds einsickern -
+    siehe _walk_forward_backtest-Docstring fuer die volle Herleitung dieses
+    Bugs, hier dieselbe Verwundbarkeit, derselbe Schutz. Anders als
+    _walk_forward_backtest poolt dieser Pfad NICHT ueber Folds: jeder
+    Cutoff-Tag schreibt sein EIGENES ml_accuracy_daily-Dokument (Rohcounts
+    aus _score_counts_from_arrays direkt, ungerundet) - die spaetere
+    Tages-/Zeitfenster-Aggregation (_summarize_from_daily) erwartet genau
+    dieses Pro-Tag-Schema. horizon_days wird in jedes daily_updates-Element
+    geschrieben - upsert_accuracy_daily() nutzt es als Teil des Doc-Ids
+    ({date}_{model_type}_{horizon_days}); ohne dieses Feld wuerden alle
+    Backfill-Laeufe unter Horizont 1 landen, auch ein 3-Tage-Backfill."""
     email = os.environ.get("KICKBASE_EMAIL")
     password = os.environ.get("KICKBASE_PASSWORD")
     if not email or not password:
@@ -796,38 +799,34 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
 
     dates = sorted(history_df["date"].unique())
     cutoffs = dates[-days:] if len(dates) > days else dates
+    baseline_col = _BASELINE_COLUMN_BY_HORIZON[horizon_days]
 
-    unclipped_col = target_col.removesuffix("_clipped")
     daily_updates = []
     folds_run = 0
     for cutoff in cutoffs:
         train = history_df[history_df["date"] < cutoff].dropna(subset=[target_col])
-        test = history_df[history_df["date"] == cutoff].dropna(subset=[unclipped_col])
+        train = _apply_embargo(train, cutoff, horizon_days)
+        test = history_df[history_df["date"] == cutoff].dropna(subset=[target_col])
         if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
             continue
         folds_run += 1
 
-        x_train, y_train = train[FEATURES], train[target_col]
+        x_train = train[FEATURES]
+        y_train = _clip_target(train[target_col])
         x_test = test[FEATURES]
-        y_test_actual = test[unclipped_col]
+        y_test_actual = test[target_col]
+        baseline_pred = test[baseline_col]
         cutoff_date = pd.Timestamp(cutoff).date().isoformat()
 
         candidates = _build_candidates()
         for model_type, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
-            sign_correct = np.sign(y_test_actual) == np.sign(y_pred)
-            abs_error = np.abs(y_test_actual - y_pred)
-            daily_updates.append(
-                {
-                    "date": cutoff_date,
-                    "model_type": model_type,
-                    "horizon_days": horizon_days,
-                    "n": int(len(sign_correct)),
-                    "sign_correct": int(sign_correct.sum()),
-                    "abs_error_sum": float(abs_error.sum()),
-                }
-            )
+            counts = _score_counts_from_arrays(y_test_actual, y_pred, baseline_pred)
+            daily_updates.append({
+                "date": cutoff_date, "model_type": model_type, "horizon_days": horizon_days,
+                **counts,
+            })
 
     if daily_updates and os.environ.get("FIRESTORE_ENABLED"):
         try:
