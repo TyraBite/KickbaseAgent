@@ -109,6 +109,28 @@ class SummarizeFromDailyTests(unittest.TestCase):
         result = _summarize_from_daily([{"date": "2026-01-01", "n": 10, "sign_correct": 5, "abs_error_sum": 100.0}], "2026-07-28", 7)
         self.assertIsNone(result)
 
+    def test_derives_baseline_and_reversal_fields_from_summed_counts(self):
+        daily = [
+            {
+                "date": "2026-07-27", "n": 2, "sign_correct": 2, "abs_error_sum": 100.0,
+                "abs_error_sum_given_correct_sign": 100.0,
+                "n_baseline": 2, "baseline_sign_correct": 1, "baseline_abs_error_sum": 200.0,
+                "n_baseline_wrong": 1, "model_sign_correct_when_baseline_wrong": 1,
+            },
+        ]
+        result = _summarize_from_daily(daily, "2026-07-28", 7)
+        self.assertEqual(result["baseline_sign_accuracy"], 50.0)
+        self.assertEqual(result["reversal_sign_accuracy"], 100.0)
+        self.assertEqual(result["reversal_n"], 1)
+
+    def test_old_shaped_daily_docs_without_new_fields_still_work(self):
+        # Uebergangsphase zwischen Deploy und Backfill-Neulauf - reale, keine
+        # hypothetische Situation (siehe Nach-Abschluss-Schritt im Plan).
+        daily = [{"date": "2026-07-20", "n": 450, "sign_correct": 300, "abs_error_sum": 45000.0}]
+        result = _summarize_from_daily(daily, "2026-07-28", 30)
+        self.assertIsNone(result["baseline_sign_accuracy"])
+        self.assertEqual(result["reversal_n"], 0)
+
 
 class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
     def test_aggregates_by_date_and_model(self):
@@ -129,6 +151,37 @@ class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
         entries = [{"date": "2026-07-01", "player_id": "p1", "predicted_delta": 100}]
         result = _build_daily_accuracy_updates(entries, {}, "2026-07-28", horizon_days=1)
         self.assertEqual(result, [])
+
+    def test_baseline_fields_use_prior_horizon_window(self):
+        entries = [
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
+        ]
+        mv_lookup = {
+            ("p1", "2026-07-26"): 900.0,   # Tag davor (fuer Baseline: 1000-900=100)
+            ("p1", "2026-07-27"): 1000.0,
+            ("p1", "2026-07-28"): 1150.0,  # tatsaechlicher Sprung: +150
+        }
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
+        self.assertEqual(len(result), 1)
+        doc = result[0]
+        self.assertEqual(doc["n_baseline"], 1)
+        self.assertEqual(doc["baseline_sign_correct"], 1)  # Baseline +100, tatsaechlich +150, beide positiv
+        self.assertAlmostEqual(doc["baseline_abs_error_sum"], 50.0)  # |100-150|
+        self.assertEqual(doc["n_baseline_wrong"], 0)
+        self.assertEqual(doc["abs_error_sum_given_correct_sign"], 50.0)  # Modell-Vorhersage 100 hat auch richtiges Vorzeichen
+
+    def test_missing_prior_window_value_leaves_baseline_fields_at_zero(self):
+        entries = [
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
+        ]
+        mv_lookup = {
+            ("p1", "2026-07-27"): 1000.0,
+            ("p1", "2026-07-28"): 1150.0,
+            # kein Wert fuer 2026-07-26 (Tag davor) - Baseline nicht berechenbar
+        }
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
+        self.assertEqual(result[0]["n_baseline"], 0)
+        self.assertEqual(result[0]["n"], 1)  # Haupt-Metrik bleibt trotzdem auswertbar
 
 
 class HorizonAwareAccuracyUpdatesTests(unittest.TestCase):
