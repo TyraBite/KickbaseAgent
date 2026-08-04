@@ -15,16 +15,16 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
 verbindliche Stand pro Task, hier nur die Kurzfassung.
 
 **Stand:** Tasks 1-6 von 7 committed + Review clean (Task 1 und 5 brauchten je 1 Fix-Round, dokumentiert im Ledger).
-Task 7 (letzter Task: `MlGenauigkeitTab.tsx`-Anzeige + neuer Playwright-CT-Test) war beim Pausieren als
-Hintergrund-Agent gestartet — **Status beim Wiedereinstieg zuerst per `git log` im Worktree prüfen**, nicht
-davon ausgehen, dass der Agent-Task diese Session überlebt hat:
-- Kein neuer Commit seit `49b72c7` → Task 7 nie fertig geworden, per `task-brief`-Skript + Task-7-Dispatch-Prompt
-  aus dem Plan neu starten (Skript: `subagent-driven-development`-Skill, `scripts/task-brief`).
-- Ein neuer Commit vorhanden, aber noch kein Review dazu im Ledger → Review-Package erzeugen (`scripts/review-package`)
-  und Task-Reviewer dispatchen, dann normal im Fix-Loop weiter.
-- Ledger zeigt "Task 7: complete" → direkt zum finalen Whole-Branch-Review übergehen (`superpowers:requesting-code-review`,
-  stärkstes verfügbares Modell), danach `superpowers:finishing-a-development-branch` (PR + Auto-Merge, `main` ist
-  geschützt).
+**Task 7 (letzter Task: `MlGenauigkeitTab.tsx`-Anzeige + neuer Playwright-CT-Test) ist implementiert und committed
+(`050ec1e`), aber Review bewusst NICHT dispatcht** — User hat genau an diesem Punkt pausiert (Implementer fertig,
+Review absichtlich auf nach der Pause verschoben). **Nächster Schritt beim Wiedereinstieg: Review-Package für
+Task 7 erzeugen (`scripts/review-package` aus dem `subagent-driven-development`-Skill, Base `49b72c7`, Head
+`050ec1e`) und Task-Reviewer dispatchen**, dann normal im Fix-Loop weiter, danach finales Whole-Branch-Review
+(`superpowers:requesting-code-review`, stärkstes verfügbares Modell), danach
+`superpowers:finishing-a-development-branch` (PR + Auto-Merge, `main` ist geschützt).
+
+Falls doch etwas seit dem Pausieren weiterlief (z.B. durch eine parallele Session) — trotzdem zuerst per `git log`
+im Worktree gegenprüfen, nicht blind von diesem Stand ausgehen.
 
 **Nach Merge nicht vergessen** (steht auch am Ende des Plan-Dokuments): Heavy-Lauf erzwingen
 (`gh workflow run dashboard-marktwerte.yml`), `backfill_prediction_log(days=90)` für beide Horizonte einmalig manuell
