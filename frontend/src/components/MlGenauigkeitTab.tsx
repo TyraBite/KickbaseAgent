@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "r
 import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlMetrics, MlModelType } from "../types";
 import { POSITIONS } from "../lib/formations";
 import { clampTooltipLeftPercent, nearestTrendIndex } from "../lib/mlChartMobile";
+import { mlBaselineDeltaPct } from "../lib/derive";
 import { Badge } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum } from "../format";
@@ -123,6 +124,30 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
                 {realized ? (
                   <>
                     Richtung korrekt <b>{fmtAccPct(realized.sign_accuracy)}</b> · MAE <b>{fmtNum(realized.mae)}</b> · n={realized.n}
+                    {realized.baseline_sign_accuracy != null && (
+                      <>
+                        {" "}
+                        · ggü. Trägheits-Annahme{" "}
+                        <b>
+                          {mlBaselineDeltaPct(realized)! >= 0 ? "+" : ""}
+                          {fmtAccPct(mlBaselineDeltaPct(realized)!)}
+                        </b>
+                      </>
+                    )}
+                    {realized.mae_given_correct_sign != null && (
+                      <>
+                        {" "}
+                        · MAE bei richtiger Richtung <b>{fmtNum(realized.mae_given_correct_sign)}</b>
+                      </>
+                    )}
+                    <br />
+                    {realized.reversal_sign_accuracy != null ? (
+                      <>
+                        Bei Trendwenden (n={realized.reversal_n}): <b>{fmtAccPct(realized.reversal_sign_accuracy)}</b> richtig
+                      </>
+                    ) : (
+                      <>Bei Trendwenden: noch keine Fälle im Fenster (n={realized.reversal_n})</>
+                    )}
                   </>
                 ) : (
                   "Noch keine abgeschlossenen Prognosen im 30-Tage-Fenster"
@@ -135,6 +160,11 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
         MAE = mittlere Abweichung der Prognose vom tatsächlichen Marktwert, unabhängig von der Richtung (zu hoch
         und zu niedrig zählen beide gleich) – ein grobes Maß fürs "Rauschen" der Prognose.
+      </p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        "Trägheits-Annahme" = triviale Vergleichs-Prognose ("Richtung bleibt wie beim letzten bekannten Schritt
+        derselben Länge") – zeigt, ob das Modell mehr kann als reine Markt-Trägheit. "Trendwenden" = Tage, an denen
+        die Trägheits-Annahme falsch lag; MAE bei richtiger Richtung trennt Betragsgenauigkeit von Richtungsfehlern.
       </p>
     </div>
   );
