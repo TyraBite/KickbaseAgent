@@ -47,7 +47,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score
 
 from src import firestore_db
 from src.kickbase_client import (
@@ -70,8 +70,8 @@ FEATURES = [
     "days_since_last_starting_rank_change", "starting_rank_change_count_90d",
     "avg_sentiment_7d", "news_volume_7d",
 ]
-TARGET = "mv_target_clipped"
-TARGET_3D = "mv_target_3d_clipped"
+TARGET = "mv_target"
+TARGET_3D = "mv_target_3d"
 
 MARKET_VALUE_TIMEFRAME = 365
 LAST_PERFORMANCE_VALUES = 50
@@ -96,6 +96,15 @@ CHANGE_COUNT_WINDOW_DAYS = 90
 
 SENTIMENT_LABEL_SCORE = {"positive": 1, "neutral": 0, "negative": -1}
 SENTIMENT_WINDOW_DAYS = 7
+
+# Baseline-Vorhersage fuer den jeweiligen Horizont: "morgen bewegt sich der
+# Marktwert in dieselbe Richtung/Groesse wie der zuletzt bekannte Schritt
+# derselben Laenge" - beide Spalten existieren schon als Features, kein
+# neuer Fetch, kein neues Leck-Risiko (live verifiziert 2026-08-04: diese
+# triviale Baseline trifft ueber die ganze Saison 90-99% Richtungsgenauigkeit,
+# das ML-Modell muss das schlagen, um seinen Aufwand zu rechtfertigen -
+# siehe docs/superpowers/specs/2026-08-04-ml-baseline-honesty-design.md).
+_BASELINE_COLUMN_BY_HORIZON: dict[int, str] = {1: "mv_change_1d", 3: "mv_change_3d"}
 
 # Aggregierter Sicherheits-Check: schlagen zu viele der ersten Abrufe fehl,
 # lieber den ganzen Corpus-Aufbau abbrechen als auf degradierten Daten zu
@@ -446,15 +455,9 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         df["mv"] / df.groupby("md")["mv"].transform("mean")
     ).rolling(3).mean()
 
-    q1 = df["mv_target"].quantile(0.25)
-    q3 = df["mv_target"].quantile(0.75)
-    iqr = q3 - q1
-    df["mv_target_clipped"] = df["mv_target"].clip(q1 - 2.5 * iqr, q3 + 2.5 * iqr)
-
-    q1_3d = df["mv_target_3d"].quantile(0.25)
-    q3_3d = df["mv_target_3d"].quantile(0.75)
-    iqr_3d = q3_3d - q1_3d
-    df["mv_target_3d_clipped"] = df["mv_target_3d"].clip(q1_3d - 2.5 * iqr_3d, q3_3d + 2.5 * iqr_3d)
+    # Bewusst UNGEKLIPPT - Clipping passiert erst beim Training, pro Train-Split/-Fold
+    # (siehe _clip_target()), sonst kennen die Clip-Grenzen die Zukunft jedes
+    # Backtest-Cutoffs (Ziel-Clip-Leck, live gefunden 2026-08-04).
 
     df = df.fillna({"market_divergence": 1, "mv_change_3d": 0, "mv_vol_3d": 0, "p": 0, "mp_avg_3": 0})
 
@@ -462,7 +465,7 @@ def _engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     today_df = mv_known.sort_values("date").groupby("player_id").tail(1)
     history_df = mv_known.drop(today_df.index)
     history_df = history_df.dropna(
-        subset=["mv_change_1d", "next_md", "days_to_next", "mv_next_day", "mv_target", "mv_target_clipped"]
+        subset=["mv_change_1d", "next_md", "days_to_next", "mv_next_day", "mv_target"]
     )
 
     return history_df, today_df
@@ -524,21 +527,132 @@ def _build_candidates() -> dict[str, object]:
     }
 
 
-def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
+def _clip_target(unclipped: pd.Series) -> pd.Series:
+    """IQR-Clip ueber die gegebene Serie. Aufrufer uebergeben NUR die
+    Trainings-Teilmenge (nie den gesamten Corpus) - die Clip-Grenzen duerfen
+    keine Information aus der Zukunft des jeweiligen Cutoffs/Splits
+    enthalten (Ziel-Clip-Leck-Fix, live gefunden 2026-08-04)."""
+    q1 = unclipped.quantile(0.25)
+    q3 = unclipped.quantile(0.75)
+    iqr = q3 - q1
+    return unclipped.clip(q1 - 2.5 * iqr, q3 + 2.5 * iqr)
+
+
+def _apply_embargo(train: pd.DataFrame, cutoff, horizon_days: int) -> pd.DataFrame:
+    """Schliesst Trainings-Zeilen aus, deren Ziel-Label Marktwerte NACH dem
+    Cutoff kennt (Data Leakage bei Mehrtage-Horizonten). Eine Zeile mit
+    Datum d hat ein Label, das mv(d + horizon_days) nutzt - das ist ein Leck
+    wenn d + horizon_days > cutoff, d.h. d > cutoff - horizon_days. Bei
+    Tagesgranularitaet betrifft das genau horizon_days - 1 Tage vor dem
+    Cutoff (NICHT horizon_days Tage - eine Zeile horizon_days Tage vor dem
+    Cutoff hat ein Label, das GENAU am Cutoff endet, das ist noch kein
+    Blick in dessen Zukunft). Bei horizon_days<=1 ist embargo ein No-Op:
+    train enthaelt wegen train[date<cutoff] ohnehin keine Zeile, deren Label
+    ueber den Cutoff hinausreicht."""
+    if horizon_days <= 1:
+        return train
+    embargo_start = cutoff - pd.Timedelta(days=horizon_days - 1)
+    return train[train["date"] < embargo_start]
+
+
+def _score_counts_from_arrays(y_actual, y_pred, baseline_pred) -> dict:
+    """Rohe Summen/Counter aus EINEM Batch (ein Fold oder ein Split) -
+    absichtlich UNGERUNDET und nicht zu Prozent-Kennzahlen verdichtet, damit
+    _walk_forward_backtest() mehrere Folds aufsummieren kann, BEVOR einmal
+    (nicht pro Fold) _finalize_score_counts() aufgerufen wird - identisches
+    Prinzip wie das bisherige sign_hits/abs_errors-Pooling, nur ueber Counts
+    statt Rohlisten. `n_baseline` ist hier immer gleich `n` (baseline_pred
+    kommt aus derselben, bereits NaN-gefilterten DataFrame-Zeile wie
+    y_actual) - im Live-Tagespfad (_build_daily_accuracy_updates) kann
+    n_baseline dagegen kleiner als n sein, wenn der Baseline-Lookup fehlt.
+    `n_correct_sign` ist hier bewusst redundant zu `sign_correct` (identischer
+    Wert, kein Unterschied fuer einen einzelnen Batch) - der eigene Zaehler
+    existiert nur, damit _summarize_from_daily() spaeter einen zu
+    `abs_error_sum_given_correct_sign` symmetrischen Nenner hat: beide muessen
+    bei alten ml_accuracy_daily-Dokumenten (vor diesem Feld) gemeinsam per
+    `.get(..., 0)` auf 0 fallen, sonst teilt eine teilweise unbekannte Summe
+    durch einen vollstaendig bekannten `sign_correct`-Nenner und taeuscht eine
+    Zahl vor, wo eigentlich `None` stehen muesste."""
+    y_actual = np.asarray(y_actual, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    baseline_pred = np.asarray(baseline_pred, dtype=float)
+
+    sign_correct = np.sign(y_actual) == np.sign(y_pred)
+    baseline_sign_correct = np.sign(y_actual) == np.sign(baseline_pred)
+    baseline_wrong = ~baseline_sign_correct
+    abs_error = np.abs(y_actual - y_pred)
+
+    return {
+        "n": int(len(y_actual)),
+        "sign_correct": int(sign_correct.sum()),
+        "n_correct_sign": int(sign_correct.sum()),
+        "abs_error_sum": float(abs_error.sum()),
+        "abs_error_sum_given_correct_sign": float(abs_error[sign_correct].sum()),
+        "n_baseline": int(len(y_actual)),
+        "baseline_sign_correct": int(baseline_sign_correct.sum()),
+        "baseline_abs_error_sum": float(np.abs(y_actual - baseline_pred).sum()),
+        "n_baseline_wrong": int(baseline_wrong.sum()),
+        "model_sign_correct_when_baseline_wrong": int(sign_correct[baseline_wrong].sum()),
+    }
+
+
+def _empty_counts() -> dict:
+    return {
+        "n": 0, "sign_correct": 0, "abs_error_sum": 0.0,
+        "n_correct_sign": 0, "abs_error_sum_given_correct_sign": 0.0,
+        "n_baseline": 0, "baseline_sign_correct": 0, "baseline_abs_error_sum": 0.0,
+        "n_baseline_wrong": 0, "model_sign_correct_when_baseline_wrong": 0,
+    }
+
+
+def _finalize_score_counts(counts: dict) -> dict | None:
+    """Wandelt rohe Summen/Counter (aus _score_counts_from_arrays() ODER
+    aufsummiert aus mehreren ml_accuracy_daily-Tagesdokumenten in
+    _summarize_from_daily()) in die finalen, gerundeten Kennzahlen um -
+    EINE Stelle fuer die Metrik-Definition, egal ob aus einem einzelnen
+    Batch oder einem Zeitfenster ueber gespeicherte Tage berechnet. `None`
+    bei n==0 (nichts zu berichten)."""
+    n = counts["n"]
+    if n == 0:
+        return None
+    sign_accuracy = counts["sign_correct"] / n * 100
+    mae = counts["abs_error_sum"] / n
+    n_correct_sign = counts["n_correct_sign"]
+    mae_given_correct_sign = (
+        counts["abs_error_sum_given_correct_sign"] / n_correct_sign
+        if n_correct_sign else None
+    )
+    n_baseline = counts["n_baseline"]
+    baseline_sign_accuracy = counts["baseline_sign_correct"] / n_baseline * 100 if n_baseline else None
+    baseline_mae = counts["baseline_abs_error_sum"] / n_baseline if n_baseline else None
+    n_baseline_wrong = counts["n_baseline_wrong"]
+    reversal_sign_accuracy = (
+        counts["model_sign_correct_when_baseline_wrong"] / n_baseline_wrong * 100
+        if n_baseline_wrong else None
+    )
+    return {
+        "n": n,
+        "sign_accuracy": round(sign_accuracy, 1),
+        "mae": round(mae, 2),
+        "mae_given_correct_sign": round(mae_given_correct_sign, 2) if mae_given_correct_sign is not None else None,
+        "baseline_sign_accuracy": round(baseline_sign_accuracy, 1) if baseline_sign_accuracy is not None else None,
+        "baseline_mae": round(baseline_mae, 2) if baseline_mae is not None else None,
+        "reversal_sign_accuracy": round(reversal_sign_accuracy, 1) if reversal_sign_accuracy is not None else None,
+        "reversal_n": n_baseline_wrong,
+    }
+
+
+def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET, horizon_days: int = 1):
     """Trainiert zwei Modell-Kandidaten per Zeit-Split (75/25, kein Shuffle,
-    verhindert Data Leakage) - RandomForestRegressor (bisherige feste
-    Parameter) gegen HistGradientBoostingRegressor (eingebautes
-    Early-Stopping, oft besser bei Feature-Interaktionen). Gibt (models,
-    metrics) oder None zurueck, wenn zu wenig Daten fuer einen sinnvollen
-    Split/Training vorhanden sind. `models` enthaelt ALLE trainierten
-    Kandidaten (Phase 4: werden beide fuer die taegliche Prognose
-    gebraucht, um beide zu loggen), nicht mehr nur den Gewinner.
-    metrics["model_type"] zeigt, welcher Kandidat nach Test-R2 gewonnen
-    hat. Erweitert um target_col: die Zeilen ohne bekannten Zielwert
-    (z.B. die letzten paar Tage pro Spieler beim 3-Tage-Ziel, siehe
-    TARGET_3D) werden hier - und nur hier, nicht global auf history_df -
-    verworfen, damit ein zweites Trainingsziel die Datenbasis des ersten
-    nicht verkleinert."""
+    verhindert Data Leakage) - RandomForestRegressor gegen
+    HistGradientBoostingRegressor. Gibt (models, metrics) oder None zurueck,
+    wenn zu wenig Daten fuer einen sinnvollen Split/Training vorhanden sind.
+    `models` enthaelt ALLE trainierten Kandidaten. `horizon_days` steuert
+    zwei Dinge: welche Spalte als Traegheits-Baseline dient
+    (_BASELINE_COLUMN_BY_HORIZON) und ob der Split-Rand embargoiert werden
+    muss (_apply_embargo - bei Mehrtage-Horizonten hat eine Trainings-Zeile
+    kurz vor split_date sonst ein Label, das Marktwerte NACH split_date
+    kennt, exakt dieselbe Leak-Klasse wie beim Walk-Forward-Backtest)."""
     df = history_df.dropna(subset=[target_col])
     if len(df) < MIN_TRAINING_ROWS:
         return None
@@ -547,13 +661,17 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
     split_idx = int(len(df) * 0.75)
     split_date = df["date"].iloc[split_idx]
     train = df[df["date"] < split_date]
+    train = _apply_embargo(train, split_date, horizon_days)
     test = df[df["date"] >= split_date]
 
     if train.empty or test.empty:
         return None
 
-    x_train, y_train = train[FEATURES], train[target_col]
-    x_test, y_test = test[FEATURES], test[target_col]
+    x_train = train[FEATURES]
+    y_train = _clip_target(train[target_col])
+    x_test = test[FEATURES]
+    y_test_actual = test[target_col]
+    baseline_pred = test[_BASELINE_COLUMN_BY_HORIZON[horizon_days]]
 
     candidates = _build_candidates()
 
@@ -562,17 +680,12 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
     for name, candidate in candidates.items():
         candidate.fit(x_train, y_train)
         y_pred = candidate.predict(x_test)
-        r2 = r2_score(y_test, y_pred)
-        rmse = mean_squared_error(y_test, y_pred) ** 0.5
-        mae = mean_absolute_error(y_test, y_pred)
-        sign_accuracy = float(np.mean(np.sign(y_test) == np.sign(y_pred)) * 100)
+        r2 = r2_score(y_test_actual, y_pred)
+        rmse = mean_squared_error(y_test_actual, y_pred) ** 0.5
+        counts = _score_counts_from_arrays(y_actual=y_test_actual, y_pred=y_pred, baseline_pred=baseline_pred)
+        finalized = _finalize_score_counts(counts)
         models[name] = candidate
-        per_model_metrics[name] = {
-            "rmse": round(rmse, 2),
-            "mae": round(mae, 2),
-            "r2": round(r2, 3),
-            "sign_accuracy": round(sign_accuracy, 1),
-        }
+        per_model_metrics[name] = {"rmse": round(rmse, 2), "r2": round(r2, 3), **finalized}
 
     best_name = max(per_model_metrics, key=lambda name: per_model_metrics[name]["r2"])
     metrics = {
@@ -585,75 +698,59 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET):
     return models, metrics
 
 
-def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET) -> dict | None:
-    """Beantwortet direkt "wie waere die Prognose damals gewesen" - ohne wie
-    beim Live-Log (_realized_by_model_from_daily) tage-/wochenlang auf echte
-    Folgetage warten zu muessen. history_df enthaelt fuer JEDEN historischen
-    Tag bereits das bekannte Ergebnis (mv_target); es reicht also, mehrere
-    Cutoff-Tage rueckwirkend durchzugehen: Training nur auf Zeilen VOR dem
-    Cutoff, Test auf den Zeilen GENAU am Cutoff-Tag, verglichen gegen den
-    tatsaechlichen (ungeklippten) Marktwert-Sprung. Bewertet beide
-    Modell-Kandidaten pro Fold, damit sichtbar wird, welches Modell nicht
-    nur im aktuellen 75/25-Split (_train_and_evaluate), sondern ueber
-    mehrere echte historische Tage hinweg konsistent gewinnt.
-
-    target_col (Default TARGET) waehlt das Trainingsziel; unclipped_col
-    (target_col ohne "_clipped"-Suffix) ist die Spalte, gegen die der
-    TATSAECHLICHE Ausgang verglichen wird. Sowohl train als auch test
-    werden auf ihre jeweils relevante Zielspalte hin von NaN befreit -
-    bei TARGET (1 Tag) heute ein No-Op, aber Voraussetzung dafuer, dass
-    ein 3-Tage-Ziel (TARGET_3D) hier wiederverwendbar ist: dessen letzte
-    Tage pro Spieler (shift(-3)) kennen ihren Ausgang noch nicht, weder
-    beim Training noch - unabhaengig davon, pro Cutoff - beim Test. Ohne
-    den Test-seitigen Drop wuerde eine einzelne NaN-Zeile in y_test_actual
-    via np.sign/np.abs in sign_hits/abs_errors einsickern und, weil
-    abs_errors ueber ALLE Folds aufsummiert wird, den finalen mae fuer
-    BEIDE Modelle komplett auf NaN kippen."""
+def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET, horizon_days: int = 1) -> dict | None:
+    """Beantwortet direkt "wie waere die Prognose damals gewesen" - Training
+    nur auf Zeilen VOR dem Cutoff (minus Embargo bei Mehrtage-Horizonten,
+    siehe _apply_embargo), Test auf den Zeilen GENAU am Cutoff, verglichen
+    gegen den tatsaechlichen (ungeklippten) Marktwert-Sprung UND gegen die
+    Traegheits-Baseline. Poolt die rohen Counts JEDES Folds/Modells zu genau
+    EINEM finalen _finalize_score_counts()-Aufruf pro Modell - mathematisch
+    identisch zum vorherigen Verhalten (alle Rohwerte sammeln, am Ende
+    einmal aggregieren, NICHT ein Schnitt aus gerundeten Pro-Fold-Prozenten,
+    der Rundungsfehler aufsummieren wuerde)."""
     dates = sorted(history_df["date"].unique())
     if len(dates) <= BACKTEST_FOLDS:
         return None
     cutoffs = dates[-BACKTEST_FOLDS:]
+    baseline_col = _BASELINE_COLUMN_BY_HORIZON[horizon_days]
 
-    sign_hits: dict[str, list[bool]] = {"RandomForest": [], "HistGradientBoosting": []}
-    abs_errors: dict[str, list[float]] = {"RandomForest": [], "HistGradientBoosting": []}
+    pooled_counts: dict[str, dict] = {}
     folds_run = 0
-
-    unclipped_col = target_col.removesuffix("_clipped")
     for cutoff in cutoffs:
         train = history_df[history_df["date"] < cutoff].dropna(subset=[target_col])
-        test = history_df[history_df["date"] == cutoff].dropna(subset=[unclipped_col])
+        train = _apply_embargo(train, cutoff, horizon_days)
+        test = history_df[history_df["date"] == cutoff].dropna(subset=[target_col])
         if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
             continue
         folds_run += 1
 
-        x_train, y_train = train[FEATURES], train[target_col]
+        x_train = train[FEATURES]
+        y_train = _clip_target(train[target_col])
         x_test = test[FEATURES]
-        y_test_actual = test[unclipped_col]
+        y_test_actual = test[target_col]
+        baseline_pred = test[baseline_col]
 
         # _build_candidates() statt eigener Kopie - vorher hatte dieser
         # Backtest eigene, von der echten Live-Prognose abweichende
-        # Parameter (RandomForest n_estimators=200 statt 500), genau die
-        # Inkonsistenz-Klasse, die _build_candidates()s Docstring schon
-        # fuer den Backfill-Pfad beschreibt.
+        # Parameter, genau die Inkonsistenz-Klasse, die _build_candidates()s
+        # Docstring schon fuer den Backfill-Pfad beschreibt.
         candidates = _build_candidates()
         for name, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
-            sign_hits[name].extend((np.sign(y_test_actual) == np.sign(y_pred)).tolist())
-            abs_errors[name].extend(np.abs(y_test_actual - y_pred).tolist())
+            counts = _score_counts_from_arrays(y_actual=y_test_actual, y_pred=y_pred, baseline_pred=baseline_pred)
+            existing = pooled_counts.setdefault(name, _empty_counts())
+            for key in existing:
+                existing[key] += counts[key]
 
     if not folds_run:
         return None
 
     per_model = {}
-    for name, hits in sign_hits.items():
-        if not hits:
-            continue
-        per_model[name] = {
-            "sign_accuracy": round(float(np.mean(hits)) * 100, 1),
-            "mae": round(float(np.mean(abs_errors[name])), 2),
-            "n": len(hits),
-        }
+    for name, counts in pooled_counts.items():
+        finalized = _finalize_score_counts(counts)
+        if finalized is not None:
+            per_model[name] = finalized
     if not per_model:
         return None
     return {"n_folds": folds_run, "per_model": per_model}
@@ -673,19 +770,22 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
     falls die Firestore-Historie je zurueckgesetzt werden muss.
 
     target_col/horizon_days (Default TARGET/1) spiegeln exakt das Muster von
-    _walk_forward_backtest: unclipped_col (target_col ohne "_clipped"-Suffix)
-    ist die Spalte, gegen die der TATSAECHLICHE Ausgang verglichen wird -
-    sowohl train als auch test werden vor der Nutzung auf ihre jeweils
-    relevante Zielspalte hin von NaN befreit. Ohne den test-seitigen Drop
-    wuerde bei einem Mehrtage-Horizont (z.B. TARGET_3D) eine NaN-Zeile in
-    y_test_actual via np.sign/np.abs in die aufsummierten
-    abs_error/sign_correct-Werte dieses Folds einsickern - siehe
-    _walk_forward_backtest-Docstring fuer die volle Herleitung dieses Bugs,
-    hier dieselbe Verwundbarkeit, derselbe Schutz. horizon_days wird in jedes
-    daily_updates-Element geschrieben - upsert_accuracy_daily() nutzt es als
-    Teil des Doc-Ids ({date}_{model_type}_{horizon_days}); ohne dieses Feld
-    wuerden alle Backfill-Laeufe unter Horizont 1 landen, auch ein
-    3-Tage-Backfill."""
+    _walk_forward_backtest: target_col ist die EINE (ungeklippte) Spalte,
+    gegen die der TATSAECHLICHE Ausgang verglichen wird - sowohl train als
+    auch test werden vor der Nutzung auf diese Zielspalte hin von NaN
+    befreit. Ohne den test-seitigen Drop wuerde bei einem Mehrtage-Horizont
+    (z.B. TARGET_3D) eine NaN-Zeile in y_test_actual via np.sign/np.abs in
+    die aufsummierten abs_error/sign_correct-Werte dieses Folds einsickern -
+    dieselbe Verwundbarkeit und derselbe Schutz wie in
+    _walk_forward_backtest. Anders als _walk_forward_backtest poolt dieser
+    Pfad NICHT ueber Folds: jeder
+    Cutoff-Tag schreibt sein EIGENES ml_accuracy_daily-Dokument (Rohcounts
+    aus _score_counts_from_arrays direkt, ungerundet) - die spaetere
+    Tages-/Zeitfenster-Aggregation (_summarize_from_daily) erwartet genau
+    dieses Pro-Tag-Schema. horizon_days wird in jedes daily_updates-Element
+    geschrieben - upsert_accuracy_daily() nutzt es als Teil des Doc-Ids
+    ({date}_{model_type}_{horizon_days}); ohne dieses Feld wuerden alle
+    Backfill-Laeufe unter Horizont 1 landen, auch ein 3-Tage-Backfill."""
     email = os.environ.get("KICKBASE_EMAIL")
     password = os.environ.get("KICKBASE_PASSWORD")
     if not email or not password:
@@ -709,38 +809,34 @@ def backfill_prediction_log(days: int = 90, target_col: str = TARGET, horizon_da
 
     dates = sorted(history_df["date"].unique())
     cutoffs = dates[-days:] if len(dates) > days else dates
+    baseline_col = _BASELINE_COLUMN_BY_HORIZON[horizon_days]
 
-    unclipped_col = target_col.removesuffix("_clipped")
     daily_updates = []
     folds_run = 0
     for cutoff in cutoffs:
         train = history_df[history_df["date"] < cutoff].dropna(subset=[target_col])
-        test = history_df[history_df["date"] == cutoff].dropna(subset=[unclipped_col])
+        train = _apply_embargo(train, cutoff, horizon_days)
+        test = history_df[history_df["date"] == cutoff].dropna(subset=[target_col])
         if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
             continue
         folds_run += 1
 
-        x_train, y_train = train[FEATURES], train[target_col]
+        x_train = train[FEATURES]
+        y_train = _clip_target(train[target_col])
         x_test = test[FEATURES]
-        y_test_actual = test[unclipped_col]
+        y_test_actual = test[target_col]
+        baseline_pred = test[baseline_col]
         cutoff_date = pd.Timestamp(cutoff).date().isoformat()
 
         candidates = _build_candidates()
         for model_type, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
-            sign_correct = np.sign(y_test_actual) == np.sign(y_pred)
-            abs_error = np.abs(y_test_actual - y_pred)
-            daily_updates.append(
-                {
-                    "date": cutoff_date,
-                    "model_type": model_type,
-                    "horizon_days": horizon_days,
-                    "n": int(len(sign_correct)),
-                    "sign_correct": int(sign_correct.sum()),
-                    "abs_error_sum": float(abs_error.sum()),
-                }
-            )
+            counts = _score_counts_from_arrays(y_actual=y_test_actual, y_pred=y_pred, baseline_pred=baseline_pred)
+            daily_updates.append({
+                "date": cutoff_date, "model_type": model_type, "horizon_days": horizon_days,
+                **counts,
+            })
 
     if daily_updates and os.environ.get("FIRESTORE_ENABLED"):
         try:
@@ -859,36 +955,47 @@ def _build_mv_lookup(corpus: pd.DataFrame) -> dict[tuple[str, str], float]:
 
 
 def _summarize_from_daily(daily_docs: list[dict], today: str, days: int) -> dict | None:
-    """Wie zuvor `_summarize_window`, aber auf bereits AGGREGIERTEN
-    Tages-/Modell-Dokumenten (ein Dokument pro Kalendertag, nicht pro
-    Spieler) - Summiert n/sign_correct/abs_error_sum ueber das Fenster,
-    statt jede Rohdaten-Zeile einzeln zu iterieren."""
+    """Wie zuvor, aber summiert jetzt auch die 7 Baseline-/Trendwende-/
+    Nenner-Felder ueber das Fenster und uebergibt alles an
+    _finalize_score_counts() - EINE Stelle fuer die Metrik-Definition, ob aus
+    einem einzelnen Batch (siehe _score_counts_from_arrays()) oder aus vielen
+    gespeicherten Tagen berechnet. `.get(feld, 0)` fuer die neuen Felder:
+    echte, keine hypothetische Uebergangsphase zwischen Deploy und dem
+    manuellen Backfill-Neulauf, in der aeltere Tages-Dokumente diese Felder
+    noch nicht haben. WICHTIG: `n_correct_sign` muss GENAUSO per `.get(...,
+    0)` summiert werden wie die anderen neuen Felder (nicht per bar `d["..."]`
+    wie `sign_correct`) - sonst waere der Nenner von `mae_given_correct_sign`
+    bei alten Tages-Dokumenten voll bekannt, waehrend der Zaehler
+    (`abs_error_sum_given_correct_sign`) nur teilweise bekannt ist, und die
+    Uebergangsphase wuerde einen falschen, zu niedrigen MAE vorspiegeln statt
+    `None` zu liefern."""
     cutoff = (datetime.date.fromisoformat(today) - datetime.timedelta(days=days)).isoformat()
     window = [d for d in daily_docs if d["date"] >= cutoff]
-    n = sum(d["n"] for d in window)
-    if n == 0:
-        return None
-    sign_accuracy = sum(d["sign_correct"] for d in window) / n * 100
-    mae = sum(d["abs_error_sum"] for d in window) / n
-    return {"n": n, "sign_accuracy": round(sign_accuracy, 1), "mae": round(mae, 2)}
+    counts = {
+        "n": sum(d["n"] for d in window),
+        "sign_correct": sum(d["sign_correct"] for d in window),
+        "abs_error_sum": sum(d["abs_error_sum"] for d in window),
+        "n_correct_sign": sum(d.get("n_correct_sign", 0) for d in window),
+        "abs_error_sum_given_correct_sign": sum(d.get("abs_error_sum_given_correct_sign", 0.0) for d in window),
+        "n_baseline": sum(d.get("n_baseline", 0) for d in window),
+        "baseline_sign_correct": sum(d.get("baseline_sign_correct", 0) for d in window),
+        "baseline_abs_error_sum": sum(d.get("baseline_abs_error_sum", 0.0) for d in window),
+        "n_baseline_wrong": sum(d.get("n_baseline_wrong", 0) for d in window),
+        "model_sign_correct_when_baseline_wrong": sum(d.get("model_sign_correct_when_baseline_wrong", 0) for d in window),
+    }
+    return _finalize_score_counts(counts)
 
 
 def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, today: str, horizon_days: int) -> list[dict]:
-    """Wertet alle in recent_entries bereits auswertbaren Eintraege aus
-    (Datum < today, Marktwert `horizon_days` Tage spaeter im aktuellen
-    Corpus bekannt) und aggregiert sie zu EINEM Dokument pro (date,
-    model_type) - fuer ml_accuracy_daily. Log-Eintraege ohne model_type
-    (altes Schema, vor Phase 4) werden uebersprungen statt einen KeyError
-    zu werfen.
-
-    Der Schluessel des `agg`-Dicts ist bewusst NUR (date, model_type) ohne
-    horizon_days und das ist KEIN Versehen: jeder Aufruf ist ueber den
-    `horizon_days`-Parameter schon auf genau einen Horizont eingegrenzt,
-    Kollisionen zwischen Horizonten sind innerhalb eines Aufrufs also
-    unmoeglich. Die tatsaechliche Firestore-Doc-Id ist trotzdem
-    `{date}_{model_type}_{horizon_days}` - die baut
-    firestore_db.upsert_accuracy_daily aus dem `horizon_days`-Feld, das hier
-    in jedes Aggregat mitgeschrieben wird."""
+    """Wertet alle in recent_entries bereits auswertbaren Eintraege aus und
+    aggregiert sie zu EINEM Dokument pro (date, model_type) - inkl. der
+    Traegheits-Baseline (Vorhersage = tatsaechlicher Sprung ueber das
+    VORHERIGE horizon_days-Fenster, z.B. mv_change_1d/mv_change_3d am
+    Ursprungs-Feature-Tag entspricht) und der Trendwende-Teilmenge (Tage, an
+    denen die Baseline falsch lag). `n_baseline` kann kleiner als `n` sein,
+    wenn der Marktwert des vorherigen Fensters in mv_lookup fehlt (z.B. ganz
+    am Anfang der getrackten Historie eines Spielers) - eigener Nenner statt
+    stillschweigend auf 0 zu fallen."""
     agg: dict[tuple[str, str], dict] = {}
     for entry in recent_entries:
         model_type = entry.get("model_type")
@@ -905,13 +1012,31 @@ def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, t
         actual_delta = mv_next - mv_then
         sign_correct = bool(np.sign(entry["predicted_delta"]) == np.sign(actual_delta))
         abs_error = abs(entry["predicted_delta"] - actual_delta)
+
         key = (date, model_type)
-        bucket = agg.setdefault(
-            key, {"date": date, "model_type": model_type, "horizon_days": horizon_days, "n": 0, "sign_correct": 0, "abs_error_sum": 0.0}
-        )
+        bucket = agg.setdefault(key, {
+            "date": date, "model_type": model_type, "horizon_days": horizon_days,
+            **_empty_counts(),
+        })
         bucket["n"] += 1
         bucket["sign_correct"] += int(sign_correct)
         bucket["abs_error_sum"] += abs_error
+        if sign_correct:
+            bucket["n_correct_sign"] += 1
+            bucket["abs_error_sum_given_correct_sign"] += abs_error
+
+        prev_date = (datetime.date.fromisoformat(date) - datetime.timedelta(days=horizon_days)).isoformat()
+        mv_prev = mv_lookup.get((entry["player_id"], prev_date))
+        if mv_prev is not None:
+            baseline_pred = mv_then - mv_prev
+            baseline_sign_correct = bool(np.sign(baseline_pred) == np.sign(actual_delta))
+            bucket["n_baseline"] += 1
+            bucket["baseline_sign_correct"] += int(baseline_sign_correct)
+            bucket["baseline_abs_error_sum"] += abs(baseline_pred - actual_delta)
+            if not baseline_sign_correct:
+                bucket["n_baseline_wrong"] += 1
+                if sign_correct:
+                    bucket["model_sign_correct_when_baseline_wrong"] += 1
     return list(agg.values())
 
 
@@ -999,13 +1124,13 @@ def _train_and_track_horizon(
     (target_col=TARGET_3D, Task 5) getrennt aufruft - ein fehlschlagendes
     3-Tage-Training darf die 1-Tages-Prognose nicht mitreissen, deshalb
     zwei unabhaengige Aufrufe statt einer gemeinsamen Fehlerbehandlung."""
-    trained = _train_and_evaluate(history_df, target_col)
+    trained = _train_and_evaluate(history_df, target_col, horizon_days)
     if trained is None:
         return None
     models, metrics = trained
     synthetic_winner = metrics["model_type"]
 
-    backtest = _walk_forward_backtest(history_df, target_col)
+    backtest = _walk_forward_backtest(history_df, target_col, horizon_days)
     if backtest is not None:
         metrics["backtest"] = backtest
 

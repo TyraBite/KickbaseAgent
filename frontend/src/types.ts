@@ -88,12 +88,22 @@ export interface MlPerModelMetrics {
   mae: number;
   r2: number;
   sign_accuracy: number;
+  mae_given_correct_sign: number | null;
+  baseline_sign_accuracy: number | null;
+  baseline_mae: number | null;
+  reversal_sign_accuracy: number | null;
+  reversal_n: number;
 }
 
 export interface MlRealizedWindow {
   n: number;
   sign_accuracy: number;
   mae: number;
+  mae_given_correct_sign: number | null;
+  baseline_sign_accuracy: number | null;
+  baseline_mae: number | null;
+  reversal_sign_accuracy: number | null;
+  reversal_n: number;
 }
 
 export interface MlMetrics {

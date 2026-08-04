@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "r
 import type { BidPremiumOutcomeCounts, DashboardSnapshot, MlAccuracyTrendEntry, MlMetrics, MlModelType } from "../types";
 import { POSITIONS } from "../lib/formations";
 import { clampTooltipLeftPercent, nearestTrendIndex } from "../lib/mlChartMobile";
+import { mlBaselineDeltaPct } from "../lib/derive";
 import { Badge } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum } from "../format";
@@ -109,6 +110,7 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
         {MODEL_ORDER.map((name) => {
           const isLive = metrics.model_type === name;
           const realized = metrics.realized_by_model?.[name]?.realized_30d;
+          const baselineDeltaPct = mlBaselineDeltaPct(realized);
           return (
             <div key={name} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
               <div className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-50">
@@ -123,6 +125,34 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
                 {realized ? (
                   <>
                     Richtung korrekt <b>{fmtAccPct(realized.sign_accuracy)}</b> · MAE <b>{fmtNum(realized.mae)}</b> · n={realized.n}
+                    {realized.baseline_sign_accuracy != null && (
+                      <>
+                        {" "}
+                        · ggü. Trägheits-Annahme{" "}
+                        <b>
+                          {baselineDeltaPct != null && baselineDeltaPct >= 0 ? "+" : ""}
+                          {fmtAccPct(baselineDeltaPct)}
+                        </b>
+                        {" "}
+                        · ggü. Trägheits-MAE <b>{fmtNum(realized.baseline_mae)}</b>
+                      </>
+                    )}
+                    {realized.mae_given_correct_sign != null && (
+                      <>
+                        {" "}
+                        · MAE bei richtiger Richtung <b>{fmtNum(realized.mae_given_correct_sign)}</b>
+                      </>
+                    )}
+                    <br />
+                    {realized.baseline_sign_accuracy == null ? (
+                      <>Bei Trendwenden: – (noch keine Baseline-Daten)</>
+                    ) : realized.reversal_sign_accuracy != null ? (
+                      <>
+                        Bei Trendwenden (n={realized.reversal_n}): <b>{fmtAccPct(realized.reversal_sign_accuracy)}</b> richtig
+                      </>
+                    ) : (
+                      <>Bei Trendwenden: noch keine Fälle im Fenster (n={realized.reversal_n})</>
+                    )}
                   </>
                 ) : (
                   "Noch keine abgeschlossenen Prognosen im 30-Tage-Fenster"
@@ -135,6 +165,11 @@ function HeadToHeadBlock({ metrics, heading }: { metrics: MlMetrics; heading: st
       <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
         MAE = mittlere Abweichung der Prognose vom tatsächlichen Marktwert, unabhängig von der Richtung (zu hoch
         und zu niedrig zählen beide gleich) – ein grobes Maß fürs "Rauschen" der Prognose.
+      </p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        "Trägheits-Annahme" = triviale Vergleichs-Prognose ("Richtung bleibt wie beim letzten bekannten Schritt
+        derselben Länge") – zeigt, ob das Modell mehr kann als reine Markt-Trägheit. "Trendwenden" = Tage, an denen
+        die Trägheits-Annahme falsch lag; MAE bei richtiger Richtung trennt Betragsgenauigkeit von Richtungsfehlern.
       </p>
     </div>
   );

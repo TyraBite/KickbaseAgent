@@ -1,5 +1,5 @@
 import { formatDurationMs } from "../format";
-import type { BidPremiumEntry, Calibration, MlMetrics, PlayerRecord, RawWunschkaderTarget, RecentTransferEntry, TransfermarktListing } from "../types";
+import type { BidPremiumEntry, Calibration, MlMetrics, MlRealizedWindow, PlayerRecord, RawWunschkaderTarget, RecentTransferEntry, TransfermarktListing } from "../types";
 
 // MAE des aktuell LIVE geschalteten Modells (nicht pauschal irgendein
 // Modell) - dasselbe Modell erzeugt gerade die ml_prediction-Werte, die
@@ -7,6 +7,14 @@ import type { BidPremiumEntry, Calibration, MlMetrics, PlayerRecord, RawWunschka
 // predictions = predictions_by_model[live_model_name]).
 export function liveModelMae(metrics: MlMetrics | null): number | null {
   return metrics?.realized_by_model?.[metrics.model_type]?.realized_30d?.mae ?? null;
+}
+
+// Modell- minus Baseline-Trefferquote in Prozentpunkten - beantwortet die
+// ehrliche Frage "schlaegt das Modell ueberhaupt die naive
+// Trend-Fortschreibung" statt nur die absolute sign_accuracy zu zeigen.
+export function mlBaselineDeltaPct(realized: MlRealizedWindow | null | undefined): number | null {
+  if (!realized || realized.baseline_sign_accuracy == null) return null;
+  return realized.sign_accuracy - realized.baseline_sign_accuracy;
 }
 
 // 1:1 Port von player_valuation.py::k_for_position()

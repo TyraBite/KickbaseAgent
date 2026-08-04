@@ -300,8 +300,11 @@ prüfen, nicht davon ausgehen, dass ein lokaler Commit schon gepusht ist.
 - **Bei Mehrtage-Horizonten gehört ein Embargo in die Walk-Forward-Evaluation**
   (die letzten `horizon_days` Trainingstage vor jedem Cutoff ausschließen).
   Ohne das leckt das Label über den Cutoff und tiefe, unregularisierte Modelle
-  gewinnen scheinbar. Das ist ein bekannter, noch offener Punkt in der
-  produktiven `_walk_forward_backtest()` — siehe `HANDOFF.md`.
+  gewinnen scheinbar. `_walk_forward_backtest()` embargot deshalb bei
+  Mehrtage-Horizonten die letzten `horizon_days` Trainingstage vor jedem
+  Cutoff (siehe `_apply_embargo` in `market_predictor.py`) — jede neue
+  Mehrtage-Auswertung nutzt denselben Helfer, statt die Logik neu zu
+  erfinden.
 - Cold-Start ist kein Bug: neue Features zeigen anfangs Platzhalter. Erst nach
   echtem Datenaufbau bewerten, vorher nicht daran optimieren.
 - Wird eine schon live gezeigte Genauigkeitszahl durch einen Fix rückwirkend

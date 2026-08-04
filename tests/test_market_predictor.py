@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 
 from src.market_predictor import (
@@ -108,6 +109,51 @@ class SummarizeFromDailyTests(unittest.TestCase):
         result = _summarize_from_daily([{"date": "2026-01-01", "n": 10, "sign_correct": 5, "abs_error_sum": 100.0}], "2026-07-28", 7)
         self.assertIsNone(result)
 
+    def test_derives_baseline_and_reversal_fields_from_summed_counts(self):
+        daily = [
+            {
+                "date": "2026-07-27", "n": 2, "sign_correct": 2, "abs_error_sum": 100.0,
+                "abs_error_sum_given_correct_sign": 100.0,
+                "n_baseline": 2, "baseline_sign_correct": 1, "baseline_abs_error_sum": 200.0,
+                "n_baseline_wrong": 1, "model_sign_correct_when_baseline_wrong": 1,
+            },
+        ]
+        result = _summarize_from_daily(daily, "2026-07-28", 7)
+        self.assertEqual(result["baseline_sign_accuracy"], 50.0)
+        self.assertEqual(result["reversal_sign_accuracy"], 100.0)
+        self.assertEqual(result["reversal_n"], 1)
+
+    def test_old_shaped_daily_docs_without_new_fields_still_work(self):
+        # Uebergangsphase zwischen Deploy und Backfill-Neulauf - reale, keine
+        # hypothetische Situation (siehe Nach-Abschluss-Schritt im Plan).
+        daily = [{"date": "2026-07-20", "n": 450, "sign_correct": 300, "abs_error_sum": 45000.0}]
+        result = _summarize_from_daily(daily, "2026-07-28", 30)
+        self.assertIsNone(result["baseline_sign_accuracy"])
+        self.assertEqual(result["reversal_n"], 0)
+
+    def test_mae_given_correct_sign_is_none_when_denominator_field_missing_on_old_shape_docs(self):
+        # Echter Review-Fund: ein Dokument aus der Zeit zwischen dem
+        # urspruenglichen Task-5-Deploy und diesem Fix hat sign_correct/
+        # abs_error_sum_given_correct_sign schon (die 6 "alten" neuen
+        # Felder), aber noch KEIN n_correct_sign (das Feld kam erst mit
+        # diesem Fix dazu) - genauso wie ein wirklich altes Dokument. VORHER
+        # teilte der Zaehler (teilweise unbekannt, per .get(...,0) auf 0
+        # gefallen fuer beide Dokumente) durch den Nenner sign_correct (VOLL
+        # bekannt, bar zugegriffen: 80+8=88) und taeuschte 400/88=4.55 vor,
+        # statt korrekt None zu liefern (kein Dokument im Fenster hat
+        # n_correct_sign, der Nenner ist also komplett unbekannt).
+        daily = [
+            {"date": "2026-07-20", "n": 100, "sign_correct": 80, "abs_error_sum": 8000.0},  # ganz alt, keine der 6 Felder
+            {
+                "date": "2026-07-27", "n": 10, "sign_correct": 8, "abs_error_sum": 500.0,
+                "abs_error_sum_given_correct_sign": 400.0,
+                "n_baseline": 10, "baseline_sign_correct": 5, "baseline_abs_error_sum": 600.0,
+                "n_baseline_wrong": 5, "model_sign_correct_when_baseline_wrong": 3,
+            },  # Zwischenstand: hat die 6 alten neuen Felder, aber noch kein n_correct_sign
+        ]
+        result = _summarize_from_daily(daily, "2026-07-28", 30)
+        self.assertIsNone(result["mae_given_correct_sign"])
+
 
 class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
     def test_aggregates_by_date_and_model(self):
@@ -128,6 +174,71 @@ class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
         entries = [{"date": "2026-07-01", "player_id": "p1", "predicted_delta": 100}]
         result = _build_daily_accuracy_updates(entries, {}, "2026-07-28", horizon_days=1)
         self.assertEqual(result, [])
+
+    def test_baseline_fields_use_prior_horizon_window(self):
+        entries = [
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
+        ]
+        mv_lookup = {
+            ("p1", "2026-07-26"): 900.0,   # Tag davor (fuer Baseline: 1000-900=100)
+            ("p1", "2026-07-27"): 1000.0,
+            ("p1", "2026-07-28"): 1150.0,  # tatsaechlicher Sprung: +150
+        }
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
+        self.assertEqual(len(result), 1)
+        doc = result[0]
+        self.assertEqual(doc["n_baseline"], 1)
+        self.assertEqual(doc["baseline_sign_correct"], 1)  # Baseline +100, tatsaechlich +150, beide positiv
+        self.assertAlmostEqual(doc["baseline_abs_error_sum"], 50.0)  # |100-150|
+        self.assertEqual(doc["n_baseline_wrong"], 0)
+        self.assertEqual(doc["abs_error_sum_given_correct_sign"], 50.0)  # Modell-Vorhersage 100 hat auch richtiges Vorzeichen
+
+    def test_missing_prior_window_value_leaves_baseline_fields_at_zero(self):
+        entries = [
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
+        ]
+        mv_lookup = {
+            ("p1", "2026-07-27"): 1000.0,
+            ("p1", "2026-07-28"): 1150.0,
+            # kein Wert fuer 2026-07-26 (Tag davor) - Baseline nicht berechenbar
+        }
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
+        self.assertEqual(result[0]["n_baseline"], 0)
+        self.assertEqual(result[0]["n"], 1)  # Haupt-Metrik bleibt trotzdem auswertbar
+
+    def test_reversal_counting_only_credits_model_when_it_beats_a_wrong_baseline(self):
+        # p1: Baseline (Vorwoche-Trend) sagt fallend (-100) voraus, tatsaechlich
+        # steigt der Marktwert (+150) - Baseline FALSCH. Modell sagt +100
+        # voraus - Modell RICHTIG trotz falscher Baseline: zaehlt als
+        # Trendwende, die das Modell erkannt hat.
+        # p2: identische Baseline-Situation (Baseline FALSCH), aber das
+        # Modell sagt ebenfalls faelschlich fallend (-50) voraus - Modell
+        # FALSCH. Ein Bug, der die verschachtelte if-Bedingung entfernt oder
+        # den falschen Bucket-Key erhoeht, wuerde model_sign_correct_when_
+        # baseline_wrong faelschlich auf 2 statt 1 setzen (oder den Test gar
+        # nicht bemerken, wenn ueberhaupt nichts inkrementiert wird).
+        entries = [
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
+            {"date": "2026-07-27", "player_id": "p2", "model_type": "RandomForest", "predicted_delta": -50},
+        ]
+        mv_lookup = {
+            ("p1", "2026-07-26"): 1000.0, ("p1", "2026-07-27"): 900.0, ("p1", "2026-07-28"): 1050.0,
+            ("p2", "2026-07-26"): 1000.0, ("p2", "2026-07-27"): 900.0, ("p2", "2026-07-28"): 1050.0,
+        }
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
+        self.assertEqual(len(result), 1)
+        doc = result[0]
+        # Baseline fuer beide: 900-1000=-100 (fallend), tatsaechlich 1050-900=+150 (steigend) -> beide Baselines falsch.
+        self.assertEqual(doc["n_baseline"], 2)
+        self.assertEqual(doc["baseline_sign_correct"], 0)
+        self.assertEqual(doc["n_baseline_wrong"], 2)
+        # Nur p1 (Modell +100, richtiges Vorzeichen) zaehlt als erkannte Trendwende - p2 (Modell -50, falsches Vorzeichen) NICHT.
+        self.assertEqual(doc["model_sign_correct_when_baseline_wrong"], 1)
+        self.assertEqual(doc["sign_correct"], 1)  # nur p1
+        self.assertAlmostEqual(doc["abs_error_sum"], 50.0 + 200.0, places=5)  # p1: |100-150|=50, p2: |-50-150|=200
+        self.assertEqual(doc["n_correct_sign"], 1)  # nur p1
+        self.assertAlmostEqual(doc["abs_error_sum_given_correct_sign"], 50.0)  # nur p1s abs_error
+        self.assertAlmostEqual(doc["baseline_abs_error_sum"], 250.0 + 250.0, places=5)  # beide: |-100-150|=250
 
 
 class HorizonAwareAccuracyUpdatesTests(unittest.TestCase):
@@ -296,7 +407,6 @@ class BackfillPredictionLogTests(unittest.TestCase):
 class BackfillPredictionLogTargetColTests(unittest.TestCase):
     def _history_df(self, target_col, n=210):
         import numpy as np
-        unclipped_col = target_col.removesuffix("_clipped")
         dates = pd.date_range("2026-01-01", periods=n, freq="D")
         rng = np.random.RandomState(7)
         df = pd.DataFrame({
@@ -310,7 +420,6 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             "avg_sentiment_7d": 0, "news_volume_7d": 0,
             target_col: rng.randn(n) * 5000,
-            unclipped_col: rng.randn(n) * 5000,
         })
         return df
 
@@ -330,12 +439,11 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
         # WalkForwardBacktestTargetColTests.test_partial_nan_test_rows_are_dropped_not_averaged_into_nan:
         # eine Zeile mit NaN in der ungeklippten Zielspalte am letzten
         # Cutoff-Tag darf nicht in sign_correct/abs_error_sum einsickern.
-        target_col = "alt_target_clipped"
-        unclipped_col = "alt_target"
+        target_col = "alt_target"
         df = self._history_df(target_col)
         extra_row = df.iloc[[-1]].copy()
         extra_row["player_id"] = "p2"
-        extra_row[unclipped_col] = None
+        extra_row[target_col] = None
         df = pd.concat([df, extra_row], ignore_index=True)
         mock_engineer.return_value = (df, pd.DataFrame())
 
@@ -368,6 +476,37 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
     @patch("src.market_predictor.select_league", return_value={"id": "league1"})
     @patch("src.market_predictor.login", return_value=("token", {}, []))
     @patch("src.market_predictor._engineer_features")
+    def test_daily_updates_include_baseline_fields(
+        self, mock_engineer, mock_login, mock_select_league, mock_get_me,
+        mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
+    ):
+        target_col = "alt_target"
+        df = self._history_df(target_col)
+        mock_engineer.return_value = (df, pd.DataFrame())
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "e", "KICKBASE_PASSWORD": "p", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ):
+            result = backfill_prediction_log(3, target_col=target_col, horizon_days=1)
+
+        self.assertGreater(result["folds_run"], 0)
+        entries = mock_upsert.call_args[0][1]
+        self.assertTrue(entries)
+        for entry in entries:
+            self.assertIn("baseline_sign_correct", entry)
+            self.assertIn("n_baseline_wrong", entry)
+            self.assertIn("model_sign_correct_when_baseline_wrong", entry)
+
+    @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
+    @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
+    @patch("src.market_predictor._load_change_events_by_player", return_value={})
+    @patch("src.market_predictor._build_corpus", return_value=None)
+    @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
+    @patch("src.market_predictor.select_league", return_value={"id": "league1"})
+    @patch("src.market_predictor.login", return_value=("token", {}, []))
+    @patch("src.market_predictor._engineer_features")
     def test_default_horizon_is_1_and_target_is_1d(
         self, mock_engineer, mock_login, mock_select_league, mock_get_me,
         mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
@@ -384,6 +523,47 @@ class BackfillPredictionLogTargetColTests(unittest.TestCase):
 
         entries = mock_upsert.call_args[0][1]
         self.assertTrue(all(e["horizon_days"] == 1 for e in entries))
+
+    @patch("src.market_predictor.firestore_db.upsert_accuracy_daily")
+    @patch("src.market_predictor.firestore_db.connect", return_value="fake_client")
+    @patch("src.market_predictor._load_change_events_by_player", return_value={})
+    @patch("src.market_predictor._build_corpus", return_value=None)
+    @patch("src.market_predictor.get_me", return_value={"cpi": "1"})
+    @patch("src.market_predictor.select_league", return_value={"id": "league1"})
+    @patch("src.market_predictor.login", return_value=("token", {}, []))
+    @patch("src.market_predictor._engineer_features")
+    def test_embargo_is_actually_wired_for_horizon_3(
+        self, mock_engineer, mock_login, mock_select_league, mock_get_me,
+        mock_build_corpus, mock_fitness_events, mock_connect, mock_upsert,
+    ):
+        # Mutation-Check-Regression, analog
+        # WalkForwardBacktestTargetColTests.test_embargo_is_actually_wired_into_the_backtest_for_horizon_3:
+        # mit dem `_apply_embargo`-Aufruf entfernt blieb JEDER bestehende
+        # Test in dieser Klasse gruen (keiner nutzt horizon_days=3
+        # zusammen mit genug Cutoffs). days=6/n=206 ist bewusst so knapp
+        # oberhalb von BACKTEST_MIN_TRAIN_ROWS=200 gewaehlt, dass der
+        # fruehste der 6 Cutoff-Folds bei aktivem Embargo (train-Groesse =
+        # cutoff_idx - 2) knapp UNTER die Mindestgroesse faellt und
+        # deshalb geskippt wird, waehrend er ohne Embargo (train-Groesse =
+        # cutoff_idx) noch mitlaeuft - macht den Effekt in folds_run
+        # deterministisch statt auf einen zufaelligen ML-Sign-Flip zu hoffen.
+        target_col = "alt_target"
+        df = self._history_df(target_col, n=206)
+        mock_engineer.return_value = (df, pd.DataFrame())
+
+        with patch.dict(
+            os.environ,
+            {"KICKBASE_EMAIL": "e", "KICKBASE_PASSWORD": "p", "FIRESTORE_ENABLED": "1"},
+            clear=True,
+        ):
+            with_embargo = backfill_prediction_log(6, target_col=target_col, horizon_days=3)
+            with patch(
+                "src.market_predictor._apply_embargo",
+                side_effect=lambda train, cutoff, horizon_days: train,
+            ):
+                without_embargo = backfill_prediction_log(6, target_col=target_col, horizon_days=3)
+
+        self.assertNotEqual(with_embargo["folds_run"], without_embargo["folds_run"])
 
 
 class BuildCandidatesTests(unittest.TestCase):
@@ -892,7 +1072,7 @@ class TrainAndEvaluateTargetColTests(unittest.TestCase):
             "days_since_last_status_change": 9999, "status_change_count_90d": 0,
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             "avg_sentiment_7d": 0, "news_volume_7d": 0,
-            "mv_target_clipped": rng.randn(n) * 5000,
+            "mv_target": rng.randn(n) * 5000,
             "alt_target_clipped": rng.randn(n) * 9000,
         })
         return df
@@ -916,10 +1096,53 @@ class TrainAndEvaluateTargetColTests(unittest.TestCase):
         self.assertIsNotNone(result)
 
 
+class TrainAndEvaluateBaselineAndEmbargoTests(unittest.TestCase):
+    def _history_df(self, n=250):
+        dates = pd.date_range("2026-01-01", periods=n, freq="D")
+        rng = np.random.default_rng(42)
+        return pd.DataFrame({
+            "date": dates,
+            "p": rng.normal(size=n),
+            "mv": rng.normal(size=n) * 1000 + 1_000_000,
+            "days_to_next": rng.integers(1, 7, size=n),
+            "mv_change_1d": rng.normal(size=n) * 500,
+            "mv_trend_1d": rng.normal(size=n) * 0.01,
+            "mv_change_3d": rng.normal(size=n) * 800,
+            "mv_vol_3d": rng.normal(size=n) * 100,
+            "mv_trend_7d": rng.normal(size=n) * 0.02,
+            "market_divergence": rng.normal(size=n) + 1,
+            "days_since_last_status_change": rng.integers(0, 90, size=n),
+            "status_change_count_90d": rng.integers(0, 5, size=n),
+            "days_since_last_starting_rank_change": rng.integers(0, 90, size=n),
+            "starting_rank_change_count_90d": rng.integers(0, 5, size=n),
+            "avg_sentiment_7d": rng.normal(size=n) * 0.1,
+            "news_volume_7d": rng.integers(0, 10, size=n),
+            TARGET: rng.normal(size=n) * 500,
+        })
+
+    def test_per_model_metrics_include_baseline_fields(self):
+        result = _train_and_evaluate(self._history_df(), TARGET, horizon_days=1)
+        self.assertIsNotNone(result)
+        _models, metrics = result
+        for name in ("RandomForest", "HistGradientBoosting"):
+            self.assertIn("baseline_sign_accuracy", metrics["per_model"][name])
+            self.assertIn("reversal_n", metrics["per_model"][name])
+
+    def test_embargoes_last_two_days_before_split_for_horizon_3(self):
+        # horizon_days=3 mit derselben Fixture darf nicht crashen und muss
+        # denselben Embargo-Mechanismus wie die anderen Aufrufer nutzen -
+        # verifiziert hier nur "laeuft durch, produziert Metriken", der
+        # exakte Embargo-Mechanismus selbst ist in ApplyEmbargoTests (Task 1)
+        # abgedeckt.
+        df = self._history_df()
+        df[TARGET_3D] = df[TARGET] * 1.5
+        result = _train_and_evaluate(df, TARGET_3D, horizon_days=3)
+        self.assertIsNotNone(result)
+
+
 class WalkForwardBacktestTargetColTests(unittest.TestCase):
     def _history_df(self, target_col, n=210):
         import numpy as np
-        unclipped_col = target_col.removesuffix("_clipped")
         dates = pd.date_range("2026-01-01", periods=n, freq="D")
         rng = np.random.RandomState(7)
         df = pd.DataFrame({
@@ -933,7 +1156,6 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             "avg_sentiment_7d": 0, "news_volume_7d": 0,
             target_col: rng.randn(n) * 5000,
-            unclipped_col: rng.randn(n) * 5000,
         })
         return df
 
@@ -944,15 +1166,14 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
         # sickerte unverworfen in sign_hits/abs_errors - da abs_errors
         # ueber ALLE Folds aufsummiert wird, kippte eine einzige solche
         # Zeile den finalen mae fuer BEIDE Modelle auf NaN.
-        target_col = "alt_target_clipped"
-        unclipped_col = "alt_target"
+        target_col = "alt_target"
         df = self._history_df(target_col)
         # Zweite Zeile am selben (letzten) Cutoff-Tag wie p1, aber ohne
         # bekannten tatsaechlichen Ausgang (z.B. ein 3-Tage-Ziel, dessen
         # Fenster ueber das Ende der Historie hinauslaeuft).
         extra_row = df.iloc[[-1]].copy()
         extra_row["player_id"] = "p2"
-        extra_row[unclipped_col] = None
+        extra_row[target_col] = None
         df = pd.concat([df, extra_row], ignore_index=True)
 
         result = _walk_forward_backtest(df, target_col=target_col)
@@ -983,10 +1204,81 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             self.assertIn("sign_accuracy", model_metrics)
             self.assertIn("n", model_metrics)
 
+    def test_per_model_metrics_include_baseline_fields(self):
+        result = _walk_forward_backtest(self._history_df("alt_target"), target_col="alt_target", horizon_days=1)
+        self.assertIsNotNone(result)
+        for name in result["per_model"]:
+            self.assertIn("baseline_sign_accuracy", result["per_model"][name])
+            self.assertIn("reversal_n", result["per_model"][name])
+
+    def test_baseline_sign_accuracy_matches_hand_computed_value(self):
+        # Value-level regression (Finding 4, finaler Review): die obigen
+        # Tests pruefen nur, DASS baseline_sign_accuracy existiert - eine
+        # vertauschte _BASELINE_COLUMN_BY_HORIZON-Zuordnung (Horizont 1 auf
+        # mv_change_3d statt mv_change_1d) waere trotzdem gruen geblieben.
+        # Ueberschreibt fuer jeden der 6 Cutoff-Tage (= jeweils die einzige
+        # Testzeile dieses Folds, da hier nur ein Spieler/Tag existiert) die
+        # Baseline-Spalte mv_change_1d und den tatsaechlichen Zielwert mit
+        # einem von Hand gewaehlten Vorzeichen-Muster: in 3 von 6 Faellen
+        # stimmt das Baseline-Vorzeichen mit dem tatsaechlichen ueberein, in
+        # 3 nicht - macht die erwartete baseline_sign_accuracy exakt 50.0,
+        # ohne Rundungs-Unschaerfe.
+        target_col = "alt_target"
+        df = self._history_df(target_col)
+        baseline_signs = [1, -1, 1, -1, 1, -1]
+        target_signs = [1, -1, 1, 1, -1, 1]  # stimmt bei Index 0,1,2 mit der Baseline ueberein, bei 3,4,5 nicht
+        for offset, (baseline_sign, target_sign) in enumerate(zip(baseline_signs, target_signs)):
+            idx = len(df) - 6 + offset
+            df.loc[idx, "mv_change_1d"] = 100 * baseline_sign
+            df.loc[idx, target_col] = 100 * target_sign
+
+        result = _walk_forward_backtest(df, target_col=target_col, horizon_days=1)
+
+        self.assertIsNotNone(result)
+        for model_metrics in result["per_model"].values():
+            self.assertEqual(model_metrics["baseline_sign_accuracy"], 50.0)
+
+    def test_embargo_is_actually_wired_into_the_backtest_for_horizon_3(self):
+        # Mutation-Check-Regression: mit `_apply_embargo(train, cutoff,
+        # horizon_days)` durch ein reines `train` ersetzt (Embargo-Aufruf
+        # entfernt) blieb JEDER bestehende Test in dieser Klasse gruen -
+        # keiner davon nutzt horizon_days=3. n=206 ist bewusst so knapp
+        # oberhalb von BACKTEST_MIN_TRAIN_ROWS=200 gewaehlt, dass der
+        # fruehste der 6 Cutoff-Folds bei aktivem Embargo (train-Groesse =
+        # cutoff_idx - 2) knapp UNTER die Mindestgroesse faellt und
+        # deshalb geskippt wird, waehrend er ohne Embargo (train-Groesse =
+        # cutoff_idx) noch mitlaeuft - das macht den Effekt in n_folds
+        # deterministisch, statt auf einen zufaelligen ML-Sign-Flip in
+        # sign_accuracy zu hoffen (bei diesem Seed differiert zusaetzlich
+        # auch sign_accuracy fuer mindestens ein Modell - siehe unten -,
+        # aber n_folds allein reicht schon als Beweis, dass der
+        # _apply_embargo()-Aufruf wirklich etwas veraendert).
+        df = self._history_df("alt_target", n=206)
+
+        with_embargo = _walk_forward_backtest(df, target_col="alt_target", horizon_days=3)
+        with patch(
+            "src.market_predictor._apply_embargo",
+            side_effect=lambda train, cutoff, horizon_days: train,
+        ):
+            without_embargo = _walk_forward_backtest(df, target_col="alt_target", horizon_days=3)
+
+        self.assertIsNotNone(with_embargo)
+        self.assertIsNotNone(without_embargo)
+        self.assertNotEqual(with_embargo["n_folds"], without_embargo["n_folds"])
+        sign_accuracy_differs_for_some_model = any(
+            with_embargo["per_model"][name]["sign_accuracy"]
+            != without_embargo["per_model"][name]["sign_accuracy"]
+            for name in with_embargo["per_model"]
+        )
+        self.assertTrue(
+            sign_accuracy_differs_for_some_model,
+            "Embargo sollte sign_accuracy fuer mindestens ein Modell veraendern.",
+        )
+
 
 class TrainAndTrackHorizonTests(unittest.TestCase):
     def test_returns_none_when_too_few_training_rows(self):
-        df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target_clipped": [100]})
+        df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target": [100]})
         result = _train_and_track_horizon(df, df, TARGET, 1, "2026-07-31", {})
         self.assertIsNone(result)
 
@@ -1061,3 +1353,132 @@ class FeaturesListSentimentTests(unittest.TestCase):
     def test_features_includes_sentiment_columns(self):
         self.assertIn("avg_sentiment_7d", FEATURES)
         self.assertIn("news_volume_7d", FEATURES)
+
+
+class ClipTargetTests(unittest.TestCase):
+    def test_clips_using_only_given_series_quantiles(self):
+        # Werte 0..99 plus ein Ausreisser 100000 - IQR-Clip muss den
+        # Ausreisser kappen, den Rest unveraendert lassen.
+        from src.market_predictor import _clip_target
+        values = pd.Series(list(range(100)) + [100000])
+        clipped = _clip_target(values)
+        self.assertLess(clipped.iloc[-1], 100000)
+        self.assertEqual(clipped.iloc[0], 0)
+        self.assertEqual(clipped.iloc[50], 50)
+
+
+class ApplyEmbargoTests(unittest.TestCase):
+    def _train(self):
+        return pd.DataFrame({
+            "date": pd.to_datetime([
+                "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05",
+            ]),
+        })
+
+    def test_horizon_1_is_noop(self):
+        from src.market_predictor import _apply_embargo
+        train = self._train()
+        result = _apply_embargo(train, pd.Timestamp("2026-08-06"), horizon_days=1)
+        self.assertEqual(len(result), 5)
+
+    def test_horizon_3_excludes_last_two_days_before_cutoff(self):
+        from src.market_predictor import _apply_embargo
+        # cutoff=08-06, horizon=3: Zeilen mit Label ueber den Cutoff hinaus
+        # sind 08-04 (Label -> 08-07) und 08-05 (Label -> 08-08) - genau
+        # horizon_days-1=2 Tage, NICHT horizon_days=3 Tage (08-03 hat ein
+        # Label das genau am Cutoff endet, 08-03+3=08-06 - das ist noch
+        # KEIN Blick in die Zukunft DES Cutoffs, bleibt also drin).
+        train = self._train()
+        result = _apply_embargo(train, pd.Timestamp("2026-08-06"), horizon_days=3)
+        self.assertEqual(
+            list(result["date"].dt.date.astype(str)),
+            ["2026-08-01", "2026-08-02", "2026-08-03"],
+        )
+
+
+class ScoreCountsFromArraysTests(unittest.TestCase):
+    def test_counts_match_hand_computation(self):
+        from src.market_predictor import _score_counts_from_arrays
+        y_actual = [100, -50, 30, -10]
+        y_pred = [80, -60, -5, -20]  # Zeile 3 (30 vs -5) hat falsches Vorzeichen
+        baseline_pred = [90, 40, 30, -5]  # Zeile 2 (-50 vs 40) hat falsches Vorzeichen
+        counts = _score_counts_from_arrays(y_actual, y_pred, baseline_pred)
+        self.assertEqual(counts["n"], 4)
+        self.assertEqual(counts["sign_correct"], 3)  # alle bis auf Zeile 3
+        self.assertEqual(counts["n_correct_sign"], 3)  # identisch zu sign_correct fuer einen einzelnen Batch
+        self.assertEqual(counts["n_baseline"], 4)
+        self.assertEqual(counts["baseline_sign_correct"], 3)  # alle bis auf Zeile 2
+        self.assertEqual(counts["n_baseline_wrong"], 1)
+        # Zeile 2: Modell richtig (-50 vs -60, beide negativ), Baseline falsch
+        self.assertEqual(counts["model_sign_correct_when_baseline_wrong"], 1)
+        self.assertAlmostEqual(counts["abs_error_sum"], 20 + 10 + 35 + 10, places=5)
+        # abs_error_sum_given_correct_sign: Zeilen 1,2,4 (Zeile 3 hat falsches Vorzeichen)
+        self.assertAlmostEqual(counts["abs_error_sum_given_correct_sign"], 20 + 10 + 10, places=5)
+
+    def test_key_set_matches_empty_counts(self):
+        # Minor-Fund (finaler Review): das Pooling in _walk_forward_backtest
+        # (`for key in existing: existing[key] += counts[key]`) iteriert ueber
+        # die Schluessel von _empty_counts() - kommt ein neuer Schluessel nur
+        # in _score_counts_from_arrays() hinzu (oder umgekehrt), wuerde er
+        # beim Pooling still auf 0 einfrieren statt aufzufallen. Dieser Test
+        # macht die stille Drift zwischen beiden Schluessel-Mengen sichtbar.
+        from src.market_predictor import _empty_counts, _score_counts_from_arrays
+        counts = _score_counts_from_arrays(y_actual=[1], y_pred=[1], baseline_pred=[1])
+        self.assertEqual(set(_empty_counts()), set(counts))
+
+
+class FinalizeScoreCountsTests(unittest.TestCase):
+    def test_derives_rounded_percentages(self):
+        from src.market_predictor import _finalize_score_counts
+        counts = {
+            "n": 4, "sign_correct": 3, "abs_error_sum": 75.0,
+            "n_correct_sign": 3, "abs_error_sum_given_correct_sign": 40.0,
+            "n_baseline": 4, "baseline_sign_correct": 3, "baseline_abs_error_sum": 90.0,
+            "n_baseline_wrong": 1, "model_sign_correct_when_baseline_wrong": 1,
+        }
+        result = _finalize_score_counts(counts)
+        self.assertEqual(result["n"], 4)
+        self.assertEqual(result["sign_accuracy"], 75.0)
+        self.assertAlmostEqual(result["mae"], 18.75, places=2)
+        self.assertAlmostEqual(result["mae_given_correct_sign"], 40.0 / 3, places=2)
+        self.assertEqual(result["baseline_sign_accuracy"], 75.0)
+        self.assertAlmostEqual(result["baseline_mae"], 22.5, places=2)
+        self.assertEqual(result["reversal_sign_accuracy"], 100.0)
+        self.assertEqual(result["reversal_n"], 1)
+
+    def test_returns_none_when_n_zero(self):
+        from src.market_predictor import _finalize_score_counts, _empty_counts
+        self.assertIsNone(_finalize_score_counts(_empty_counts()))
+
+    def test_reversal_and_correct_sign_fields_are_none_when_denominator_zero(self):
+        from src.market_predictor import _finalize_score_counts, _empty_counts
+        counts = _empty_counts()
+        counts["n"] = 2
+        counts["sign_correct"] = 0
+        counts["abs_error_sum"] = 10.0
+        counts["n_baseline"] = 0
+        result = _finalize_score_counts(counts)
+        self.assertIsNone(result["mae_given_correct_sign"])
+        self.assertIsNone(result["baseline_sign_accuracy"])
+        self.assertIsNone(result["baseline_mae"])
+        self.assertIsNone(result["reversal_sign_accuracy"])
+        self.assertEqual(result["reversal_n"], 0)
+
+
+class EngineerFeaturesUnclippedTargetTests(unittest.TestCase):
+    def test_mv_target_columns_are_not_clipped(self):
+        # Ein Ausreisser-Sprung darf NICHT mehr geklippt werden - Clipping
+        # passiert jetzt erst beim Training, pro Split/Fold.
+        rows = []
+        pid, tid = "p1", "t1"
+        for i, mv in enumerate([1_000_000, 1_000_000, 1_000_000, 50_000_000]):
+            rows.append({
+                "player_id": pid, "team_id": tid, "date": pd.Timestamp("2026-01-01") + pd.Timedelta(days=i),
+                "mv": mv, "md": pd.NaT, "p": None, "mp": None, "mp_avg_3": None,
+                "t1": tid, "t2": None, "t1g": None, "t2g": None,
+            })
+        df = pd.DataFrame(rows)
+        history_df, _today_df = _engineer_features(df)
+        self.assertIn("mv_target", history_df.columns)
+        self.assertNotIn("mv_target_clipped", history_df.columns)
+        self.assertNotIn("mv_target_3d_clipped", history_df.columns)
