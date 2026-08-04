@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildBudgetPlan, normalizeSearchText, plannedPriceFor, suggestBid, buildDashboardSellCandidates, buildDashboardBuyCandidates, buildInvestmentSwaps, recentTransfersWithin24h, valuation, signalFor, nextUpdateCutoff, MIN_N_FOR_PERCENTILE_SPREAD, buildPlayerRow, buildTransfermarktRows, buildSpekulationRows, buildEigenesTeamSplit, buildAlleSpielerRows, ownerFor } from "./derive";
-import type { BidPremiumEntry, Calibration, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
+import { buildBudgetPlan, normalizeSearchText, plannedPriceFor, suggestBid, buildDashboardSellCandidates, buildDashboardBuyCandidates, buildInvestmentSwaps, recentTransfersWithin24h, valuation, signalFor, nextUpdateCutoff, MIN_N_FOR_PERCENTILE_SPREAD, buildPlayerRow, buildTransfermarktRows, buildSpekulationRows, buildEigenesTeamSplit, buildAlleSpielerRows, ownerFor, mlBaselineDeltaPct } from "./derive";
+import type { BidPremiumEntry, Calibration, MlRealizedWindow, PlayerRecord, RawWunschkaderTarget, TransfermarktListing } from "../types";
 import type { PlayerRow, TransfermarktRow } from "./derive";
 
 describe("normalizeSearchText", () => {
@@ -555,5 +555,28 @@ describe("recentTransfersWithin24h", () => {
       { player_id: "p2", player_name: "B", buyer: "X", seller: "Y", price: 1, date: "2026-08-01T10:00:00Z" },
     ];
     expect(recentTransfersWithin24h(entries, now).map((e) => e.player_id)).toEqual(["p1"]);
+  });
+});
+
+describe("mlBaselineDeltaPct", () => {
+  it("gibt die Differenz Modell- minus Baseline-Trefferquote in Prozentpunkten zurueck", () => {
+    const realized: MlRealizedWindow = {
+      n: 10, sign_accuracy: 75, mae: 100, mae_given_correct_sign: 80,
+      baseline_sign_accuracy: 60, baseline_mae: 120, reversal_sign_accuracy: 50, reversal_n: 2,
+    };
+    expect(mlBaselineDeltaPct(realized)).toBeCloseTo(15, 5);
+  });
+
+  it("gibt null zurueck wenn keine Baseline-Daten vorhanden sind", () => {
+    const realized: MlRealizedWindow = {
+      n: 10, sign_accuracy: 75, mae: 100, mae_given_correct_sign: null,
+      baseline_sign_accuracy: null, baseline_mae: null, reversal_sign_accuracy: null, reversal_n: 0,
+    };
+    expect(mlBaselineDeltaPct(realized)).toBeNull();
+  });
+
+  it("gibt null zurueck bei fehlendem realized-Objekt", () => {
+    expect(mlBaselineDeltaPct(null)).toBeNull();
+    expect(mlBaselineDeltaPct(undefined)).toBeNull();
   });
 });
