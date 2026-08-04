@@ -964,7 +964,6 @@ class TrainAndEvaluateBaselineAndEmbargoTests(unittest.TestCase):
 class WalkForwardBacktestTargetColTests(unittest.TestCase):
     def _history_df(self, target_col, n=210):
         import numpy as np
-        unclipped_col = target_col.removesuffix("_clipped")
         dates = pd.date_range("2026-01-01", periods=n, freq="D")
         rng = np.random.RandomState(7)
         df = pd.DataFrame({
@@ -978,7 +977,6 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             "days_since_last_starting_rank_change": 9999, "starting_rank_change_count_90d": 0,
             "avg_sentiment_7d": 0, "news_volume_7d": 0,
             target_col: rng.randn(n) * 5000,
-            unclipped_col: rng.randn(n) * 5000,
         })
         return df
 
@@ -989,15 +987,14 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
         # sickerte unverworfen in sign_hits/abs_errors - da abs_errors
         # ueber ALLE Folds aufsummiert wird, kippte eine einzige solche
         # Zeile den finalen mae fuer BEIDE Modelle auf NaN.
-        target_col = "alt_target_clipped"
-        unclipped_col = "alt_target"
+        target_col = "alt_target"
         df = self._history_df(target_col)
         # Zweite Zeile am selben (letzten) Cutoff-Tag wie p1, aber ohne
         # bekannten tatsaechlichen Ausgang (z.B. ein 3-Tage-Ziel, dessen
         # Fenster ueber das Ende der Historie hinauslaeuft).
         extra_row = df.iloc[[-1]].copy()
         extra_row["player_id"] = "p2"
-        extra_row[unclipped_col] = None
+        extra_row[target_col] = None
         df = pd.concat([df, extra_row], ignore_index=True)
 
         result = _walk_forward_backtest(df, target_col=target_col)
@@ -1027,6 +1024,50 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             self.assertIn("mae", model_metrics)
             self.assertIn("sign_accuracy", model_metrics)
             self.assertIn("n", model_metrics)
+
+    def test_per_model_metrics_include_baseline_fields(self):
+        result = _walk_forward_backtest(self._history_df("alt_target"), target_col="alt_target", horizon_days=1)
+        self.assertIsNotNone(result)
+        for name in result["per_model"]:
+            self.assertIn("baseline_sign_accuracy", result["per_model"][name])
+            self.assertIn("reversal_n", result["per_model"][name])
+
+    def test_embargo_is_actually_wired_into_the_backtest_for_horizon_3(self):
+        # Mutation-Check-Regression: mit `_apply_embargo(train, cutoff,
+        # horizon_days)` durch ein reines `train` ersetzt (Embargo-Aufruf
+        # entfernt) blieb JEDER bestehende Test in dieser Klasse gruen -
+        # keiner davon nutzt horizon_days=3. n=206 ist bewusst so knapp
+        # oberhalb von BACKTEST_MIN_TRAIN_ROWS=200 gewaehlt, dass der
+        # fruehste der 6 Cutoff-Folds bei aktivem Embargo (train-Groesse =
+        # cutoff_idx - 2) knapp UNTER die Mindestgroesse faellt und
+        # deshalb geskippt wird, waehrend er ohne Embargo (train-Groesse =
+        # cutoff_idx) noch mitlaeuft - das macht den Effekt in n_folds
+        # deterministisch, statt auf einen zufaelligen ML-Sign-Flip in
+        # sign_accuracy zu hoffen (bei diesem Seed differiert zusaetzlich
+        # auch sign_accuracy fuer mindestens ein Modell - siehe unten -,
+        # aber n_folds allein reicht schon als Beweis, dass der
+        # _apply_embargo()-Aufruf wirklich etwas veraendert).
+        df = self._history_df("alt_target", n=206)
+
+        with_embargo = _walk_forward_backtest(df, target_col="alt_target", horizon_days=3)
+        with patch(
+            "src.market_predictor._apply_embargo",
+            side_effect=lambda train, cutoff, horizon_days: train,
+        ):
+            without_embargo = _walk_forward_backtest(df, target_col="alt_target", horizon_days=3)
+
+        self.assertIsNotNone(with_embargo)
+        self.assertIsNotNone(without_embargo)
+        self.assertNotEqual(with_embargo["n_folds"], without_embargo["n_folds"])
+        sign_accuracy_differs_for_some_model = any(
+            with_embargo["per_model"][name]["sign_accuracy"]
+            != without_embargo["per_model"][name]["sign_accuracy"]
+            for name in with_embargo["per_model"]
+        )
+        self.assertTrue(
+            sign_accuracy_differs_for_some_model,
+            "Embargo sollte sign_accuracy fuer mindestens ein Modell veraendern.",
+        )
 
 
 class TrainAndTrackHorizonTests(unittest.TestCase):

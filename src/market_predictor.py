@@ -688,75 +688,59 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET, hori
     return models, metrics
 
 
-def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET) -> dict | None:
-    """Beantwortet direkt "wie waere die Prognose damals gewesen" - ohne wie
-    beim Live-Log (_realized_by_model_from_daily) tage-/wochenlang auf echte
-    Folgetage warten zu muessen. history_df enthaelt fuer JEDEN historischen
-    Tag bereits das bekannte Ergebnis (mv_target); es reicht also, mehrere
-    Cutoff-Tage rueckwirkend durchzugehen: Training nur auf Zeilen VOR dem
-    Cutoff, Test auf den Zeilen GENAU am Cutoff-Tag, verglichen gegen den
-    tatsaechlichen (ungeklippten) Marktwert-Sprung. Bewertet beide
-    Modell-Kandidaten pro Fold, damit sichtbar wird, welches Modell nicht
-    nur im aktuellen 75/25-Split (_train_and_evaluate), sondern ueber
-    mehrere echte historische Tage hinweg konsistent gewinnt.
-
-    target_col (Default TARGET) waehlt das Trainingsziel; unclipped_col
-    (target_col ohne "_clipped"-Suffix) ist die Spalte, gegen die der
-    TATSAECHLICHE Ausgang verglichen wird. Sowohl train als auch test
-    werden auf ihre jeweils relevante Zielspalte hin von NaN befreit -
-    bei TARGET (1 Tag) heute ein No-Op, aber Voraussetzung dafuer, dass
-    ein 3-Tage-Ziel (TARGET_3D) hier wiederverwendbar ist: dessen letzte
-    Tage pro Spieler (shift(-3)) kennen ihren Ausgang noch nicht, weder
-    beim Training noch - unabhaengig davon, pro Cutoff - beim Test. Ohne
-    den Test-seitigen Drop wuerde eine einzelne NaN-Zeile in y_test_actual
-    via np.sign/np.abs in sign_hits/abs_errors einsickern und, weil
-    abs_errors ueber ALLE Folds aufsummiert wird, den finalen mae fuer
-    BEIDE Modelle komplett auf NaN kippen."""
+def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET, horizon_days: int = 1) -> dict | None:
+    """Beantwortet direkt "wie waere die Prognose damals gewesen" - Training
+    nur auf Zeilen VOR dem Cutoff (minus Embargo bei Mehrtage-Horizonten,
+    siehe _apply_embargo), Test auf den Zeilen GENAU am Cutoff, verglichen
+    gegen den tatsaechlichen (ungeklippten) Marktwert-Sprung UND gegen die
+    Traegheits-Baseline. Poolt die rohen Counts JEDES Folds/Modells zu genau
+    EINEM finalen _finalize_score_counts()-Aufruf pro Modell - mathematisch
+    identisch zum vorherigen Verhalten (alle Rohwerte sammeln, am Ende
+    einmal aggregieren, NICHT ein Schnitt aus gerundeten Pro-Fold-Prozenten,
+    der Rundungsfehler aufsummieren wuerde)."""
     dates = sorted(history_df["date"].unique())
     if len(dates) <= BACKTEST_FOLDS:
         return None
     cutoffs = dates[-BACKTEST_FOLDS:]
+    baseline_col = _BASELINE_COLUMN_BY_HORIZON[horizon_days]
 
-    sign_hits: dict[str, list[bool]] = {"RandomForest": [], "HistGradientBoosting": []}
-    abs_errors: dict[str, list[float]] = {"RandomForest": [], "HistGradientBoosting": []}
+    pooled_counts: dict[str, dict] = {}
     folds_run = 0
-
-    unclipped_col = target_col.removesuffix("_clipped")
     for cutoff in cutoffs:
         train = history_df[history_df["date"] < cutoff].dropna(subset=[target_col])
-        test = history_df[history_df["date"] == cutoff].dropna(subset=[unclipped_col])
+        train = _apply_embargo(train, cutoff, horizon_days)
+        test = history_df[history_df["date"] == cutoff].dropna(subset=[target_col])
         if len(train) < BACKTEST_MIN_TRAIN_ROWS or test.empty:
             continue
         folds_run += 1
 
-        x_train, y_train = train[FEATURES], train[target_col]
+        x_train = train[FEATURES]
+        y_train = _clip_target(train[target_col])
         x_test = test[FEATURES]
-        y_test_actual = test[unclipped_col]
+        y_test_actual = test[target_col]
+        baseline_pred = test[baseline_col]
 
         # _build_candidates() statt eigener Kopie - vorher hatte dieser
         # Backtest eigene, von der echten Live-Prognose abweichende
-        # Parameter (RandomForest n_estimators=200 statt 500), genau die
-        # Inkonsistenz-Klasse, die _build_candidates()s Docstring schon
-        # fuer den Backfill-Pfad beschreibt.
+        # Parameter, genau die Inkonsistenz-Klasse, die _build_candidates()s
+        # Docstring schon fuer den Backfill-Pfad beschreibt.
         candidates = _build_candidates()
         for name, candidate in candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
-            sign_hits[name].extend((np.sign(y_test_actual) == np.sign(y_pred)).tolist())
-            abs_errors[name].extend(np.abs(y_test_actual - y_pred).tolist())
+            counts = _score_counts_from_arrays(y_test_actual, y_pred, baseline_pred)
+            existing = pooled_counts.setdefault(name, _empty_counts())
+            for key in existing:
+                existing[key] += counts[key]
 
     if not folds_run:
         return None
 
     per_model = {}
-    for name, hits in sign_hits.items():
-        if not hits:
-            continue
-        per_model[name] = {
-            "sign_accuracy": round(float(np.mean(hits)) * 100, 1),
-            "mae": round(float(np.mean(abs_errors[name])), 2),
-            "n": len(hits),
-        }
+    for name, counts in pooled_counts.items():
+        finalized = _finalize_score_counts(counts)
+        if finalized is not None:
+            per_model[name] = finalized
     if not per_model:
         return None
     return {"n_folds": folds_run, "per_model": per_model}
@@ -1108,7 +1092,7 @@ def _train_and_track_horizon(
     models, metrics = trained
     synthetic_winner = metrics["model_type"]
 
-    backtest = _walk_forward_backtest(history_df, target_col)
+    backtest = _walk_forward_backtest(history_df, target_col, horizon_days)
     if backtest is not None:
         metrics["backtest"] = backtest
 
