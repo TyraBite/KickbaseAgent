@@ -7,11 +7,6 @@ import type { FeedbackItem } from "../types";
 
 type LoadState = "loading" | "error" | "ready";
 
-const TYPE_LABEL: Record<FeedbackItem["type"], string> = {
-  bug: "🐛 Bug",
-  feature: "💡 Idee",
-};
-
 // Nach dieser Zeit ohne Antwort vom Server gilt ein Save als "haengt"
 // (typischerweise offline) - Firestores Web-SDK loest das Promise dann
 // weder auf noch ab, weil der Write lokal in die Offline-Queue wandert und
@@ -25,7 +20,6 @@ export default function FeedbackTab({ now }: { now: number }) {
   const [saveError, setSaveError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveIsSlow, setSaveIsSlow] = useState(false);
-  const [type, setType] = useState<FeedbackItem["type"]>("bug");
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -72,7 +66,6 @@ export default function FeedbackTab({ now }: { now: number }) {
     if (!trimmed) return;
     const item: FeedbackItem = {
       id: crypto.randomUUID(),
-      type,
       text: trimmed,
       created_at: new Date().toISOString(),
       status: "open",
@@ -132,36 +125,12 @@ export default function FeedbackTab({ now }: { now: number }) {
   return (
     <div className="max-w-2xl space-y-6">
       <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <div className="mb-3 flex gap-2">
-          <button
-            type="button"
-            onClick={() => setType("bug")}
-            className={`rounded-lg border px-3 py-1.5 text-sm ${
-              type === "bug"
-                ? "border-brand-500 bg-brand-50 font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-300"
-                : "border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            }`}
-          >
-            🐛 Bug
-          </button>
-          <button
-            type="button"
-            onClick={() => setType("feature")}
-            className={`rounded-lg border px-3 py-1.5 text-sm ${
-              type === "feature"
-                ? "border-brand-500 bg-brand-50 font-medium text-brand-800 dark:bg-brand-950 dark:text-brand-300"
-                : "border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            }`}
-          >
-            💡 Idee
-          </button>
-        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={3}
           maxLength={2000}
-          placeholder={type === "bug" ? "Was ist kaputt?" : "Was wäre hilfreich?"}
+          placeholder="Was ist kaputt oder was wäre hilfreich?"
           className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
         <div className="mt-2 flex items-center gap-3">
@@ -246,8 +215,7 @@ function FeedbackRow({
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
-        <span>{TYPE_LABEL[item.type]}</span>
+      <div className="text-xs text-slate-400 dark:text-slate-500">
         <span title={item.created_at}>{formatRelativeTime(item.created_at, new Date(now))}</span>
       </div>
       {isEditing ? (
