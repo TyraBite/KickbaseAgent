@@ -3,6 +3,42 @@
 Offene Aufgaben und Themen, die noch geplant oder umgesetzt werden müssen. Kein Änderungsprotokoll vergangener
 Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbeitet wird: `CLAUDE.md`.
 
+## In Arbeit — Session-Übergabe (2026-08-04, Pause während Umsetzung)
+
+**ML-Prognose Baseline-Ehrlichkeit + Embargo-/Clip-Fix**, subagent-driven-development, 7-Task-Plan. Spec:
+`docs/superpowers/specs/2026-08-04-ml-baseline-honesty-design.md`. Plan: `docs/superpowers/plans/2026-08-04-ml-baseline-honesty.md`.
+
+**Wo:** Worktree `/workspace/work/.claude/worktrees/feedback-type-removal` (Name ist historisch, gehört zu einem
+älteren, längst gemergten Task — für DIESEN Plan trotzdem weiterverwendet), Branch `worktree-ml-baseline-honesty`
+(von `origin/main` abgezweigt, noch **nicht** gepusht/PR erstellt). Ledger:
+`.superpowers/sdd/2026-08-04-ml-baseline-honesty/progress.md` (im Worktree, git-ignored) — dort steht der
+verbindliche Stand pro Task, hier nur die Kurzfassung.
+
+**Stand:** Tasks 1-6 von 7 committed + Review clean (Task 1 und 5 brauchten je 1 Fix-Round, dokumentiert im Ledger).
+Task 7 (letzter Task: `MlGenauigkeitTab.tsx`-Anzeige + neuer Playwright-CT-Test) war beim Pausieren als
+Hintergrund-Agent gestartet — **Status beim Wiedereinstieg zuerst per `git log` im Worktree prüfen**, nicht
+davon ausgehen, dass der Agent-Task diese Session überlebt hat:
+- Kein neuer Commit seit `49b72c7` → Task 7 nie fertig geworden, per `task-brief`-Skript + Task-7-Dispatch-Prompt
+  aus dem Plan neu starten (Skript: `subagent-driven-development`-Skill, `scripts/task-brief`).
+- Ein neuer Commit vorhanden, aber noch kein Review dazu im Ledger → Review-Package erzeugen (`scripts/review-package`)
+  und Task-Reviewer dispatchen, dann normal im Fix-Loop weiter.
+- Ledger zeigt "Task 7: complete" → direkt zum finalen Whole-Branch-Review übergehen (`superpowers:requesting-code-review`,
+  stärkstes verfügbares Modell), danach `superpowers:finishing-a-development-branch` (PR + Auto-Merge, `main` ist
+  geschützt).
+
+**Nach Merge nicht vergessen** (steht auch am Ende des Plan-Dokuments): Heavy-Lauf erzwingen
+(`gh workflow run dashboard-marktwerte.yml`), `backfill_prediction_log(days=90)` für beide Horizonte einmalig manuell
+laufen lassen (Skript-Datei, kein inline `python3 -c`), alte vs. neue 3T-Genauigkeit vergleichen und dem User ehrlich
+mitteilen falls sie schlechter aussieht (CLAUDE.md-Pflicht — alte Zahlen sind aus `ml_accuracy_trend_3d`/`ml_metrics_3d`
+bereits in der Session bekannt, vor Beginn der Umsetzung notiert), danach den Embargo-Bug-Eintrag unten unter
+„Technische Schulden" entfernen.
+
+**Baseline vor dieser Session** (zum Vergleich, falls die Zahlen ohne Zugriff auf die alte Konversation gebraucht
+werden): `python -m pytest tests/` 348 grün, Frontend `npm run typecheck && npm run build && npx vitest run` clean,
+114 Vitest-Tests, vor Task 7 auch Playwright-CT komplett grün (Chromium-Sandbox-Workaround: `LD_LIBRARY_PATH` auf
+`/tmp/chromedeps/root/...` setzen, Setup-Skript bei Bedarf aus `docs/superpowers/plans/2026-08-03-playwright-regression-coverage.md`
+neu aufbauen, `/tmp` ist nicht persistent über Sessions).
+
 ## Offen aus `feedback/current` (Firestore)
 
 - **Sentiment-Analyse für Marktwert-Turning-Points** (`6b08e2cf`) — technisch umgesetzt (`news_sentiment.py`,
