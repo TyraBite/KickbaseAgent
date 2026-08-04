@@ -987,7 +987,7 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
 
 class TrainAndTrackHorizonTests(unittest.TestCase):
     def test_returns_none_when_too_few_training_rows(self):
-        df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target_clipped": [100]})
+        df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target": [100]})
         result = _train_and_track_horizon(df, df, TARGET, 1, "2026-07-31", {})
         self.assertIsNone(result)
 
@@ -1061,6 +1061,7 @@ class FeaturesListStartingRankTests(unittest.TestCase):
 class FeaturesListSentimentTests(unittest.TestCase):
     def test_features_includes_sentiment_columns(self):
         self.assertIn("avg_sentiment_7d", FEATURES)
+        self.assertIn("news_volume_7d", FEATURES)
 
 
 class ClipTargetTests(unittest.TestCase):
@@ -1178,4 +1179,3 @@ class EngineerFeaturesUnclippedTargetTests(unittest.TestCase):
         self.assertIn("mv_target", history_df.columns)
         self.assertNotIn("mv_target_clipped", history_df.columns)
         self.assertNotIn("mv_target_3d_clipped", history_df.columns)
-        self.assertIn("news_volume_7d", FEATURES)
