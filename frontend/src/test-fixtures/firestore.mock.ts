@@ -14,6 +14,10 @@ export interface RecordedSetDocCall {
   options: unknown;
 }
 
+export interface RecordedArrayUnion {
+  __ctArrayUnion: Record<string, unknown>[];
+}
+
 function callLog(): RecordedSetDocCall[] {
   const w = window as unknown as { __ctFirestoreCalls?: RecordedSetDocCall[] };
   if (!w.__ctFirestoreCalls) w.__ctFirestoreCalls = [];
@@ -28,9 +32,6 @@ export async function setDoc(ref: { __ctDocPath: string }, data: unknown, option
   callLog().push({ path: ref.__ctDocPath, data, options });
 }
 
-// Nicht von den aktuellen CT-Tests genutzt - reiner Vorsorge-Stub, falls
-// kuenftig eine weitere Komponente (z.B. FeedbackTab.tsx) ebenfalls per CT
-// gemountet wird und "firebase/firestore" importiert.
 export async function getDoc(_ref: unknown) {
   return { exists: () => false, data: () => undefined };
 }
