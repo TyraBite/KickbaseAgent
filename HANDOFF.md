@@ -7,9 +7,18 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
 
 - **Sentiment-Analyse für Marktwert-Turning-Points** (`6b08e2cf`) — technisch umgesetzt (`news_sentiment.py`,
   `avg_sentiment_7d`/`news_volume_7d` in `market_predictor.py::FEATURES`), bewusst NICHT auf `status:"done"`
-  gesetzt: alle Features liefern noch Cold-Start-Platzhalter, ein echter Nutzennachweis (Korrelation mit
-  tatsächlichen Marktwert-Turning-Points wie Amiri/Le Joncur) braucht erst Wochen/Monate echte Historie. Bei
-  Gelegenheit prüfen und dann als erledigt markieren.
+  gesetzt. Live geprüft am 2026-08-04 (`player_news_log`: 9 Tage Historie, 2246 Artikel, Median 2/Spieler) —
+  Cold-Start bestätigt, noch nicht die im Design-Spec geforderten "Wochen/Monate". **Zusätzlich, unabhängig von
+  Cold-Start**: echtes germansentiment-Modell live gegen Amiri/Le-Joncour-Artikel laufen lassen (volle 3-Klassen-
+  Wahrscheinlichkeiten inspiziert, nicht nur den gespeicherten Argmax-Score) — Modell funktioniert grundsätzlich
+  (Verletzungsmeldungen/Transfer-Dramen korrekt stark negativ/positiv erkannt), hat aber eine strukturelle
+  Blindstelle bei ruhigen "Spieler bleibt/verkündet Verbleib"-Meldungen (~99% Neutral-Konfidenz, echtes
+  Modellverhalten, kein Rundungsartefakt der Pipeline) und bei Spielern ohne aktuelle Presseberichterstattung
+  (Le Joncour: 35 historische RSS-Treffer vorhanden, aber keiner im aktuellen 7-Tage-Fenster — kein Scraping-Bug,
+  echtes Presse-Coverage-Loch bei Bankspielern). Heißt: selbst nach genug Historie wird das Feature nur einen Teil
+  der Turning-Points fangen, nicht alle wie ursprünglich erhofft. Details + ein konkreter Negations-Bug: siehe
+  Technische Schulden unten. Bei Gelegenheit auf Cold-Start prüfen, aber Erwartungshaltung an die Abdeckung
+  entsprechend dämpfen, bevor auf `status:"done"` gesetzt wird.
 - **Public-Domain-Marktwert-Datenbank "KickbaseMarketPredictor"** (`f686c8db`) — Idee, alle Marktwert-Prognosen als
   öffentliche Datenbank für andere Kickbase-User anzubieten, komplett getrennt vom persönlichen Agent. Offene
   Fragen: rechtlich zulässig? Monetarisierung? Domain-Kosten? Skalierbare Infrastruktur? Noch nicht gescoped, kein
@@ -27,6 +36,19 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
   `frontend-playwright-tests.yml`, `pyproject.toml` mit `pythonpath = ["."]`.
 - **`KICKBASE_LEAGUE_START_BUDGET` steht als Klartext-Wert in beiden Workflow-YAMLs** statt über das gleichnamige
   Secret referenziert zu werden — funktioniert, ist aber nicht best practice.
+- **`news_sentiment.py::classify_sentiment()` echter Negations-Bug** — live verifiziert 2026-08-04 anhand
+  Headline "Amiri, Sano, Nebel weg aus Mainz? Für Heidel 'definitiv ausgeschlossen'" (Wechsel wird
+  ausgeschlossen = gute Nachricht) wird mit `sentiment_label="negative"`, Score 0.92 klassifiziert (germansentiment
+  reagiert auf "weg"/"ausgeschlossen", ohne die Verneinung/den Kontext zu invertieren). Kein Fix ohne echten
+  Nutzennachweis des Gesamtfeatures anfangen (siehe `6b08e2cf` oben) — hier nur dokumentiert, damit der Fund nicht
+  verloren geht.
+- **`news_sentiment.py` speichert nur die Argmax-Klassen-Konfidenz** (`sentiment_score` = Wahrscheinlichkeit des
+  vorhergesagten Labels), nicht die volle 3-Klassen-Verteilung. Ein kontinuierlicher signierter Score
+  (`p(positive) - p(negative)`) statt/neben dem diskreten Label würde etwas mehr Gradient erhalten (live
+  verifiziert: in der Amiri-Gerüchtephase vor der Verbleib-Verkündung liegt der signierte Score klar negativer als
+  danach, auch wenn beide Phasen als `"neutral"` gelabelt sind) — behebt aber NICHT die strukturelle Blindstelle
+  bei "Spieler bleibt"-Meldungen oben, nur ein kleiner, potenziell lohnender Zusatz-Fix, keine Lösung des
+  Kernproblems.
 
 ## Test-Coverage (Audit 2026-08-03)
 
