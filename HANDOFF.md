@@ -10,8 +10,10 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
   gesetzt: alle Features liefern noch Cold-Start-Platzhalter, ein echter Nutzennachweis (Korrelation mit
   tatsächlichen Marktwert-Turning-Points wie Amiri/Le Joncur) braucht erst Wochen/Monate echte Historie. Bei
   Gelegenheit prüfen und dann als erledigt markieren.
-- **ML-Charts mobil kaum lesbar** (`5a182f9d`) — Tooltip-Position/Punktdichte/Zeitraum, braucht Entscheidungen zu
-  Mobile-Breakpoints/Sampling.
+- **Public-Domain-Marktwert-Datenbank "KickbaseMarketPredictor"** (`f686c8db`) — Idee, alle Marktwert-Prognosen als
+  öffentliche Datenbank für andere Kickbase-User anzubieten, komplett getrennt vom persönlichen Agent. Offene
+  Fragen: rechtlich zulässig? Monetarisierung? Domain-Kosten? Skalierbare Infrastruktur? Noch nicht gescoped, kein
+  Plan.
 
 ## Technische Schulden
 
