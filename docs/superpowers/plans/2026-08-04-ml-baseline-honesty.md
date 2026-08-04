@@ -438,6 +438,21 @@ explizit übergebenem `target_col="alt_target_clipped"`) bleibt unverändert
 - das ist ein beliebiger Parameterwert, an keine Spalten-Suffix-Konvention
 mehr gebunden, funktioniert unter jedem Namen.
 
+**Zusätzlicher Fund (nach Task 1 aufgefallen, nicht im ursprünglichen
+Scope):** `TrainAndTrackHorizonTests.test_returns_none_when_too_few_training_rows`
+(Zeile 989-992) hat dieselbe hart benannte `"mv_target_clipped"`-Spalte in
+ihrer eigenen, separaten Fixture und ruft `_train_and_track_horizon(df, df, TARGET, 1, ...)`
+mit dem jetzt umbenannten `TARGET`-Default auf - `df.dropna(subset=[target_col])`
+in `_train_and_evaluate` würde mit `KeyError` statt dem erwarteten
+`None`-Rückgabewert fehlschlagen. Ändere Zeile 990 von:
+```python
+        df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target_clipped": [100]})
+```
+zu:
+```python
+        df = pd.DataFrame({"date": pd.to_datetime(["2026-07-01"]), "player_id": ["p1"], "mv_target": [100]})
+```
+
 - [ ] **Step 2: `_train_and_evaluate` failing Test für Baseline-Feld schreiben**
 
 In `tests/test_market_predictor.py`, nach der bestehenden `TrainAndEvaluateTargetColTests`-Klasse:
