@@ -112,11 +112,17 @@ class _NumericCoercingEstimator:
         return self._estimator.get_params(deep=deep)
 
 
-def _print_metrics(label, metrics):
+def _print_metrics(label, metrics, params=None, n_folds=None):
+    extra = ""
+    if n_folds is not None:
+        extra += f" n_folds={n_folds}"
+    if params is not None:
+        extra += f" params={params}"
     print(
         f"{label}: sign_accuracy={metrics['sign_accuracy']}% mae={metrics['mae']} "
         f"reversal_sign_accuracy={metrics.get('reversal_sign_accuracy')} "
-        f"reversal_n={metrics.get('reversal_n')} n={metrics['n']}"
+        f"reversal_n={metrics.get('reversal_n')} n={metrics['n']}{extra}",
+        flush=True,
     )
 
 
@@ -140,13 +146,18 @@ def main():
         news_events_by_player=news_events,
     )
     history_df, _today_df = _engineer_features(corpus)
+    print(
+        f"Corpus: {len(history_df)} Zeilen, fitness_events={len(fitness_events)}, "
+        f"starting_rank_events={len(starting_rank_events)}, news_events={len(news_events)}",
+        flush=True,
+    )
 
-    print(f"BASELINE (aktuelle _build_candidates()-Config, {N_FOLDS}-Fold, Embargo aktiv):")
+    print(f"BASELINE (aktuelle _build_candidates()-Config, {N_FOLDS}-Fold, Embargo aktiv):", flush=True)
     baseline_result = _walk_forward_backtest(
         history_df, target_col=TARGET_COL, horizon_days=HORIZON_DAYS, n_folds=N_FOLDS,
     )
     if baseline_result is None:
-        print("Keine Baseline messbar (zu wenig Historie) - Abbruch.")
+        print("Keine Baseline messbar (zu wenig Historie) - Abbruch.", flush=True)
         return
     for name, metrics in baseline_result["per_model"].items():
         _print_metrics(f"BASELINE {name}", metrics)
@@ -160,10 +171,10 @@ def main():
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            print(f"Zeitbudget ({budget_hours}h) aufgebraucht - Suche wird beendet.")
+            print(f"Zeitbudget ({budget_hours}h) aufgebraucht - Suche wird beendet.", flush=True)
             break
         if last_config_seconds and last_config_seconds * 1.3 > remaining:
-            print(f"Sicherheitsmarge erreicht (Restbudget {remaining:.0f}s) - Suche wird sauber beendet.")
+            print(f"Sicherheitsmarge erreicht (Restbudget {remaining:.0f}s) - Suche wird sauber beendet.", flush=True)
             break
 
         family = random.choice(list(FAMILIES.keys()))
@@ -172,14 +183,23 @@ def main():
 
         start = time.monotonic()
         wrapped_model = _NumericCoercingEstimator(trial_model)
-        result = _walk_forward_backtest(
-            history_df, target_col=TARGET_COL, horizon_days=HORIZON_DAYS,
-            candidates={family: wrapped_model}, n_folds=N_FOLDS,
-        )
+        try:
+            result = _walk_forward_backtest(
+                history_df, target_col=TARGET_COL, horizon_days=HORIZON_DAYS,
+                candidates={family: wrapped_model}, n_folds=N_FOLDS,
+            )
+        except Exception as exc:
+            last_config_seconds = time.monotonic() - start
+            print(
+                f"[{trial_num}] {family}: Trial fehlgeschlagen "
+                f"({type(exc).__name__}: {exc}) params={trial_model.get_params()}",
+                flush=True,
+            )
+            continue
         last_config_seconds = time.monotonic() - start
 
         if result is None or family not in result["per_model"]:
-            print(f"[{trial_num}] {family}: kein auswertbares Ergebnis (zu wenig Folds/Zeilen).")
+            print(f"[{trial_num}] {family}: kein auswertbares Ergebnis (zu wenig Folds/Zeilen).", flush=True)
             continue
 
         metrics = result["per_model"][family]
@@ -187,20 +207,29 @@ def main():
             metrics["sign_accuracy"] >= best_sklearn_baseline["sign_accuracy"] + CRITERION_ACCURACY_MARGIN_PT
             and metrics["mae"] <= best_sklearn_baseline["mae"]
         )
-        _print_metrics(f"[{trial_num}] {family}{' QUALIFIZIERT' if meets_criterion else ''}", metrics)
+        _print_metrics(
+            f"[{trial_num}] {family}{' QUALIFIZIERT' if meets_criterion else ''}",
+            metrics,
+            params=trial_model.get_params(),
+            n_folds=result["n_folds"],
+        )
         if meets_criterion:
             qualifying.append({"family": family, "params": trial_model.get_params(), "metrics": metrics})
 
-    print("\nENDERGEBNIS (qualifizierende Konfigurationen, sortiert nach MAE, Trendwenden-Genauigkeit als Tiebreaker):")
+    print(
+        "\nENDERGEBNIS (qualifizierende Konfigurationen, sortiert nach MAE, Trendwenden-Genauigkeit als Tiebreaker):",
+        flush=True,
+    )
     qualifying.sort(key=lambda e: (e["metrics"]["mae"], -(e["metrics"].get("reversal_sign_accuracy") or 0)))
     for entry in qualifying:
         print(
             f"{entry['family']}: mae={entry['metrics']['mae']} sign_accuracy={entry['metrics']['sign_accuracy']}% "
-            f"reversal_sign_accuracy={entry['metrics'].get('reversal_sign_accuracy')} params={entry['params']}"
+            f"reversal_sign_accuracy={entry['metrics'].get('reversal_sign_accuracy')} params={entry['params']}",
+            flush=True,
         )
 
     if not qualifying:
-        print("\nKein Gewinner - Baseline bleibt bestehen.")
+        print("\nKein Gewinner - Baseline bleibt bestehen.", flush=True)
         return
 
     best_sklearn = next((e for e in qualifying if e["family"] in SKLEARN_FAMILIES), None)
@@ -212,16 +241,17 @@ def main():
         accuracy_improvement_pt = best_new_dep["metrics"]["sign_accuracy"] - best_sklearn["metrics"]["sign_accuracy"]
         print(
             f"\nLightGBM/XGBoost vs bester sklearn-Gewinner: "
-            f"MAE {mae_improvement_pct:.1f}% besser, Accuracy {accuracy_improvement_pt:.1f}pt besser."
+            f"MAE {mae_improvement_pct:.1f}% besser, Accuracy {accuracy_improvement_pt:.1f}pt besser.",
+            flush=True,
         )
         if mae_improvement_pct >= DEPENDENCY_MAE_THRESHOLD_PCT or accuracy_improvement_pt >= DEPENDENCY_ACCURACY_THRESHOLD_PT:
-            print("=> Dependency-Schwelle erreicht, neue Familie empfohlen.")
+            print("=> Dependency-Schwelle erreicht, neue Familie empfohlen.", flush=True)
         else:
-            print("=> Dependency-Schwelle NICHT erreicht, sklearn-Gewinner empfohlen.")
+            print("=> Dependency-Schwelle NICHT erreicht, sklearn-Gewinner empfohlen.", flush=True)
     elif best_new_dep and not best_sklearn:
-        print("\nNur eine neue-Dependency-Familie qualifiziert, kein sklearn-Vergleich moeglich - manuell pruefen.")
+        print("\nNur eine neue-Dependency-Familie qualifiziert, kein sklearn-Vergleich moeglich - manuell pruefen.", flush=True)
     else:
-        print(f"\nEmpfehlung: {best_sklearn['family']} (bester qualifizierender sklearn-Kandidat).")
+        print(f"\nEmpfehlung: {best_sklearn['family']} (bester qualifizierender sklearn-Kandidat).", flush=True)
 
 
 if __name__ == "__main__":
