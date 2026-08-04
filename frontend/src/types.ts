@@ -145,7 +145,6 @@ export type PositionNeed = Record<string, PositionNeedEntry>;
 
 export interface FeedbackItem {
   id: string;
-  type: "bug" | "feature";
   text: string;
   created_at: string; // ISO-Timestamp, new Date().toISOString()
   status: "open" | "done";
