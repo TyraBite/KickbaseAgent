@@ -131,6 +131,29 @@ class SummarizeFromDailyTests(unittest.TestCase):
         self.assertIsNone(result["baseline_sign_accuracy"])
         self.assertEqual(result["reversal_n"], 0)
 
+    def test_mae_given_correct_sign_is_none_when_denominator_field_missing_on_old_shape_docs(self):
+        # Echter Review-Fund: ein Dokument aus der Zeit zwischen dem
+        # urspruenglichen Task-5-Deploy und diesem Fix hat sign_correct/
+        # abs_error_sum_given_correct_sign schon (die 6 "alten" neuen
+        # Felder), aber noch KEIN n_correct_sign (das Feld kam erst mit
+        # diesem Fix dazu) - genauso wie ein wirklich altes Dokument. VORHER
+        # teilte der Zaehler (teilweise unbekannt, per .get(...,0) auf 0
+        # gefallen fuer beide Dokumente) durch den Nenner sign_correct (VOLL
+        # bekannt, bar zugegriffen: 80+8=88) und taeuschte 400/88=4.55 vor,
+        # statt korrekt None zu liefern (kein Dokument im Fenster hat
+        # n_correct_sign, der Nenner ist also komplett unbekannt).
+        daily = [
+            {"date": "2026-07-20", "n": 100, "sign_correct": 80, "abs_error_sum": 8000.0},  # ganz alt, keine der 6 Felder
+            {
+                "date": "2026-07-27", "n": 10, "sign_correct": 8, "abs_error_sum": 500.0,
+                "abs_error_sum_given_correct_sign": 400.0,
+                "n_baseline": 10, "baseline_sign_correct": 5, "baseline_abs_error_sum": 600.0,
+                "n_baseline_wrong": 5, "model_sign_correct_when_baseline_wrong": 3,
+            },  # Zwischenstand: hat die 6 alten neuen Felder, aber noch kein n_correct_sign
+        ]
+        result = _summarize_from_daily(daily, "2026-07-28", 30)
+        self.assertIsNone(result["mae_given_correct_sign"])
+
 
 class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
     def test_aggregates_by_date_and_model(self):
@@ -182,6 +205,40 @@ class BuildDailyAccuracyUpdatesTests(unittest.TestCase):
         result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
         self.assertEqual(result[0]["n_baseline"], 0)
         self.assertEqual(result[0]["n"], 1)  # Haupt-Metrik bleibt trotzdem auswertbar
+
+    def test_reversal_counting_only_credits_model_when_it_beats_a_wrong_baseline(self):
+        # p1: Baseline (Vorwoche-Trend) sagt fallend (-100) voraus, tatsaechlich
+        # steigt der Marktwert (+150) - Baseline FALSCH. Modell sagt +100
+        # voraus - Modell RICHTIG trotz falscher Baseline: zaehlt als
+        # Trendwende, die das Modell erkannt hat.
+        # p2: identische Baseline-Situation (Baseline FALSCH), aber das
+        # Modell sagt ebenfalls faelschlich fallend (-50) voraus - Modell
+        # FALSCH. Ein Bug, der die verschachtelte if-Bedingung entfernt oder
+        # den falschen Bucket-Key erhoeht, wuerde model_sign_correct_when_
+        # baseline_wrong faelschlich auf 2 statt 1 setzen (oder den Test gar
+        # nicht bemerken, wenn ueberhaupt nichts inkrementiert wird).
+        entries = [
+            {"date": "2026-07-27", "player_id": "p1", "model_type": "RandomForest", "predicted_delta": 100},
+            {"date": "2026-07-27", "player_id": "p2", "model_type": "RandomForest", "predicted_delta": -50},
+        ]
+        mv_lookup = {
+            ("p1", "2026-07-26"): 1000.0, ("p1", "2026-07-27"): 900.0, ("p1", "2026-07-28"): 1050.0,
+            ("p2", "2026-07-26"): 1000.0, ("p2", "2026-07-27"): 900.0, ("p2", "2026-07-28"): 1050.0,
+        }
+        result = _build_daily_accuracy_updates(entries, mv_lookup, "2026-07-29", horizon_days=1)
+        self.assertEqual(len(result), 1)
+        doc = result[0]
+        # Baseline fuer beide: 900-1000=-100 (fallend), tatsaechlich 1050-900=+150 (steigend) -> beide Baselines falsch.
+        self.assertEqual(doc["n_baseline"], 2)
+        self.assertEqual(doc["baseline_sign_correct"], 0)
+        self.assertEqual(doc["n_baseline_wrong"], 2)
+        # Nur p1 (Modell +100, richtiges Vorzeichen) zaehlt als erkannte Trendwende - p2 (Modell -50, falsches Vorzeichen) NICHT.
+        self.assertEqual(doc["model_sign_correct_when_baseline_wrong"], 1)
+        self.assertEqual(doc["sign_correct"], 1)  # nur p1
+        self.assertAlmostEqual(doc["abs_error_sum"], 50.0 + 200.0, places=5)  # p1: |100-150|=50, p2: |-50-150|=200
+        self.assertEqual(doc["n_correct_sign"], 1)  # nur p1
+        self.assertAlmostEqual(doc["abs_error_sum_given_correct_sign"], 50.0)  # nur p1s abs_error
+        self.assertAlmostEqual(doc["baseline_abs_error_sum"], 250.0 + 250.0, places=5)  # beide: |-100-150|=250
 
 
 class HorizonAwareAccuracyUpdatesTests(unittest.TestCase):
@@ -1321,6 +1378,7 @@ class ScoreCountsFromArraysTests(unittest.TestCase):
         counts = _score_counts_from_arrays(y_actual, y_pred, baseline_pred)
         self.assertEqual(counts["n"], 4)
         self.assertEqual(counts["sign_correct"], 3)  # alle bis auf Zeile 3
+        self.assertEqual(counts["n_correct_sign"], 3)  # identisch zu sign_correct fuer einen einzelnen Batch
         self.assertEqual(counts["n_baseline"], 4)
         self.assertEqual(counts["baseline_sign_correct"], 3)  # alle bis auf Zeile 2
         self.assertEqual(counts["n_baseline_wrong"], 1)
@@ -1336,7 +1394,7 @@ class FinalizeScoreCountsTests(unittest.TestCase):
         from src.market_predictor import _finalize_score_counts
         counts = {
             "n": 4, "sign_correct": 3, "abs_error_sum": 75.0,
-            "abs_error_sum_given_correct_sign": 40.0,
+            "n_correct_sign": 3, "abs_error_sum_given_correct_sign": 40.0,
             "n_baseline": 4, "baseline_sign_correct": 3, "baseline_abs_error_sum": 90.0,
             "n_baseline_wrong": 1, "model_sign_correct_when_baseline_wrong": 1,
         }

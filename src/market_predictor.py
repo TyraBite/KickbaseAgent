@@ -564,7 +564,15 @@ def _score_counts_from_arrays(y_actual, y_pred, baseline_pred) -> dict:
     statt Rohlisten. `n_baseline` ist hier immer gleich `n` (baseline_pred
     kommt aus derselben, bereits NaN-gefilterten DataFrame-Zeile wie
     y_actual) - im Live-Tagespfad (_build_daily_accuracy_updates) kann
-    n_baseline dagegen kleiner als n sein, wenn der Baseline-Lookup fehlt."""
+    n_baseline dagegen kleiner als n sein, wenn der Baseline-Lookup fehlt.
+    `n_correct_sign` ist hier bewusst redundant zu `sign_correct` (identischer
+    Wert, kein Unterschied fuer einen einzelnen Batch) - der eigene Zaehler
+    existiert nur, damit _summarize_from_daily() spaeter einen zu
+    `abs_error_sum_given_correct_sign` symmetrischen Nenner hat: beide muessen
+    bei alten ml_accuracy_daily-Dokumenten (vor diesem Feld) gemeinsam per
+    `.get(..., 0)` auf 0 fallen, sonst teilt eine teilweise unbekannte Summe
+    durch einen vollstaendig bekannten `sign_correct`-Nenner und taeuscht eine
+    Zahl vor, wo eigentlich `None` stehen muesste."""
     y_actual = np.asarray(y_actual, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
     baseline_pred = np.asarray(baseline_pred, dtype=float)
@@ -577,6 +585,7 @@ def _score_counts_from_arrays(y_actual, y_pred, baseline_pred) -> dict:
     return {
         "n": int(len(y_actual)),
         "sign_correct": int(sign_correct.sum()),
+        "n_correct_sign": int(sign_correct.sum()),
         "abs_error_sum": float(abs_error.sum()),
         "abs_error_sum_given_correct_sign": float(abs_error[sign_correct].sum()),
         "n_baseline": int(len(y_actual)),
@@ -590,7 +599,7 @@ def _score_counts_from_arrays(y_actual, y_pred, baseline_pred) -> dict:
 def _empty_counts() -> dict:
     return {
         "n": 0, "sign_correct": 0, "abs_error_sum": 0.0,
-        "abs_error_sum_given_correct_sign": 0.0,
+        "n_correct_sign": 0, "abs_error_sum_given_correct_sign": 0.0,
         "n_baseline": 0, "baseline_sign_correct": 0, "baseline_abs_error_sum": 0.0,
         "n_baseline_wrong": 0, "model_sign_correct_when_baseline_wrong": 0,
     }
@@ -608,9 +617,10 @@ def _finalize_score_counts(counts: dict) -> dict | None:
         return None
     sign_accuracy = counts["sign_correct"] / n * 100
     mae = counts["abs_error_sum"] / n
+    n_correct_sign = counts["n_correct_sign"]
     mae_given_correct_sign = (
-        counts["abs_error_sum_given_correct_sign"] / counts["sign_correct"]
-        if counts["sign_correct"] else None
+        counts["abs_error_sum_given_correct_sign"] / n_correct_sign
+        if n_correct_sign else None
     )
     n_baseline = counts["n_baseline"]
     baseline_sign_accuracy = counts["baseline_sign_correct"] / n_baseline * 100 if n_baseline else None
@@ -945,20 +955,27 @@ def _build_mv_lookup(corpus: pd.DataFrame) -> dict[tuple[str, str], float]:
 
 
 def _summarize_from_daily(daily_docs: list[dict], today: str, days: int) -> dict | None:
-    """Wie zuvor, aber summiert jetzt auch die 6 Baseline-/Trendwende-Felder
-    ueber das Fenster und uebergibt alles an _finalize_score_counts() - EINE
-    Stelle fuer die Metrik-Definition, ob aus einem einzelnen Batch (siehe
-    _score_counts_from_arrays()) oder aus vielen gespeicherten Tagen
-    berechnet. `.get(feld, 0)` fuer die neuen Felder: echte, keine
-    hypothetische Uebergangsphase zwischen Deploy und dem manuellen
-    Backfill-Neulauf, in der aeltere Tages-Dokumente diese Felder noch
-    nicht haben."""
+    """Wie zuvor, aber summiert jetzt auch die 7 Baseline-/Trendwende-/
+    Nenner-Felder ueber das Fenster und uebergibt alles an
+    _finalize_score_counts() - EINE Stelle fuer die Metrik-Definition, ob aus
+    einem einzelnen Batch (siehe _score_counts_from_arrays()) oder aus vielen
+    gespeicherten Tagen berechnet. `.get(feld, 0)` fuer die neuen Felder:
+    echte, keine hypothetische Uebergangsphase zwischen Deploy und dem
+    manuellen Backfill-Neulauf, in der aeltere Tages-Dokumente diese Felder
+    noch nicht haben. WICHTIG: `n_correct_sign` muss GENAUSO per `.get(...,
+    0)` summiert werden wie die anderen neuen Felder (nicht per bar `d["..."]`
+    wie `sign_correct`) - sonst waere der Nenner von `mae_given_correct_sign`
+    bei alten Tages-Dokumenten voll bekannt, waehrend der Zaehler
+    (`abs_error_sum_given_correct_sign`) nur teilweise bekannt ist, und die
+    Uebergangsphase wuerde einen falschen, zu niedrigen MAE vorspiegeln statt
+    `None` zu liefern."""
     cutoff = (datetime.date.fromisoformat(today) - datetime.timedelta(days=days)).isoformat()
     window = [d for d in daily_docs if d["date"] >= cutoff]
     counts = {
         "n": sum(d["n"] for d in window),
         "sign_correct": sum(d["sign_correct"] for d in window),
         "abs_error_sum": sum(d["abs_error_sum"] for d in window),
+        "n_correct_sign": sum(d.get("n_correct_sign", 0) for d in window),
         "abs_error_sum_given_correct_sign": sum(d.get("abs_error_sum_given_correct_sign", 0.0) for d in window),
         "n_baseline": sum(d.get("n_baseline", 0) for d in window),
         "baseline_sign_correct": sum(d.get("baseline_sign_correct", 0) for d in window),
@@ -1005,6 +1022,7 @@ def _build_daily_accuracy_updates(recent_entries: list[dict], mv_lookup: dict, t
         bucket["sign_correct"] += int(sign_correct)
         bucket["abs_error_sum"] += abs_error
         if sign_correct:
+            bucket["n_correct_sign"] += 1
             bucket["abs_error_sum_given_correct_sign"] += abs_error
 
         prev_date = (datetime.date.fromisoformat(date) - datetime.timedelta(days=horizon_days)).isoformat()
