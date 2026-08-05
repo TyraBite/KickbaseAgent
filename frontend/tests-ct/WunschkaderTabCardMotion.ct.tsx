@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/experimental-ct-react";
 import WunschkaderTab from "../src/components/WunschkaderTab";
 import { buildFixtureSnapshot, FIXTURE_PLAYERS } from "../src/test-fixtures/dashboardSnapshot.fixture";
-import { STAGGER_STEP_S } from "../src/lib/motionVariants";
+import { FADE_ENTER_S, FADE_EXIT_S, STAGGER_STEP_S } from "../src/lib/motionVariants";
 
 // Statt gegen echte Animation-Frames zu racen (flaky - haengt vom
 // Sample-Zeitpunkt ab), lesen wir die KONFIGURIERTEN Timing-Werte der
@@ -130,14 +130,28 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
     await expect.poll(() => readCardDelaysMs(page)).toEqual([0, stepMs]);
   });
 
-  // Empirische Absicherung (auf Wunsch des Reviews, kein Ersatz fuer den
-  // manuellen Smoke-Test aus Task 6): stellt sicher, dass das neue
-  // isActive-gate (initial/animate-Umschaltung) nicht mit der bestehenden
-  // layoutId-Reorder-Animation kollidiert, wenn eine Karte per Button
-  // zwischen Positionsgruppe und Bank wechselt - danach darf exakt eine
-  // sichtbare, voll eingeblendete Instanz uebrig bleiben, keine haengengebliebene
-  // zweite Kopie.
-  test("Reorder: Karte bleibt nach Bank/Startelf-Wechsel als genau eine, voll sichtbare Instanz stehen", async ({
+  // Reorder-Interaktions-Beleg (Review-Fund 2026-08-06: die urspruengliche
+  // Version dieses Tests pruefte nur den bereits SETTLEDen Endzustand
+  // (opacity "1"), nicht die eigentliche Behauptung "die layoutId-Reorder-
+  // Animation kollidiert nicht mit dem index-basierten Delay". Ground Truth
+  // per DOM-Untersuchung waehrend der Transition (nicht angenommen):
+  // Bank und Positionsgruppe sind unterschiedliche Eltern-Grids, ein
+  // Wechsel per Button ist deshalb ein GENUINER React-Unmount+Mount (zwei
+  // verschiedene DOM-Knoten), keine Wiederverwendung desselben Knotens -
+  // layoutId sorgt nur dafuer, dass Framer Motion den neuen Knoten optisch
+  // an der Bildschirmposition des alten starten laesst (sichtbar an einem
+  // sich kontinuierlich aendernden `transform`, das NICHT ueber
+  // getAnimations() laeuft - Framer Motions eigene rAF-getriebene
+  // Projektion, kein natives WAAPI-Objekt). Die opacity/y-Variante (unser
+  // Exit/Enter) LAEUFT dagegen als eigenes natives WAAPI-Animation-Objekt,
+  // getrennt von dieser Projektion. Der Test unten beweist das direkt: waehrend
+  // beide Knoten nebeneinander im DOM stehen, hat der ALTE (exiting) Knoten
+  // unveraendert die konfigurierte Exit-Dauer (FADE_EXIT_S, kein Delay), der
+  // NEUE (entering) Knoten unveraendert die konfigurierte Enter-Dauer +
+  // sein eigenes index-basiertes Delay (0, da einziges Ziel auf der Bank) -
+  // keins der beiden Timings wird durch die gleichzeitig laufende
+  // Positions-Projektion verfaelscht.
+  test("Reorder: Exit- und Enter-Timing bleiben waehrend der layoutId-Positions-Projektion unveraendert, danach genau eine sichtbare Instanz", async ({
     mount,
     page,
   }) => {
@@ -148,8 +162,51 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
 
     await expect.poll(() => readCardDelaysMs(page)).toEqual([null]);
 
+    // Aktuellen (einzigen) Karten-Knoten markieren, damit wir ihn nach dem
+    // Wechsel zweifelsfrei vom neuen Knoten unterscheiden koennen.
+    await page.evaluate(() => {
+      document.querySelectorAll(".grid > div").forEach((el) => {
+        if (el.querySelector("dl")) el.setAttribute("data-pre-move", "true");
+      });
+    });
+
     await component.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
     await component.getByRole("button", { name: "Bank" }).click();
+
+    // Waehrend beide Knoten nebeneinander im DOM stehen (alter exiting +
+    // neuer entering): exakt zwei Karten-Wrapper, mit ihren jeweils EIGENEN,
+    // unveraenderten Timings. Ein direkter, ungepollter Read reicht (siehe
+    // readCardDelaysMs-Kommentar oben) - beide Animationen laufen zu diesem
+    // Zeitpunkt garantiert noch (130ms/180ms >> Evaluate-Rundlaufzeit).
+    const midTransition = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll(".grid > div")).filter((el) => el.querySelector("dl"));
+      return cards.map((el) => {
+        const anim = (el as HTMLElement).getAnimations()[0];
+        const timing = anim?.effect?.getComputedTiming();
+        return {
+          isPreMoveNode: el.hasAttribute("data-pre-move"),
+          delay: timing?.delay ?? null,
+          duration: timing?.duration ?? null,
+          transform: getComputedStyle(el).transform,
+        };
+      });
+    });
+
+    expect(midTransition).toEqual([
+      // Alter (exiting) Knoten, noch in der Positionsgruppe: seine eigene
+      // Exit-Animation, unveraendert.
+      { isPreMoveNode: true, delay: 0, duration: FADE_EXIT_S * 1000, transform: expect.any(String) },
+      // Neuer (entering) Knoten, jetzt auf der Bank: seine eigene
+      // Enter-Animation mit dem fuer SEINEN Index (0) korrekten Delay,
+      // unveraendert.
+      { isPreMoveNode: false, delay: 0, duration: FADE_ENTER_S * 1000, transform: expect.any(String) },
+    ]);
+    // Die Positions-Projektion muss dabei tatsaechlich aktiv sein (sonst waere
+    // "keine Kollision" nur, weil gar nichts gleichzeitig laeuft) - erkennbar
+    // an einem von der Ruhelage ("none") abweichenden transform auf
+    // mindestens einem der beiden Knoten.
+    expect(midTransition.some((c) => c.transform !== "none")).toBe(true);
+
     await component.getByRole("button", { name: "Schließen" }).click();
 
     await expect
