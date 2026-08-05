@@ -919,6 +919,7 @@ function DetailModal({
             setCompareWith(null);
           }}
           onClose={() => setCompareWith(null)}
+          active={isActive}
         />
       )}
     </AnimatePresence>

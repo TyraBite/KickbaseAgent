@@ -49,6 +49,7 @@ export default function PlayerCompareModal({
   thresholds,
   onSelectSide,
   onClose,
+  active = true,
 }: {
   playerIdA: string;
   playerIdB: string;
@@ -57,13 +58,24 @@ export default function PlayerCompareModal({
   thresholds: { good: number; critical: number };
   onSelectSide?: (playerId: string) => void;
   onClose: () => void;
+  // Default true fuer die 3 "normalen" Aufrufer (AlleSpielerTab,
+  // EigenesTeamTab x2), deren Eltern-Detailmodal beim Tab-Wechsel ganz normal
+  // unmounted. WunschkaderTab uebergibt hier explizit sein eigenes
+  // isActive: dessen DetailModal bleibt beim Wegwechseln vom Tab permanent
+  // gemountet (siehe App.tsx/WunschkaderTab.tsx), ein darin verschachteltes
+  // PlayerCompareModal (ueber "Wechsel"/Vorschlag-Chip) sonst also ebenfalls -
+  // ohne dieses Gating wuerden dessen Modal-Zaehler und Escape-Listener auf
+  // ewig aktiv bleiben, waehrend Wunschkader gar nicht der sichtbare Tab ist
+  // (gleiches Muster wie useModalOpenTracking()'s `active`-Parameter).
+  active?: boolean;
 }) {
   const [idA, setIdA] = useState(playerIdA);
   const [idB, setIdB] = useState(playerIdB);
   const [switching, setSwitching] = useState<Side | null>(null);
 
-  useModalOpenTracking();
+  useModalOpenTracking(active);
   useEffect(() => {
+    if (!active) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       e.stopPropagation();
@@ -71,7 +83,7 @@ export default function PlayerCompareModal({
     }
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+  }, [onClose, active]);
 
   const playerA = players[idA];
   const playerB = players[idB];

@@ -127,4 +127,74 @@ test.describe("Wunschkader bleibt bei Tab-Wechsel gemountet", () => {
     await expect(heading).toHaveText("Wunschkader");
     await expect(page.getByLabel("Notiz")).toHaveValue("Hintergrund-Test");
   });
+
+  // Gleiches Problem eine Ebene tiefer: DetailModal kann ueber "Wechsel" +
+  // Vorschlag-Chip ein verschachteltes PlayerCompareModal oeffnen
+  // (compareWith-State). Weil DetailModal (und damit compareWith) beim
+  // Wegwechseln vom Tab nicht mehr unmounted, haette dieses verschachtelte
+  // Modal ohne eigenes Gating dieselben zwei Bugs wie oben - PlayerCompareModal
+  // bekommt daher von WunschkaderTab ueber DetailModal dieselbe isActive
+  // durchgereicht (als `active`-Prop). Die folgenden zwei Tests falsifizieren
+  // das fuer diese verschachtelte Ebene.
+  async function openNestedCompareView(page: import("@playwright/test").Page) {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+
+    const heading = page.getByRole("heading", { level: 2 });
+    await expect(heading).toHaveText("Wunschkader");
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
+
+    await expect(page.getByLabel("Notiz")).toBeVisible(); // DetailModal offen
+    await page.getByRole("button", { name: "Wechsel" }).click();
+    await page.getByRole("button", { name: new RegExp(FIXTURE_PLAYERS.suggestion1.name) }).click();
+
+    // Diese Beschriftung erscheint nur, wenn PlayerCompareModal mit
+    // onSelectSide gerendert wird (genau der Fall hier) - siehe
+    // tests-ct/WunschkaderTab.ct.tsx fuer dasselbe Muster.
+    await expect(page.getByText("Diesen als Ersatz wählen").first()).toBeVisible();
+    return heading;
+  }
+
+  test("Im Hintergrund offene, verschachtelte PlayerCompareModal blockiert Swipe auf einem anderen Tab nicht", async ({ page }) => {
+    const heading = await openNestedCompareView(page);
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    const mobileNav = page.getByRole("navigation").filter({ hasText: "Menü" });
+    await mobileNav.getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+    await expect(mobileNav).toHaveCount(0);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("kein Viewport gesetzt");
+    const headingBox = await heading.boundingBox();
+    if (!headingBox) throw new Error("Ueberschrift hat kein boundingBox()");
+    const headingMidY = headingBox.y + headingBox.height / 2;
+    await touchDrag(page, { x: viewport.width - 20, y: headingMidY }, { x: 20, y: headingMidY });
+    await expect(heading).toHaveText("Eigenes Team");
+  });
+
+  test("Escape auf einem anderen Tab schliesst die im Hintergrund offene, verschachtelte PlayerCompareModal nicht", async ({ page }) => {
+    const heading = await openNestedCompareView(page);
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+    await expect(heading).toHaveText("Wunschkader");
+
+    // Sowohl das aeussere DetailModal als auch das darin verschachtelte
+    // PlayerCompareModal muessen unveraendert offen sein.
+    await expect(page.getByLabel("Notiz")).toBeVisible();
+    await expect(page.getByText("Diesen als Ersatz wählen").first()).toBeVisible();
+  });
 });
