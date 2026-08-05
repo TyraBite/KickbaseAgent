@@ -44,16 +44,6 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
   danach, auch wenn beide Phasen als `"neutral"` gelabelt sind) — behebt aber NICHT die strukturelle Blindstelle
   bei "Spieler bleibt"-Meldungen oben, nur ein kleiner, potenziell lohnender Zusatz-Fix, keine Lösung des
   Kernproblems.
-- **Mobiles Burger-Menü: eigener "✕"-Schließen-Button im Drawer nicht klickbar** — der `<header>` (`z-30`, seit
-  einem Fix im Frontend-Motion-Pilot-Plan absichtlich über dem Menü-Overlay `z-20`, damit ein offenes
-  Detail-Modal nicht mehr "Menü öffnen" blockiert) deckt jetzt auch die obere ca. 64px des Drawers ab — genau dort,
-  wo dessen eigene Titelzeile mit dem "✕"-Button sitzt. Der Button ist dadurch visuell unsichtbar UND per Klick
-  unerreichbar (live per Playwright-Screenshot bestätigt, 2026-08-05, `App.tsx::MobileTabMenu`). Schließen
-  funktioniert weiterhin über Tab-Auswahl, `Escape` oder Tap auf den Backdrop unterhalb der Header-Zeile — kein
-  Datenverlust, aber ein totes UI-Element. Kein automatisierter Test deckt bisher das Klicken dieses Buttons ab
-  (bestehende Tests schließen nur über Tab-Auswahl/Escape). Fix (z.B. Drawer-Titelzeile unter den Header schieben,
-  oder Header bei offenem Menü ausblenden) gehört in eine eigene kleine Aufgabe, nicht rückwirkend in den bereits
-  abgeschlossenen Motion-Pilot-Plan.
 
 ## Test-Coverage (Audit 2026-08-03)
 
@@ -77,10 +67,12 @@ Frontend/gescoptes Follow-up, siehe zugehörige Pläne im selben Ordner). Bewuss
   CT/E2E) UND per manuellem Playwright-Screenshot-Smoke-Test verifiziert (Desktop + Mobile, Light + Dark,
   mit und ohne `reducedMotion: "reduce"` — Inhalte landen überall korrekt, nur ohne Slide/Scale unter
   Reduce-Motion, wie von Framer Motions `reducedMotion="user"` spezifiziert). Ein dabei gefundener Bug (Drawer-
-  Schließen-Button unklickbar) steht unter Technische Schulden oben. Zurückgestellte Folge-Arbeit, bewusst nicht
-  Teil dieses Plans: (a) Drag-and-Drop für Wunschkader-Karten (Bank ↔ Positionsgruppe, eigener Spec, User-Idee
-  vom 2026-08-05, noch nicht begonnen), (b) Phase-2-Rollout: Motion für Transfermarkt-/Alle-Spieler-Kartenlisten
-  und Sortier-Tabellen-Row-Reorder in `components/table.tsx`.
+  eigener "✕"-Schließen-Button durch den `z-30`-Header verdeckt/unklickbar) wurde in einer Folge-Aufgabe behoben
+  (Menü-Overlay auf `z-40` angehoben, oberhalb des Headers, mit Regressionstest in
+  `MobileMenuReducedMotion.spec.ts`). Zurückgestellte Folge-Arbeit, bewusst nicht Teil dieses Plans: (a)
+  Drag-and-Drop für Wunschkader-Karten (Bank ↔ Positionsgruppe, eigener Spec, User-Idee vom 2026-08-05, noch
+  nicht begonnen), (b) Phase-2-Rollout: Motion für Transfermarkt-/Alle-Spieler-Kartenlisten und
+  Sortier-Tabellen-Row-Reorder in `components/table.tsx`.
 - **Modelle nochmal tunen, sobald genug echte Daten da sind** — Fitness-/Startelf-/Sentiment-Features liefern noch
   Cold-Start-Platzhalter, eine erneute Hyperparameter-Suche lohnt erst danach. 1-Tages-Horizont bereits getunt
   (277 Configs, 2026-07-31); 3-Tages-Horizont jetzt ebenfalls embargo-korrekt getestet (324 Configs,

@@ -201,7 +201,7 @@ function MobileTabMenu({
       initial="initial"
       animate="animate"
       exit="exit"
-      className="fixed inset-0 z-20 bg-slate-950/50 sm:hidden"
+      className="fixed inset-0 z-40 bg-slate-950/50 sm:hidden"
       onClick={onClose}
     >
       <motion.nav
@@ -366,12 +366,19 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
         {/* z-30 haelt den Header oberhalb JEDES Tab-Detail-Modals (durchgaengig
-            z-10, siehe z.B. WunschkaderTab.tsx) und oberhalb des mobilen
-            Menue-Overlays (z-20) - sonst faengt ein offenes Modal Klicks auf
-            "Menü öffnen" ab (deckt per fixed inset-0 den ganzen Screen ab,
-            gewinnt sonst den Stacking-Tie gegen den Header per DOM-Reihenfolge),
-            und Tab-Wechsel waeren bei offenem Modal nicht mehr erreichbar -
-            Voraussetzung fuer WunschkaderStatePersistsAcrossTabSwitch.spec.ts. */}
+            z-10, siehe z.B. WunschkaderTab.tsx) - sonst faengt ein offenes Modal
+            Klicks auf "Menü öffnen" ab (deckt per fixed inset-0 den ganzen
+            Screen ab, gewinnt sonst den Stacking-Tie gegen den Header per
+            DOM-Reihenfolge), und Tab-Wechsel waeren bei offenem Modal nicht
+            mehr erreichbar - Voraussetzung fuer
+            WunschkaderStatePersistsAcrossTabSwitch.spec.ts.
+            Das mobile Menue-Overlay (MobileTabMenu) liegt bewusst mit z-40
+            NOCH darueber, nicht darunter: der Header ist `sticky top-0` und
+            ueberlappt genau die eigene Titelzeile des Drawers (Label "Menü" +
+            "✕"-Button) - bei z-20 (< header z-30) haette der Header diesen
+            eigenen Schliessen-Button unklickbar verdeckt (verifiziert, siehe
+            Task-6-Report). Header hoeher als z-40 zu setzen wuerde genau
+            dieses Deckungsproblem reproduzieren - nicht tun. */}
         <header
           className={`sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:static sm:!translate-y-0 ${
             headerVisible ? "translate-y-0" : "-translate-y-full"
