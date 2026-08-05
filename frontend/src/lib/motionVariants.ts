@@ -51,13 +51,23 @@ export function panelVariants(from: "left" | "center"): Variants {
   };
 }
 
-export const staggerContainerVariants: Variants = {
-  initial: {},
-  animate: { transition: { staggerChildren: STAGGER_STEP_S } },
-};
-
+// Jede Kachel steuert ihren eigenen Enter/Exit ueber initial/animate/exit - noetig,
+// damit AnimatePresence beim Entfernen einer einzelnen Kachel deren eigenen Exit
+// spielt. Das macht sie in Framer Motions Sinn "self-controlling"
+// (isControllingVariants() greift), wofuer ein Eltern-`staggerChildren` NICHT mehr
+// wirkt (Framer Motion traegt selbst-steuernde Kinder nicht in das
+// variantChildren-Set des Elternknotens ein - Live-Review-Fund 2026-08-05: der
+// vorherige staggerContainerVariants-Ansatz war dadurch strukturell tot, alle
+// Karten kamen gleichzeitig rein). Der Stagger kommt deshalb hier ueber einen
+// manuellen Delay pro Karten-Index: `custom={index}` an der jeweiligen motion.div
+// uebergeben, `animate` liest diesen Index als Funktions-Custom-Wert (Framer
+// Motions "dynamic variants").
 export const staggerItemVariants: Variants = {
   initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0, transition: { duration: FADE_ENTER_S } },
+  animate: (index: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: FADE_ENTER_S, delay: index * STAGGER_STEP_S },
+  }),
   exit: { opacity: 0, transition: { duration: FADE_EXIT_S } },
 };

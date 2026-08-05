@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
-import { staggerContainerVariants, staggerItemVariants } from "../lib/motionVariants";
+import { staggerItemVariants } from "../lib/motionVariants";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, plannedPriceFor, type AlleSpielerRow, type BudgetPlan, type PlannedPrice } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
@@ -512,22 +512,18 @@ export default function WunschkaderTab({
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               {position} · {targets.length} belegt
             </div>
-            <motion.div
-              className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4"
-              variants={staggerContainerVariants}
-              initial="initial"
-              animate="animate"
-            >
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
               <AnimatePresence>
-                {targets.map((t) => {
+                {targets.map((t, index) => {
                   const computed = resolvedByPlayerId.get(t.player_id)!;
                   return (
                     <motion.div
                       key={t._uid}
                       layoutId={`wunschkader-${t._uid}`}
+                      custom={index}
                       variants={staggerItemVariants}
                       initial="initial"
-                      animate="animate"
+                      animate={isActive ? "animate" : "initial"}
                       exit="exit"
                     >
                       <TargetCard
@@ -542,7 +538,7 @@ export default function WunschkaderTab({
                 })}
               </AnimatePresence>
               {canAdd && <EmptySlotCard onClick={() => setAddDialog({ presetPosition: position })} />}
-            </motion.div>
+            </div>
           </div>
         );
       })}
@@ -551,22 +547,18 @@ export default function WunschkaderTab({
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Bank ({bench.length})
         </div>
-        <motion.div
-          className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4"
-          variants={staggerContainerVariants}
-          initial="initial"
-          animate="animate"
-        >
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
           <AnimatePresence>
-            {bench.map((t) => {
+            {bench.map((t, index) => {
               const computed = resolvedByPlayerId.get(t.player_id)!;
               return (
                 <motion.div
                   key={t._uid}
                   layoutId={`wunschkader-${t._uid}`}
+                  custom={index}
                   variants={staggerItemVariants}
                   initial="initial"
-                  animate="animate"
+                  animate={isActive ? "animate" : "initial"}
                   exit="exit"
                 >
                   <TargetCard target={t} computed={computed} thresholds={thresholds} clubCount={0} onSelect={() => setSelected(t)} />
@@ -575,7 +567,7 @@ export default function WunschkaderTab({
             })}
           </AnimatePresence>
           <EmptySlotCard onClick={() => setAddDialog({ presetPosition: null })} />
-        </motion.div>
+        </div>
       </div>
 
       <BudgetPlanCard plan={liveBudgetPlan} />
