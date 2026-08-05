@@ -63,16 +63,44 @@ Frontend/gescoptes Follow-up, siehe zugehörige Pläne im selben Ordner). Bewuss
   Plan: `docs/superpowers/plans/2026-08-05-frontend-motion-pilot.md`) — `framer-motion` animiert jetzt
   Tab-Wechsel (Klick=Fade, Swipe=Slide+Fade), Wunschkader-Enter/Exit (Grid-Stack ohne Scroll-Höhen-Sprung),
   `PlayerCompareModal`/`MobileTabMenu` (Backdrop-Fade + Panel-Scale/Slide) und die Wunschkader-Kartenliste
-  (`layoutId`-Reorder + Stagger). Alle 6 Umsetzungs-Tasks gemergt, automatisiert getestet (Vitest/Playwright
-  CT/E2E) UND per manuellem Playwright-Screenshot-Smoke-Test verifiziert (Desktop + Mobile, Light + Dark,
-  mit und ohne `reducedMotion: "reduce"` — Inhalte landen überall korrekt, nur ohne Slide/Scale unter
-  Reduce-Motion, wie von Framer Motions `reducedMotion="user"` spezifiziert). Ein dabei gefundener Bug (Drawer-
-  eigener "✕"-Schließen-Button durch den `z-30`-Header verdeckt/unklickbar) wurde in einer Folge-Aufgabe behoben
-  (Menü-Overlay auf `z-40` angehoben, oberhalb des Headers, mit Regressionstest in
-  `MobileMenuReducedMotion.spec.ts`). Zurückgestellte Folge-Arbeit, bewusst nicht Teil dieses Plans: (a)
-  Drag-and-Drop für Wunschkader-Karten (Bank ↔ Positionsgruppe, eigener Spec, User-Idee vom 2026-08-05, noch
-  nicht begonnen), (b) Phase-2-Rollout: Motion für Transfermarkt-/Alle-Spieler-Kartenlisten und
-  Sortier-Tabellen-Row-Reorder in `components/table.tsx`.
+  (`layoutId`-Reorder + echter Index-Stagger). Alle 6 Plan-Tasks plus eine finale Whole-Branch-Review-Runde
+  gemergt, automatisiert getestet (Vitest/Playwright CT/E2E) UND per manuellem Playwright-Screenshot-Smoke-Test
+  verifiziert (Desktop + Mobile, Light + Dark, mit und ohne `reducedMotion: "reduce"`). Die finale Review fand
+  live (echter Browser, nicht nur Code-Lesen) mehrere reale Bugs, alle behoben und einzeln nachreviewt:
+  - Drawer-eigener "✕"-Schließen-Button durch den `z-30`-Header verdeckt (Menü-Overlay auf `z-40` angehoben).
+  - Jedes der 9 (mittlerweile: alle) Tab-Detail-Modals konnte bei ausreichend langem Inhalt ebenfalls unter den
+    Header ragen, eigener "✕" dann unklickbar (z.B. Wunschkader mit ausgeklapptem "Wechsel") — behoben durch
+    Konsolidierung aller 9 duplizierten Backdrop/Panel-Stellen in eine geteilte `ModalOverlay`/
+    `AnimatedModalOverlay`-Komponente (`components/ui.tsx`) mit `max-h-[calc(100vh-12rem)] overflow-y-auto` auf
+    dem Panel — behebt nebenbei auch, dass zu hoher Modal-Inhalt vorher gar nicht erreichbar war.
+  - Der ausblendende Wunschkader-Wrapper blieb während seines ~130ms-Fade-outs noch antippbar und konnte ein
+    Phantom-Detailmodal auf der im Hintergrund liegenden Instanz öffnen — behoben via `pointerEvents: "none"`
+    sobald die Phase nicht mehr `"active"` ist. Die zuvor eigens für Wunschkader verlängerte Fade-Dauer
+    (450ms/700ms, ein Sicherheitspolster aus einer früheren Fix-Runde) war dadurch hinfällig und wurde auf die
+    App-weiten Standardwerte zurückgesetzt.
+  - Der Stagger auf der Wunschkader-Kartenliste war komplett wirkungslos (Framer Motion staggert keine Kinder,
+    die selbst `initial`/`animate`/`exit` als String setzen — nötig für individuelle Exit-Animation beim
+    Entfernen einer Karte) und wäre wegen des permanenten Mountens ohnehin unsichtbar am App-Start abgelaufen,
+    nicht beim ersten Tab-Besuch — behoben über einen index-basierten `custom`-Delay pro Karte plus Replay bei
+    jedem Aktivwerden des Tabs (`isActive`-Prop).
+
+  Zurückgestellt, bewusst nicht behoben (Details siehe Git-Historie ab `235470b`, falls relevant):
+  - Die anderen 8 Tabs (alles außer Wunschkader) verlieren jetzt echten Component-State beim Wegwechseln
+    (Filter/Sortierung/Suchtext) statt wie zuvor alles dauerhaft im Speicher zu halten — das war die im
+    Brainstorming bewusst gewählte Konsequenz aus "nur Wunschkader bleibt gemountet". **Neu und nicht vorher
+    abgewogen:** `FeedbackTab` verliert dabei auch einen halbgetippten, noch nicht gespeicherten Text-Entwurf —
+    einziger Ort in der App mit unautosavtem Freitext. Nicht behoben (eigene Scope-Entscheidung nötig, ob
+    `FeedbackTab` nach demselben Muster wie Wunschkader dauerhaft gemountet werden soll), aber hier
+    festgehalten, damit es nicht in Vergessenheit gerät.
+  - `LigaanalyseTab.tsx`/`TransfermarktTab.tsx`: registrieren einen Escape-Listener für ihr Detailmodal, rufen
+    aber nie `useModalOpenTracking()` auf — ein Swipe über deren offenem Modal wechselt deshalb trotzdem den
+    Hintergrund-Tab. Vorbestehend, nicht durch diesen Plan verursacht, bei der finalen Review als Nebenfund
+    entdeckt.
+
+  Weiterhin zurückgestellte Folge-Arbeit, bewusst nicht Teil dieses Plans: (a) Drag-and-Drop für
+  Wunschkader-Karten (Bank ↔ Positionsgruppe, eigener Spec, User-Idee vom 2026-08-05, noch nicht begonnen),
+  (b) Phase-2-Rollout: Motion für Transfermarkt-/Alle-Spieler-Kartenlisten und Sortier-Tabellen-Row-Reorder in
+  `components/table.tsx`.
 - **Modelle nochmal tunen, sobald genug echte Daten da sind** — Fitness-/Startelf-/Sentiment-Features liefern noch
   Cold-Start-Platzhalter, eine erneute Hyperparameter-Suche lohnt erst danach. 1-Tages-Horizont bereits getunt
   (277 Configs, 2026-07-31); 3-Tages-Horizont jetzt ebenfalls embargo-korrekt getestet (324 Configs,
