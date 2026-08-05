@@ -342,9 +342,8 @@ unverändert an seiner Stelle stehen lassen):
     <WunschkaderTab data={data} wunschkader={wunschkader} onSaved={(targets) => setWunschkader({ targets })} />
   </div>
 )}
-{activeTab !== "wunschkader" && (
-  <AnimatePresence mode="wait">
-    {(() => {
+<AnimatePresence mode="wait">
+  {(() => {
       let content: JSX.Element | null = null;
       if (activeTab === "dashboard" && data && data.players && wunschkader) {
         content = <DashboardTab data={data} wunschkader={wunschkader} transfermarktRows={transfermarktRows} now={now} />;
@@ -383,10 +382,13 @@ unverändert an seiner Stelle stehen lassen):
           {content}
         </motion.div>
       );
-    })()}
-  </AnimatePresence>
-)}
+  })()}
+</AnimatePresence>
 ```
+
+Es gibt bewusst **keinen** `else if (activeTab === "wunschkader")`-Zweig — `content` bleibt in dem Fall `null`,
+der `motion.div` rendert leer (Wunschkader zeigt seinen eigenen Inhalt separat über den unveränderten
+`hidden`-Toggle-Block direkt darüber).
 
 `mode="wait"` ist bewusst gewählt (nicht der AnimatePresence-Default `"sync"`): zwei verschiedene Tabs haben
 sehr unterschiedliche Höhen, ein Überlappen beim Wechsel zwischen z.B. `dashboard` und `ml-genauigkeit` sähe
@@ -551,9 +553,8 @@ Ersetze den Wunschkader-Block aus Task 2 UND den direkt danebenstehenden `{activ
     </motion.div>
   )}
 
-  {activeTab !== "wunschkader" && (
-    <AnimatePresence mode="wait">
-      {(() => {
+  <AnimatePresence mode="wait">
+    {(() => {
         /* ... IIFE aus Task 2, Step 8 UNVERAENDERT, nur zusaetzlich style={{ gridArea: "1 / 1" }} auf dem motion.div ... */
         let content: JSX.Element | null = null;
         if (activeTab === "dashboard" && data && data.players && wunschkader) {
@@ -594,11 +595,13 @@ Ersetze den Wunschkader-Block aus Task 2 UND den direkt danebenstehenden `{activ
             {content}
           </motion.div>
         );
-      })()}
-    </AnimatePresence>
-  )}
+    })()}
+  </AnimatePresence>
 </div>
 ```
+
+Wie in Task 2: `<AnimatePresence>` bleibt unconditionally gerendert, `content` bleibt für `activeTab ===
+"wunschkader"` einfach `null` (kein eigener `else if`-Zweig nötig).
 
 `gridArea: "1 / 1"` als Inline-`style` statt Tailwind-Arbitrary-Property (`[grid-area:1/1]`) — der Slash in
 `1/1` würde sonst mit Tailwinds `/`-Opacity-Modifier-Syntax kollidieren können.
