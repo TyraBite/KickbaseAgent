@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
+import { staggerContainerVariants, staggerItemVariants } from "../lib/motionVariants";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, plannedPriceFor, type AlleSpielerRow, type BudgetPlan, type PlannedPrice } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
@@ -503,22 +505,37 @@ export default function WunschkaderTab({
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               {position} · {targets.length} belegt
             </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-              {targets.map((t) => {
-                const computed = resolvedByPlayerId.get(t.player_id)!;
-                return (
-                  <TargetCard
-                    key={t._uid}
-                    target={t}
-                    computed={computed}
-                    thresholds={thresholds}
-                    clubCount={computed.team_name ? clubCounts[computed.team_name] ?? 0 : 0}
-                    onSelect={() => setSelected(t)}
-                  />
-                );
-              })}
+            <motion.div
+              className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4"
+              variants={staggerContainerVariants}
+              initial="initial"
+              animate="animate"
+            >
+              <AnimatePresence>
+                {targets.map((t) => {
+                  const computed = resolvedByPlayerId.get(t.player_id)!;
+                  return (
+                    <motion.div
+                      key={t._uid}
+                      layoutId={`wunschkader-${t._uid}`}
+                      variants={staggerItemVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      <TargetCard
+                        target={t}
+                        computed={computed}
+                        thresholds={thresholds}
+                        clubCount={computed.team_name ? clubCounts[computed.team_name] ?? 0 : 0}
+                        onSelect={() => setSelected(t)}
+                      />
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
               {canAdd && <EmptySlotCard onClick={() => setAddDialog({ presetPosition: position })} />}
-            </div>
+            </motion.div>
           </div>
         );
       })}
@@ -527,22 +544,31 @@ export default function WunschkaderTab({
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Bank ({bench.length})
         </div>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-          {bench.map((t) => {
-            const computed = resolvedByPlayerId.get(t.player_id)!;
-            return (
-              <TargetCard
-                key={t._uid}
-                target={t}
-                computed={computed}
-                thresholds={thresholds}
-                clubCount={0}
-                onSelect={() => setSelected(t)}
-              />
-            );
-          })}
+        <motion.div
+          className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4"
+          variants={staggerContainerVariants}
+          initial="initial"
+          animate="animate"
+        >
+          <AnimatePresence>
+            {bench.map((t) => {
+              const computed = resolvedByPlayerId.get(t.player_id)!;
+              return (
+                <motion.div
+                  key={t._uid}
+                  layoutId={`wunschkader-${t._uid}`}
+                  variants={staggerItemVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                >
+                  <TargetCard target={t} computed={computed} thresholds={thresholds} clubCount={0} onSelect={() => setSelected(t)} />
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
           <EmptySlotCard onClick={() => setAddDialog({ presetPosition: null })} />
-        </div>
+        </motion.div>
       </div>
 
       <BudgetPlanCard plan={liveBudgetPlan} />
