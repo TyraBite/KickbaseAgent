@@ -3,6 +3,16 @@
 Offene Aufgaben und Themen, die noch geplant oder umgesetzt werden müssen. Kein Änderungsprotokoll vergangener
 Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbeitet wird: `CLAUDE.md`.
 
+## In Arbeit — PR #13 wartet auf Merge
+
+`ML: embargo-korrekte 3T-Hyperparameter-Suche (kein Gewinner)` — PR #13 erstellt, Auto-Merge (Squash)
+aktiv, Checks liefen beim Session-Ende noch. Falls beim Wiedereinstieg noch offen: `gh pr view 13`
+prüfen, ggf. `gh api -X PUT repos/TyraBite/KickbaseAgent/pulls/13/update-branch` falls `mergeStateStatus`
+`BEHIND`/`BLOCKED` zeigt (Ruleset erzwingt aktuelle Basis für die 4 Required Checks). Enthält nur eine
+generisch nützliche Erweiterung von `_walk_forward_backtest()` (`candidates=`/`n_folds=`-Overrides) plus
+Doku — **kein** Hyperparameter-Wechsel, deshalb nach dem Merge **kein** Backfill/Heavy-Lauf nötig (anders
+als beim vorherigen Baseline-Honesty-Merge).
+
 ## Offen aus `feedback/current` (Firestore)
 
 - **Sentiment-Analyse für Marktwert-Turning-Points** (`6b08e2cf`) — technisch umgesetzt (`news_sentiment.py`,
@@ -60,7 +70,13 @@ Frontend/gescoptes Follow-up, siehe zugehörige Pläne im selben Ordner). Bewuss
 ## Ideen ohne aktuellen Auftrag (nicht von selbst anfangen)
 
 - **Modelle nochmal tunen, sobald genug echte Daten da sind** — Fitness-/Startelf-/Sentiment-Features liefern noch
-  Cold-Start-Platzhalter, eine erneute Hyperparameter-Suche lohnt erst danach. User-Idee, kein aktueller Auftrag.
+  Cold-Start-Platzhalter, eine erneute Hyperparameter-Suche lohnt erst danach. 1-Tages-Horizont bereits getunt
+  (277 Configs, 2026-07-31); 3-Tages-Horizont jetzt ebenfalls embargo-korrekt getestet (324 Configs,
+  2026-08-04, RandomForest/HistGradientBoosting/LightGBM/XGBoost) — **kein Gewinner**, bestehende Config
+  bestätigt (Details: `docs/superpowers/plans/2026-08-04-ml-3d-tuning-results.md`). Für `_walk_forward_backtest()`
+  existiert jetzt ein `candidates=`/`n_folds=`-Override eigens für zukünftige Suchen (kein neues
+  Experiment-Skript mit eigener Embargo-Logik mehr nötig). User-Idee, kein aktueller Auftrag, bis Cold-Start
+  vorbei ist.
 - **Externe Signale** (Transfermarkt.de-Wechselgerüchte) — "noch komplexer, später", explizit zurückgestellt.
 - **Autopilot-Idee** (schreibende Kickbase-API-Calls, z.B. automatische Gebote) — reine Neugier-Frage, technisch
   plausibel, aber explizit NICHT für die aktuelle Liga gedacht (anderes Risikoprofil: ToS-Bann-Risiko, echtes
