@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AnimatePresence } from "framer-motion";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildEigenesTeamSplit, liveModelMae, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
@@ -387,16 +388,18 @@ export function PlayerDetailModal({
         <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
         <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
       </DetailModalShell>
-      {compareWith && (
-        <PlayerCompareModal
-          playerIdA={row.player_id}
-          playerIdB={compareWith}
-          players={players}
-          calibration={calibration}
-          thresholds={thresholds}
-          onClose={() => setCompareWith(null)}
-        />
-      )}
+      <AnimatePresence>
+        {compareWith && (
+          <PlayerCompareModal
+            playerIdA={row.player_id}
+            playerIdB={compareWith}
+            players={players}
+            calibration={calibration}
+            thresholds={thresholds}
+            onClose={() => setCompareWith(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }
@@ -458,16 +461,18 @@ function WatchlistDetailModal({
         <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
         <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
       </DetailModalShell>
-      {compareWith && (
-        <PlayerCompareModal
-          playerIdA={row.player_id}
-          playerIdB={compareWith}
-          players={players}
-          calibration={calibration}
-          thresholds={thresholds}
-          onClose={() => setCompareWith(null)}
-        />
-      )}
+      <AnimatePresence>
+        {compareWith && (
+          <PlayerCompareModal
+            playerIdA={row.player_id}
+            playerIdB={compareWith}
+            players={players}
+            calibration={calibration}
+            thresholds={thresholds}
+            onClose={() => setCompareWith(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }

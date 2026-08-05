@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { AnimatePresence, motion, MotionConfig } from "framer-motion";
-import { fadeVariants, slideFadeVariants } from "./lib/motionVariants";
+import { AnimatePresence, motion, MotionConfig, type Variants } from "framer-motion";
+import { backdropVariants, fadeVariants, panelVariants, slideFadeVariants } from "./lib/motionVariants";
 import { auth, db } from "./firebase";
 import AlleSpielerTab from "./components/AlleSpielerTab";
 import DashboardTab from "./components/DashboardTab";
@@ -48,7 +48,23 @@ type LoadState = "loading" | "error" | "ready";
 type TabTransition = { kind: "fade" } | { kind: "slide"; direction: 1 | -1 };
 
 type WunschkaderPhase = "active" | "exiting" | "hidden";
-const WUNSCHKADER_EXIT_FALLBACK_MS = 200;
+// Eigene, laengere Exit-Dauer nur fuer den WunschkaderTab-State-Erhalt-Wrapper
+// unten (nicht das geteilte fadeVariants aus motionVariants.ts, das bleibt fuer
+// alle anderen Fades bei FADE_EXIT_S). Seit MobileTabMenu selbst animiert
+// (Backdrop+Panel), dauert ein Weg-und-sofort-zurueck-Wechsel ueber das mobile
+// Menue laenger als das globale, kurze FADE_EXIT_S (130ms) - Klicks auf Buttons
+// im gerade ein-/ausfahrenden Menue brauchen selbst sichtbare Zeit, bevor
+// Playwright/ein Touch sie als treffbar behandelt. Mit dem kurzen, geteilten
+// FADE_EXIT_S wuerde WunschkaderTab in diesem Zeitfenster vorzeitig unmounten
+// und eine ungespeicherte Notiz/ein offenes Detail-Modal verlieren (siehe
+// WunschkaderStatePersistsAcrossTabSwitch.spec.ts).
+const WUNSCHKADER_FADE_EXIT_S = 0.45;
+const wunschkaderFadeVariants: Variants = {
+  initial: fadeVariants.initial,
+  animate: fadeVariants.animate,
+  exit: { opacity: 0, transition: { duration: WUNSCHKADER_FADE_EXIT_S } },
+};
+const WUNSCHKADER_EXIT_FALLBACK_MS = 700;
 
 const TABS = [
   { key: "dashboard", label: "Dashboard" },
@@ -177,8 +193,19 @@ function MobileTabMenu({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-20 bg-slate-950/50 sm:hidden" onClick={onClose}>
-      <nav
+    <motion.div
+      variants={backdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="fixed inset-0 z-20 bg-slate-950/50 sm:hidden"
+      onClick={onClose}
+    >
+      <motion.nav
+        variants={panelVariants("left")}
+        initial="initial"
+        animate="animate"
+        exit="exit"
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-72 max-w-[80vw] flex-col gap-1 overflow-y-auto bg-white p-3 shadow-xl dark:bg-slate-950"
       >
@@ -226,8 +253,8 @@ function MobileTabMenu({
             </button>
           );
         })}
-      </nav>
-    </div>
+      </motion.nav>
+    </motion.div>
   );
 }
 
@@ -402,16 +429,18 @@ export default function App() {
             );
           })}
         </nav>
-        {mobileMenuOpen && (
-          <MobileTabMenu
-            activeTab={activeTab}
-            onSelect={(key) => {
-              setTabTransition({ kind: "fade" });
-              setActiveTab(key);
-            }}
-            onClose={() => setMobileMenuOpen(false)}
-          />
-        )}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <MobileTabMenu
+              activeTab={activeTab}
+              onSelect={(key) => {
+                setTabTransition({ kind: "fade" });
+                setActiveTab(key);
+              }}
+              onClose={() => setMobileMenuOpen(false)}
+            />
+          )}
+        </AnimatePresence>
         <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
           <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
             {TAB_ICON[activeTab] &&
@@ -444,7 +473,7 @@ export default function App() {
             {wunschkaderPhase !== "hidden" && data && data.players && wunschkader && (
               <motion.div
                 style={{ gridArea: "1 / 1" }}
-                variants={fadeVariants}
+                variants={wunschkaderFadeVariants}
                 initial="initial"
                 animate={wunschkaderPhase === "active" ? "animate" : "exit"}
                 onAnimationComplete={() => {

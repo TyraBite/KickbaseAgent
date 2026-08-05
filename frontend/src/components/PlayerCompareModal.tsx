@@ -1,9 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { motion } from "framer-motion";
 import type { Calibration, PlayerRecord } from "../types";
 import { buildPlayerRow, type PlayerRow } from "../lib/derive";
 import { FitnessBadge, PositionBadge, SignalBadge, TeamCrest } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
+import { backdropVariants, panelVariants } from "../lib/motionVariants";
 import PlayerNamePicker from "./PlayerNamePicker";
 
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
@@ -77,11 +79,25 @@ export default function PlayerCompareModal({
     // Sollte praktisch nie vorkommen (IDs kommen immer aus data.players),
     // aber ohne diesen Guard wuerde buildPlayerRow() auf undefined crashen.
     return (
-      <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-        <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900">
+      <motion.div
+        variants={backdropVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4"
+        onClick={onClose}
+      >
+        <motion.div
+          variants={panelVariants("center")}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+        >
           <p className="text-sm text-slate-500 dark:text-slate-400">Spieler nicht gefunden.</p>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     );
   }
 
@@ -117,8 +133,19 @@ export default function PlayerCompareModal({
   }
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-      <div
+    <motion.div
+      variants={backdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4"
+      onClick={onClose}
+    >
+      <motion.div
+        variants={panelVariants("center")}
+        initial="initial"
+        animate="animate"
+        exit="exit"
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
       >
@@ -198,7 +225,7 @@ export default function PlayerCompareModal({
             winner={better(rowA.average_points, rowB.average_points)}
           />
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

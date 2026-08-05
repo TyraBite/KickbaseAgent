@@ -33,6 +33,12 @@ test.describe("Tab-Wechsel bleibt unter prefers-reduced-motion funktional", () =
 
     const heading = page.getByRole("heading", { level: 2 });
     await expect(heading).toHaveText("Spekulation");
+    // MobileTabMenu haengt jetzt (Backdrop/Panel-Animation) noch kurz als
+    // exiting AnimatePresence-Kind im DOM, inkl. useModalOpenTracking() - ein
+    // Swipe direkt danach waere sonst durch isAnyModalOpen() blockiert
+    // (gleiches Muster wie die "Modal schliessen"-Wartestelle in
+    // SwipeBlockedByModal.spec.ts).
+    await expect(mobileNav).toHaveCount(0);
 
     await page.evaluate(() => window.scrollTo(0, 0));
     const viewport = page.viewportSize();

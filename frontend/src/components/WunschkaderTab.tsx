@@ -889,20 +889,22 @@ function DetailModal({
         )}
       </div>
     </div>
-    {compareWith && (
-      <PlayerCompareModal
-        playerIdA={target.player_id}
-        playerIdB={compareWith.player_id}
-        players={players}
-        calibration={calibration}
-        thresholds={thresholds}
-        onSelectSide={(playerId) => {
-          if (playerId !== target.player_id) onReplace(playerId);
-          setCompareWith(null);
-        }}
-        onClose={() => setCompareWith(null)}
-      />
-    )}
+    <AnimatePresence>
+      {compareWith && (
+        <PlayerCompareModal
+          playerIdA={target.player_id}
+          playerIdB={compareWith.player_id}
+          players={players}
+          calibration={calibration}
+          thresholds={thresholds}
+          onSelectSide={(playerId) => {
+            if (playerId !== target.player_id) onReplace(playerId);
+            setCompareWith(null);
+          }}
+          onClose={() => setCompareWith(null)}
+        />
+      )}
+    </AnimatePresence>
     </>
   );
 }

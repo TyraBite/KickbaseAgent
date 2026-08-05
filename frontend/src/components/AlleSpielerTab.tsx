@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { AnimatePresence } from "framer-motion";
 import type { DashboardSnapshot } from "../types";
 import { buildAlleSpielerRows, normalizeSearchText, type AlleSpielerRow } from "../lib/derive";
 import { cursorIndexForDigitCount, deleteDigitAt, digitCountBefore, formatThousands, parseThousands } from "../lib/numberFormat";
@@ -445,16 +446,18 @@ function AlleSpielerDetailModal({
           )}
         </div>
       </div>
-      {compareWith && (
-        <PlayerCompareModal
-          playerIdA={row.player_id}
-          playerIdB={compareWith}
-          players={players}
-          calibration={calibration}
-          thresholds={thresholds}
-          onClose={() => setCompareWith(null)}
-        />
-      )}
+      <AnimatePresence>
+        {compareWith && (
+          <PlayerCompareModal
+            playerIdA={row.player_id}
+            playerIdB={compareWith}
+            players={players}
+            calibration={calibration}
+            thresholds={thresholds}
+            onClose={() => setCompareWith(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }
