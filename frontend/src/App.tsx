@@ -47,6 +47,9 @@ type LoadState = "loading" | "error" | "ready";
 
 type TabTransition = { kind: "fade" } | { kind: "slide"; direction: 1 | -1 };
 
+type WunschkaderPhase = "active" | "exiting" | "hidden";
+const WUNSCHKADER_EXIT_FALLBACK_MS = 200;
+
 const TABS = [
   { key: "dashboard", label: "Dashboard" },
   { key: "team", label: "Eigenes Team" },
@@ -237,6 +240,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(readStoredActiveTab);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tabTransition, setTabTransition] = useState<TabTransition>({ kind: "fade" });
+  const [wunschkaderPhase, setWunschkaderPhase] = useState<WunschkaderPhase>(
+    activeTab === "wunschkader" ? "active" : "hidden"
+  );
   const now = useNow(60_000);
   // data.players kann fehlen, wenn der Firestore-Snapshot noch im alten Schema
   // vorliegt (Deploy-Zeitfenster zwischen Frontend-Push und naechstem Backend-
@@ -256,6 +262,25 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    setWunschkaderPhase((prev) => {
+      if (activeTab === "wunschkader") return "active";
+      return prev === "hidden" ? "hidden" : "exiting";
+    });
+  }, [activeTab]);
+
+  // Fallback, falls onAnimationComplete durch schnelles wiederholtes
+  // Tab-Wechseln unterbrochen wird und nicht zuverlaessig einmalig feuert
+  // (siehe Spec, Abschnitt Fehlerbehandlung) - idempotent, setzt nur das,
+  // was der Callback ohnehin setzen wuerde.
+  useEffect(() => {
+    if (wunschkaderPhase !== "exiting") return;
+    const timeoutId = window.setTimeout(() => {
+      setWunschkaderPhase((prev) => (prev === "exiting" ? "hidden" : prev));
+    }, WUNSCHKADER_EXIT_FALLBACK_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [wunschkaderPhase]);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
 
@@ -307,8 +332,15 @@ export default function App() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+        {/* z-30 haelt den Header oberhalb JEDES Tab-Detail-Modals (durchgaengig
+            z-10, siehe z.B. WunschkaderTab.tsx) und oberhalb des mobilen
+            Menue-Overlays (z-20) - sonst faengt ein offenes Modal Klicks auf
+            "Menü öffnen" ab (deckt per fixed inset-0 den ganzen Screen ab,
+            gewinnt sonst den Stacking-Tie gegen den Header per DOM-Reihenfolge),
+            und Tab-Wechsel waeren bei offenem Modal nicht mehr erreichbar -
+            Voraussetzung fuer WunschkaderStatePersistsAcrossTabSwitch.spec.ts. */}
         <header
-          className={`sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:static sm:!translate-y-0 ${
+          className={`sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:static sm:!translate-y-0 ${
             headerVisible ? "translate-y-0" : "-translate-y-full"
           }`}
         >
@@ -408,59 +440,68 @@ export default function App() {
               oder manuell über GitHub Actions anstoßen).
             </p>
           )}
-          {loadState === "ready" && data && data.players && wunschkader && (
-            <div className={activeTab === "wunschkader" ? "" : "hidden"}>
-              <WunschkaderTab
-                data={data}
-                wunschkader={wunschkader}
-                onSaved={(targets) => setWunschkader({ targets })}
-              />
-            </div>
-          )}
-          <AnimatePresence mode="wait">
-            {(() => {
-              let content: JSX.Element | null = null;
-              if (activeTab === "dashboard" && data && data.players && wunschkader) {
-                content = (
-                  <DashboardTab data={data} wunschkader={wunschkader} transfermarktRows={transfermarktRows} now={now} />
+          <div className="grid">
+            {wunschkaderPhase !== "hidden" && data && data.players && wunschkader && (
+              <motion.div
+                style={{ gridArea: "1 / 1" }}
+                variants={fadeVariants}
+                initial="initial"
+                animate={wunschkaderPhase === "active" ? "animate" : "exit"}
+                onAnimationComplete={() => {
+                  setWunschkaderPhase((prev) => (prev === "exiting" ? "hidden" : prev));
+                }}
+              >
+                <WunschkaderTab data={data} wunschkader={wunschkader} onSaved={(targets) => setWunschkader({ targets })} />
+              </motion.div>
+            )}
+
+            <AnimatePresence mode="wait">
+              {(() => {
+                if (activeTab === "wunschkader") return null;
+                let content: JSX.Element | null = null;
+                if (activeTab === "dashboard" && data && data.players && wunschkader) {
+                  content = (
+                    <DashboardTab data={data} wunschkader={wunschkader} transfermarktRows={transfermarktRows} now={now} />
+                  );
+                } else if (activeTab === "spekulation" && data && data.players) {
+                  content = (
+                    <SpekulationTab
+                      rows={spekulationRows}
+                      now={now}
+                      mlMetrics={data.ml_metrics}
+                      mlMetrics3d={data.ml_metrics_3d ?? null}
+                      bidHistory={data.bid_premium_history ?? []}
+                      positionNeed={data.position_need ?? {}}
+                    />
+                  );
+                } else if (activeTab === "team" && data && data.players && wunschkader) {
+                  content = <EigenesTeamTab data={data} wunschkader={wunschkader} />;
+                } else if (activeTab === "alle-spieler" && data && data.players) {
+                  content = <AlleSpielerTab data={data} />;
+                } else if (activeTab === "transfermarkt" && data && data.players) {
+                  content = <TransfermarktTab data={data} rows={transfermarktRows} now={now} />;
+                } else if (activeTab === "liga" && data && data.players) {
+                  content = <LigaanalyseTab data={data} />;
+                } else if (activeTab === "ml-genauigkeit" && data && data.players) {
+                  content = <MlGenauigkeitTab data={data} />;
+                } else if (activeTab === "feedback") {
+                  content = <FeedbackTab now={now} />;
+                }
+                return (
+                  <motion.div
+                    key={activeTab}
+                    style={{ gridArea: "1 / 1" }}
+                    variants={tabTransition.kind === "fade" ? fadeVariants : slideFadeVariants(tabTransition.direction)}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                  >
+                    {content}
+                  </motion.div>
                 );
-              } else if (activeTab === "spekulation" && data && data.players) {
-                content = (
-                  <SpekulationTab
-                    rows={spekulationRows}
-                    now={now}
-                    mlMetrics={data.ml_metrics}
-                    mlMetrics3d={data.ml_metrics_3d ?? null}
-                    bidHistory={data.bid_premium_history ?? []}
-                    positionNeed={data.position_need ?? {}}
-                  />
-                );
-              } else if (activeTab === "team" && data && data.players && wunschkader) {
-                content = <EigenesTeamTab data={data} wunschkader={wunschkader} />;
-              } else if (activeTab === "alle-spieler" && data && data.players) {
-                content = <AlleSpielerTab data={data} />;
-              } else if (activeTab === "transfermarkt" && data && data.players) {
-                content = <TransfermarktTab data={data} rows={transfermarktRows} now={now} />;
-              } else if (activeTab === "liga" && data && data.players) {
-                content = <LigaanalyseTab data={data} />;
-              } else if (activeTab === "ml-genauigkeit" && data && data.players) {
-                content = <MlGenauigkeitTab data={data} />;
-              } else if (activeTab === "feedback") {
-                content = <FeedbackTab now={now} />;
-              }
-              return (
-                <motion.div
-                  key={activeTab}
-                  variants={tabTransition.kind === "fade" ? fadeVariants : slideFadeVariants(tabTransition.direction)}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                >
-                  {content}
-                </motion.div>
-              );
-            })()}
-          </AnimatePresence>
+              })()}
+            </AnimatePresence>
+          </div>
         </main>
       </div>
     </MotionConfig>
