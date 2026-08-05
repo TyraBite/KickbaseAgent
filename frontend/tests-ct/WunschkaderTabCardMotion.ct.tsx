@@ -6,7 +6,7 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
   test("Klick auf eine Karte oeffnet weiterhin das Detail-Modal", async ({ mount }) => {
     const targets = [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }];
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
     await component.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
@@ -16,7 +16,7 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
   test("Entfernen loescht die Karte weiterhin und schreibt korrekt nach Firestore", async ({ mount, page }) => {
     const targets = [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }];
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
     await component.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();

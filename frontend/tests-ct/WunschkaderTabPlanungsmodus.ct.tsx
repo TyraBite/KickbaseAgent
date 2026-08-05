@@ -26,7 +26,7 @@ test.describe("Planungsmodus - waehrend der Simulation schreibt nichts nach Fire
   test("Ziel hinzufuegen im Planungsmodus loest KEINEN Firestore-Write aus (Sofort-Pfad)", async ({ mount, page }) => {
     const targets = [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }];
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
     await component.getByRole("button", { name: "Planungsmodus starten" }).click();
@@ -51,7 +51,7 @@ test.describe("Planungsmodus - waehrend der Simulation schreibt nichts nach Fire
 
     const targets = [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }];
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
     await component.getByRole("button", { name: "Planungsmodus starten" }).click();
@@ -77,7 +77,7 @@ test.describe("Planungsmodus - Verwerfen/Speichern", () => {
   }) => {
     const targets = [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }];
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
     // Stand VOR dem Planungsmodus: ein Starter-Ziel, keine Bank-Ziele.
@@ -107,7 +107,7 @@ test.describe("Planungsmodus - Verwerfen/Speichern", () => {
   }) => {
     const targets = [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }];
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
     await component.getByRole("button", { name: "Planungsmodus starten" }).click();

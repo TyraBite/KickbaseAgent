@@ -486,7 +486,15 @@ export default function App() {
                 den kuenstlichen Delay dort). display:none statt Unmount haelt
                 trotzdem die urspruengliche Grid-Stack-Absicht ein: eine
                 unsichtbare, faktisch verschwundene Karte darf weder Grid-Hoehe
-                beanspruchen noch Klicks auf dem jetzt sichtbaren Tab abfangen. */}
+                beanspruchen noch Klicks auf dem jetzt sichtbaren Tab abfangen.
+                `isActive` unten ist NICHT dasselbe wie wunschkaderPhase - es
+                sagt WunschkaderTab, ob sein Tab gerade der sichtbare ist, damit
+                dessen Modals (offenes Detail-Modal etc.) ihre globalen
+                Seiteneffekte (Modal-Zaehler, Escape-Listener) pausieren
+                koennen, waehrend sie im Hintergrund offen bleiben (Review-Fund
+                nach dem Strukturfix: sonst blockieren sie Swipe-Tab-Wechsel
+                app-weit auf Dauer bzw. reagieren auf ein Escape, das fuer ein
+                voellig anderes Modal gedacht ist). */}
             {data && data.players && wunschkader && (
               <motion.div
                 style={{ gridArea: "1 / 1", display: wunschkaderPhase === "hidden" ? "none" : undefined }}
@@ -497,7 +505,12 @@ export default function App() {
                   setWunschkaderPhase((prev) => (prev === "exiting" ? "hidden" : prev));
                 }}
               >
-                <WunschkaderTab data={data} wunschkader={wunschkader} onSaved={(targets) => setWunschkader({ targets })} />
+                <WunschkaderTab
+                  data={data}
+                  wunschkader={wunschkader}
+                  onSaved={(targets) => setWunschkader({ targets })}
+                  isActive={activeTab === "wunschkader"}
+                />
               </motion.div>
             )}
 

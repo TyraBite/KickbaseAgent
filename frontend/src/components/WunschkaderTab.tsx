@@ -108,10 +108,17 @@ export default function WunschkaderTab({
   data,
   wunschkader,
   onSaved,
+  isActive,
 }: {
   data: DashboardSnapshot;
   wunschkader: { targets: RawWunschkaderTarget[] };
   onSaved: (targets: RawWunschkaderTarget[]) => void;
+  // Ist Wunschkader gerade der sichtbare Tab? Unabhaengig davon, ob diese
+  // Komponente gemountet ist (sie bleibt es permanent, siehe App.tsx) -
+  // steuert nur, ob DetailModal/AddTargetModal ihre globalen Seiteneffekte
+  // (Modal-Zaehler, Escape-Listener) aktiv halten, waehrend sie im
+  // Hintergrund offen bleiben duerfen.
+  isActive: boolean;
 }) {
   let nextUid = 0;
   const [editState, setEditState] = useState<EditTarget[]>(() =>
@@ -590,6 +597,7 @@ export default function WunschkaderTab({
           onRemove={() => removeTarget(selected._uid)}
           onReplace={(playerId) => replaceTarget(selected._uid, playerId)}
           onNoteChange={(note) => updateNote(selected._uid, note)}
+          isActive={isActive}
         />
       )}
 
@@ -599,6 +607,7 @@ export default function WunschkaderTab({
           alleSpieler={alleSpieler}
           onAdd={addTarget}
           onClose={() => setAddDialog(null)}
+          isActive={isActive}
         />
       )}
     </div>
@@ -683,6 +692,7 @@ function DetailModal({
   onRemove,
   onReplace,
   onNoteChange,
+  isActive,
 }: {
   target: EditTarget;
   computed: ResolvedTarget;
@@ -699,19 +709,26 @@ function DetailModal({
   onRemove: () => void;
   onReplace: (playerId: string) => void;
   onNoteChange: (note: string) => void;
+  isActive: boolean;
 }) {
   const [wechselOpen, setWechselOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [compareWith, setCompareWith] = useState<AlleSpielerRow | null>(null);
 
-  useModalOpenTracking();
+  // isActive gate: WunschkaderTab bleibt beim Tab-Wechsel permanent gemountet
+  // (siehe App.tsx), dieses Modal darf deshalb im Hintergrund offen bleiben,
+  // ohne app-weit auf Dauer als "offenes Modal" zu zaehlen (blockiert sonst
+  // Swipe-Tab-Wechsel) oder auf ein Escape zu reagieren, das fuer ein
+  // voellig anderes, tatsaechlich sichtbares Modal gedacht ist.
+  useModalOpenTracking(isActive);
   useEffect(() => {
+    if (!isActive) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, isActive]);
 
   const targetForSearch = {
     player_id: target.player_id,
@@ -949,23 +966,27 @@ function AddTargetModal({
   alleSpieler,
   onAdd,
   onClose,
+  isActive,
 }: {
   presetPosition: Position | null;
   alleSpieler: AlleSpielerRow[];
   onAdd: (target: { player_id: string; position: Position; role: string }) => void;
   onClose: () => void;
+  isActive: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
 
-  useModalOpenTracking();
+  // Gleiche Begruendung wie in DetailModal oben - siehe dort.
+  useModalOpenTracking(isActive);
   useEffect(() => {
+    if (!isActive) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, isActive]);
 
   const results = search.trim()
     ? presetPosition
