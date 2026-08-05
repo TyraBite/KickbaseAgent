@@ -555,7 +555,8 @@ Ersetze den Wunschkader-Block aus Task 2 UND den direkt danebenstehenden `{activ
 
   <AnimatePresence mode="wait">
     {(() => {
-        /* ... IIFE aus Task 2, Step 8 UNVERAENDERT, nur zusaetzlich style={{ gridArea: "1 / 1" }} auf dem motion.div ... */
+        /* ... IIFE aus Task 2, Step 8, PLUS ein neuer Fruehausstieg fuer "wunschkader" (siehe Begruendung unten) ... */
+        if (activeTab === "wunschkader") return null;
         let content: JSX.Element | null = null;
         if (activeTab === "dashboard" && data && data.players && wunschkader) {
           content = <DashboardTab data={data} wunschkader={wunschkader} transfermarktRows={transfermarktRows} now={now} />;
@@ -600,8 +601,13 @@ Ersetze den Wunschkader-Block aus Task 2 UND den direkt danebenstehenden `{activ
 </div>
 ```
 
-Wie in Task 2: `<AnimatePresence>` bleibt unconditionally gerendert, `content` bleibt für `activeTab ===
-"wunschkader"` einfach `null` (kein eigener `else if`-Zweig nötig).
+Wie in Task 2: `<AnimatePresence>` bleibt unconditionally gerendert. Anders als in Task 2 gibt die IIFE für
+`activeTab === "wunschkader"` jetzt direkt `null` zurück, statt einen `motion.div` mit `content: null` zu
+rendern (Task-2-Review-Fund, Minor: mit einem leeren `motion.div` würde `mode="wait"` beim Wechsel zu/von
+Wunschkader trotzdem die volle Exit-Dauer auf ein unsichtbares Element warten — reine Verzögerung ohne
+optischen Gegenwert. Gibt die IIFE stattdessen `null` zurück, hat `AnimatePresence` an dieser Grenze schlicht
+nichts zum Animieren/Abwarten, der Wechsel zu/von Wunschkader bleibt so schnell wie Wunschkaders eigene
+Grid-Stack-Animation es vorgibt.).
 
 `gridArea: "1 / 1"` als Inline-`style` statt Tailwind-Arbitrary-Property (`[grid-area:1/1]`) — der Slash in
 `1/1` würde sonst mit Tailwinds `/`-Opacity-Modifier-Syntax kollidieren können.
