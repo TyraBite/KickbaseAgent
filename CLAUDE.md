@@ -133,8 +133,17 @@ Doku-Commit.
 - **Doc-Ids idempotent wählen.** Ein Wiederholungslauf darf keine Duplikate
   erzeugen — und wenn dieselbe Quelle über mehrere Tage erneut auftaucht, darf
   das Datum nicht Teil der Id sein.
-- **Firestore-Writes sind ein Budget.** Spark-Free-Tier, 20.000 Writes/Tag.
-  Vor einem Backfill die Write-Anzahl abschätzen und im Log ausgeben.
+- **Firestore-Reads/Writes/Deletes sind ein Budget.** Spark-Free-Tier: 50.000
+  Reads/Tag, 20.000 Writes/Tag, 20.000 Deletes/Tag, Reset täglich um
+  Mitternacht Pacific Time. Vor jeder größeren Aktion (Backfill,
+  Hyperparameter-Suche mit mehreren Corpus-Builds, Massen-Tests) die
+  Read-/Write-Anzahl abschätzen und im Log ausgeben — mehrere
+  Smoke-Test-Läufe, die je einen vollen Corpus neu laden, summieren sich
+  schnell (2026-08-04: Testläufe + Tagesverbrauch zusammen haben die
+  Read-Quota erschöpft, stündlicher Light-Job schlug sichtbar fehl). Bei
+  einem langen Produktionslauf (z.B. 11h-Suche) den Corpus einmalig laden,
+  danach rein In-Memory arbeiten — keine weiteren Reads während der
+  eigentlichen Schleife.
 - Dependencies in `requirements.txt` **exakt gepinnt**. Schwere/optionale
   Abhängigkeiten (Torch/Transformers) bleiben in `requirements-news.txt` und
   werden nur im zugehörigen Workflow installiert.
