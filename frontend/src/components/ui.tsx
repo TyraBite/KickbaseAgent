@@ -1,4 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { motion } from "framer-motion";
+import { backdropVariants, panelVariants } from "../lib/motionVariants";
 import {
   IconPositionAbwehr,
   IconPositionMittelfeld,
@@ -118,6 +120,94 @@ export function TeamCrest({ teamName }: { teamName: string | null }) {
       onError={() => setFailed(true)}
       className="h-6 w-6 shrink-0 rounded-full object-contain"
     />
+  );
+}
+
+// Gemeinsamer Backdrop+Panel-Aufbau fuer alle Tab-Detail-Modals (vorher 9x
+// byte-identisch dupliziert ueber AlleSpielerTab/EigenesTeamTab/
+// LigaanalyseTab/PlayerCompareModal/SpekulationTab/TransfermarktTab/
+// WunschkaderTab - siehe CLAUDE.md: "Ein Muster, das in zwei Tabs auftaucht,
+// wird nach ui.tsx/derive.ts konsolidiert, statt kopiert zu werden").
+// max-h-[calc(100vh-12rem)]+overflow-y-auto auf dem PANEL (nicht nur dem
+// Backdrop) ist der eigentliche Bugfix: live verifiziert (Pixel-5-Viewport,
+// WunschkaderTab-Detail mit ausgeklapptem "Wechsel", 727px Viewport, 69px
+// Header) reicht ein ungebremstes Panel bis y=-12 (751px hoch) - sein
+// eigener "✕"-Button landet dann unter dem sticky z-30-Header (App.tsx) und
+// ist unklickbar. calc(100vh-12rem) haelt das Panel bei diesem Fall auf
+// 535px, zentriert mit 96px Abstand nach oben/unten - 27px Sicherheitsabstand
+// zum Header (69px hoch), empirisch mit echtem Playwright-Rendering
+// gegengeprueft, nicht geschaetzt. Nebeneffekt (kein Kernziel, aber ebenfalls
+// ein vorher bestehender Bug): Inhalt, der hoeher als der Viewport ist, wird
+// jetzt scrollbar statt permanent unerreichbar oberhalb/unterhalb des
+// sichtbaren Bereichs zu haengen - keine der 9 alten Kopien hatte ueberhaupt
+// eine Scroll-Behandlung.
+const MODAL_PANEL_SCROLL_CLASS = "max-h-[calc(100vh-12rem)] overflow-y-auto";
+
+// Nicht-animierte Variante fuer die 7 "einfachen" Detail-Modals (plain div
+// als Panel). onSubmit optional gesetzt: WunschkaderTab's AddTargetModal
+// braucht ein <form>-Panel (Submit-Handler), alle anderen ein <div> - eine
+// einzige Komponente statt zwei fast identischer Kopien.
+export function ModalOverlay({
+  onClose,
+  panelClassName,
+  onSubmit,
+  children,
+}: {
+  onClose: () => void;
+  panelClassName: string;
+  onSubmit?: (e: FormEvent) => void;
+  children: ReactNode;
+}) {
+  const panelClass = `${MODAL_PANEL_SCROLL_CLASS} ${panelClassName}`;
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
+      {onSubmit ? (
+        <form onClick={(e) => e.stopPropagation()} onSubmit={onSubmit} className={panelClass}>
+          {children}
+        </form>
+      ) : (
+        <div onClick={(e) => e.stopPropagation()} className={panelClass}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Animierte Variante fuer PlayerCompareModal (Backdrop-Fade + Panel-Scale,
+// siehe motionVariants.ts/Frontend-Motion-Pilot-Plan) - gleicher
+// Scroll-Cap-Fix wie ModalOverlay oben, nur motion.div statt div fuer
+// Backdrop/Panel, damit die dort bereits vorhandene Animation erhalten
+// bleibt.
+export function AnimatedModalOverlay({
+  onClose,
+  panelClassName,
+  children,
+}: {
+  onClose: () => void;
+  panelClassName: string;
+  children: ReactNode;
+}) {
+  return (
+    <motion.div
+      variants={backdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4"
+      onClick={onClose}
+    >
+      <motion.div
+        variants={panelVariants("center")}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        onClick={(e) => e.stopPropagation()}
+        className={`${MODAL_PANEL_SCROLL_CLASS} ${panelClassName}`}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
   );
 }
 

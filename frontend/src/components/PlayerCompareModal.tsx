@@ -1,11 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { motion } from "framer-motion";
 import type { Calibration, PlayerRecord } from "../types";
 import { buildPlayerRow, type PlayerRow } from "../lib/derive";
-import { FitnessBadge, PositionBadge, SignalBadge, TeamCrest } from "./ui";
+import { AnimatedModalOverlay, FitnessBadge, PositionBadge, SignalBadge, TeamCrest } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
-import { backdropVariants, panelVariants } from "../lib/motionVariants";
 import PlayerNamePicker from "./PlayerNamePicker";
 
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
@@ -91,25 +89,12 @@ export default function PlayerCompareModal({
     // Sollte praktisch nie vorkommen (IDs kommen immer aus data.players),
     // aber ohne diesen Guard wuerde buildPlayerRow() auf undefined crashen.
     return (
-      <motion.div
-        variants={backdropVariants}
-        initial="initial"
-        animate="animate"
-        exit="exit"
-        className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4"
-        onClick={onClose}
+      <AnimatedModalOverlay
+        onClose={onClose}
+        panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
       >
-        <motion.div
-          variants={panelVariants("center")}
-          initial="initial"
-          animate="animate"
-          exit="exit"
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-        >
-          <p className="text-sm text-slate-500 dark:text-slate-400">Spieler nicht gefunden.</p>
-        </motion.div>
-      </motion.div>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Spieler nicht gefunden.</p>
+      </AnimatedModalOverlay>
     );
   }
 
@@ -145,99 +130,86 @@ export default function PlayerCompareModal({
   }
 
   return (
-    <motion.div
-      variants={backdropVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4"
-      onClick={onClose}
+    <AnimatedModalOverlay
+      onClose={onClose}
+      panelClassName="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
     >
-      <motion.div
-        variants={panelVariants("center")}
-        initial="initial"
-        animate="animate"
-        exit="exit"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div className="grid flex-1 grid-cols-2 gap-4">
-            {renderName(rowA, "a")}
-            {renderName(rowB, "b")}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Schließen"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            ✕
-          </button>
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div className="grid flex-1 grid-cols-2 gap-4">
+          {renderName(rowA, "a")}
+          {renderName(rowB, "b")}
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Schließen"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          ✕
+        </button>
+      </div>
 
-        {switching && (
-          <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-              Ersetze Seite {switching === "a" ? "links" : "rechts"} durch…
-            </p>
-            <PlayerNamePicker
-              players={players}
-              excludePlayerId={switching === "a" ? idB : idA}
-              onSelect={(id) => {
-                if (switching === "a") setIdA(id);
-                else setIdB(id);
-                setSwitching(null);
-              }}
-            />
-          </div>
-        )}
-
-        <div>
-          <CompareRow
-            label="Prognose 1T"
-            valueA={<span className={trendClass(rowA.ml_prediction)}>{trendArrow(rowA.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowA.ml_prediction)}</span>}
-            valueB={<span className={trendClass(rowB.ml_prediction)}>{trendArrow(rowB.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowB.ml_prediction)}</span>}
-            winner={better(rowA.ml_prediction, rowB.ml_prediction)}
-          />
-          <CompareRow
-            label="Prognose 3T"
-            valueA={<span className={trendClass(rowA.ml_prediction_3d)}>{trendArrow(rowA.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowA.ml_prediction_3d)}</span>}
-            valueB={<span className={trendClass(rowB.ml_prediction_3d)}>{trendArrow(rowB.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowB.ml_prediction_3d)}</span>}
-            winner={better(rowA.ml_prediction_3d, rowB.ml_prediction_3d)}
-          />
-          <CompareRow
-            label="Signal"
-            valueA={<SignalBadge signal={rowA.signal} thresholds={thresholds} />}
-            valueB={<SignalBadge signal={rowB.signal} thresholds={thresholds} />}
-            winner={better(rowA.signal, rowB.signal)}
-          />
-          <CompareRow
-            label="Marktwert"
-            valueA={fmtNum(rowA.market_value)}
-            valueB={fmtNum(rowB.market_value)}
-            winner={better(rowA.market_value, rowB.market_value, true)}
-          />
-          <CompareRow
-            label="Startelf-Rang"
-            valueA={rowA.starting_rank ?? "n/v"}
-            valueB={rowB.starting_rank ?? "n/v"}
-            winner={better(rowA.starting_rank, rowB.starting_rank, true)}
-          />
-          <CompareRow
-            label="Fitness"
-            valueA={<FitnessBadge label={rowA.status_label} />}
-            valueB={<FitnessBadge label={rowB.status_label} />}
-            winner={betterFitness(rowA.status_label, rowB.status_label)}
-          />
-          <CompareRow
-            label="Schnitt"
-            valueA={fmtNum(rowA.average_points)}
-            valueB={fmtNum(rowB.average_points)}
-            winner={better(rowA.average_points, rowB.average_points)}
+      {switching && (
+        <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+          <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            Ersetze Seite {switching === "a" ? "links" : "rechts"} durch…
+          </p>
+          <PlayerNamePicker
+            players={players}
+            excludePlayerId={switching === "a" ? idB : idA}
+            onSelect={(id) => {
+              if (switching === "a") setIdA(id);
+              else setIdB(id);
+              setSwitching(null);
+            }}
           />
         </div>
-      </motion.div>
-    </motion.div>
+      )}
+
+      <div>
+        <CompareRow
+          label="Prognose 1T"
+          valueA={<span className={trendClass(rowA.ml_prediction)}>{trendArrow(rowA.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowA.ml_prediction)}</span>}
+          valueB={<span className={trendClass(rowB.ml_prediction)}>{trendArrow(rowB.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowB.ml_prediction)}</span>}
+          winner={better(rowA.ml_prediction, rowB.ml_prediction)}
+        />
+        <CompareRow
+          label="Prognose 3T"
+          valueA={<span className={trendClass(rowA.ml_prediction_3d)}>{trendArrow(rowA.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowA.ml_prediction_3d)}</span>}
+          valueB={<span className={trendClass(rowB.ml_prediction_3d)}>{trendArrow(rowB.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowB.ml_prediction_3d)}</span>}
+          winner={better(rowA.ml_prediction_3d, rowB.ml_prediction_3d)}
+        />
+        <CompareRow
+          label="Signal"
+          valueA={<SignalBadge signal={rowA.signal} thresholds={thresholds} />}
+          valueB={<SignalBadge signal={rowB.signal} thresholds={thresholds} />}
+          winner={better(rowA.signal, rowB.signal)}
+        />
+        <CompareRow
+          label="Marktwert"
+          valueA={fmtNum(rowA.market_value)}
+          valueB={fmtNum(rowB.market_value)}
+          winner={better(rowA.market_value, rowB.market_value, true)}
+        />
+        <CompareRow
+          label="Startelf-Rang"
+          valueA={rowA.starting_rank ?? "n/v"}
+          valueB={rowB.starting_rank ?? "n/v"}
+          winner={better(rowA.starting_rank, rowB.starting_rank, true)}
+        />
+        <CompareRow
+          label="Fitness"
+          valueA={<FitnessBadge label={rowA.status_label} />}
+          valueB={<FitnessBadge label={rowB.status_label} />}
+          winner={betterFitness(rowA.status_label, rowB.status_label)}
+        />
+        <CompareRow
+          label="Schnitt"
+          valueA={fmtNum(rowA.average_points)}
+          valueB={fmtNum(rowB.average_points)}
+          winner={better(rowA.average_points, rowB.average_points)}
+        />
+      </div>
+    </AnimatedModalOverlay>
   );
 }

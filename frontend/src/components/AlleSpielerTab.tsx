@@ -3,7 +3,7 @@ import { AnimatePresence } from "framer-motion";
 import type { DashboardSnapshot } from "../types";
 import { buildAlleSpielerRows, normalizeSearchText, type AlleSpielerRow } from "../lib/derive";
 import { cursorIndexForDigitCount, deleteDigitAt, digitCountBefore, formatThousands, parseThousands } from "../lib/numberFormat";
-import { Badge, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
+import { Badge, FitnessBadge, ModalOverlay, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import PlayerNamePicker from "./PlayerNamePicker";
@@ -388,64 +388,62 @@ function AlleSpielerDetailModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-        >
-          <div className="mb-4 flex items-start justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <TeamCrest teamName={row.team_name} />
-              <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-              <PositionBadge position={row.position} />
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Schließen"
-              className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            >
-              ✕
-            </button>
+      <ModalOverlay
+        onClose={onClose}
+        panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+      >
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <TeamCrest teamName={row.team_name} />
+            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+            <PositionBadge position={row.position} />
           </div>
-          <dl className="space-y-2 text-sm">
-            <Row label="Verfügbarkeit">
-              <Badge tone={ownerTone(row.owner)}>{row.owner}</Badge>
-            </Row>
-            <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-            <Row label="Fitness">
-              <FitnessBadge label={row.status_label} />
-            </Row>
-            <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
-            <Row label="Signal">
-              <SignalBadge signal={row.signal} thresholds={thresholds} />
-            </Row>
-            <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
-            <Row label="Prognose 1T">
-              <span className={trendClass(row.ml_prediction)}>
-                {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
-              </span>
-            </Row>
-            <Row label="Prognose 3T">
-              <span className={trendClass(row.ml_prediction_3d)}>
-                {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
-              </span>
-            </Row>
-          </dl>
           <button
             type="button"
-            onClick={() => setComparing((v) => !v)}
-            className="mt-3 text-xs text-brand-600 hover:underline dark:text-brand-400"
+            onClick={onClose}
+            aria-label="Schließen"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           >
-            Vergleichen mit…
+            ✕
           </button>
-          {comparing && (
-            <div className="mt-2">
-              <PlayerNamePicker players={players} excludePlayerId={row.player_id} onSelect={setCompareWith} />
-            </div>
-          )}
         </div>
-      </div>
+        <dl className="space-y-2 text-sm">
+          <Row label="Verfügbarkeit">
+            <Badge tone={ownerTone(row.owner)}>{row.owner}</Badge>
+          </Row>
+          <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+          <Row label="Fitness">
+            <FitnessBadge label={row.status_label} />
+          </Row>
+          <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
+          <Row label="Signal">
+            <SignalBadge signal={row.signal} thresholds={thresholds} />
+          </Row>
+          <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
+          <Row label="Prognose 1T">
+            <span className={trendClass(row.ml_prediction)}>
+              {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
+            </span>
+          </Row>
+          <Row label="Prognose 3T">
+            <span className={trendClass(row.ml_prediction_3d)}>
+              {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+            </span>
+          </Row>
+        </dl>
+        <button
+          type="button"
+          onClick={() => setComparing((v) => !v)}
+          className="mt-3 text-xs text-brand-600 hover:underline dark:text-brand-400"
+        >
+          Vergleichen mit…
+        </button>
+        {comparing && (
+          <div className="mt-2">
+            <PlayerNamePicker players={players} excludePlayerId={row.player_id} onSelect={setCompareWith} />
+          </div>
+        )}
+      </ModalOverlay>
       <AnimatePresence>
         {compareWith && (
           <PlayerCompareModal
