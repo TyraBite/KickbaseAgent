@@ -698,7 +698,13 @@ def _train_and_evaluate(history_df: pd.DataFrame, target_col: str = TARGET, hori
     return models, metrics
 
 
-def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET, horizon_days: int = 1) -> dict | None:
+def _walk_forward_backtest(
+    history_df: pd.DataFrame,
+    target_col: str = TARGET,
+    horizon_days: int = 1,
+    candidates: dict[str, object] | None = None,
+    n_folds: int | None = None,
+) -> dict | None:
     """Beantwortet direkt "wie waere die Prognose damals gewesen" - Training
     nur auf Zeilen VOR dem Cutoff (minus Embargo bei Mehrtage-Horizonten,
     siehe _apply_embargo), Test auf den Zeilen GENAU am Cutoff, verglichen
@@ -707,11 +713,15 @@ def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET, h
     EINEM finalen _finalize_score_counts()-Aufruf pro Modell - mathematisch
     identisch zum vorherigen Verhalten (alle Rohwerte sammeln, am Ende
     einmal aggregieren, NICHT ein Schnitt aus gerundeten Pro-Fold-Prozenten,
-    der Rundungsfehler aufsummieren wuerde)."""
+    der Rundungsfehler aufsummieren wuerde). `candidates`/`n_folds` sind
+    Overrides fuer externe Nutzung (Hyperparameter-Suche, siehe
+    docs/superpowers/specs/2026-08-04-ml-3d-hyperparameter-tuning-design.md)
+    - ohne sie ist das Verhalten fuer alle bestehenden Aufrufer unveraendert."""
     dates = sorted(history_df["date"].unique())
-    if len(dates) <= BACKTEST_FOLDS:
+    folds_wanted = n_folds if n_folds is not None else BACKTEST_FOLDS
+    if len(dates) <= folds_wanted:
         return None
-    cutoffs = dates[-BACKTEST_FOLDS:]
+    cutoffs = dates[-folds_wanted:]
     baseline_col = _BASELINE_COLUMN_BY_HORIZON[horizon_days]
 
     pooled_counts: dict[str, dict] = {}
@@ -733,9 +743,13 @@ def _walk_forward_backtest(history_df: pd.DataFrame, target_col: str = TARGET, h
         # _build_candidates() statt eigener Kopie - vorher hatte dieser
         # Backtest eigene, von der echten Live-Prognose abweichende
         # Parameter, genau die Inkonsistenz-Klasse, die _build_candidates()s
-        # Docstring schon fuer den Backfill-Pfad beschreibt.
-        candidates = _build_candidates()
-        for name, candidate in candidates.items():
+        # Docstring schon fuer den Backfill-Pfad beschreibt. `candidates`-
+        # Override (Hyperparameter-Suche) verwendet dieselbe(n) Instanz(en)
+        # ueber alle Folds hinweg - .fit() trainiert bei RandomForest/
+        # HistGradientBoosting/LightGBM/XGBoost jedes Mal komplett neu,
+        # kein Zustand wird zwischen Folds mitgeschleppt.
+        fold_candidates = candidates if candidates is not None else _build_candidates()
+        for name, candidate in fold_candidates.items():
             candidate.fit(x_train, y_train)
             y_pred = candidate.predict(x_test)
             counts = _score_counts_from_arrays(y_actual=y_test_actual, y_pred=y_pred, baseline_pred=baseline_pred)

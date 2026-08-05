@@ -1275,6 +1275,31 @@ class WalkForwardBacktestTargetColTests(unittest.TestCase):
             "Embargo sollte sign_accuracy fuer mindestens ein Modell veraendern.",
         )
 
+    def test_n_folds_override_changes_cutoff_count(self):
+        df = self._history_df("alt_target")
+
+        default_result = _walk_forward_backtest(df, target_col="alt_target")
+        override_result = _walk_forward_backtest(df, target_col="alt_target", n_folds=10)
+
+        self.assertIsNotNone(default_result)
+        self.assertIsNotNone(override_result)
+        self.assertEqual(default_result["n_folds"], 6)
+        self.assertEqual(override_result["n_folds"], 10)
+
+    def test_candidates_override_is_used_instead_of_build_candidates(self):
+        from sklearn.dummy import DummyRegressor
+        df = self._history_df("alt_target")
+        trial_model = DummyRegressor(strategy="constant", constant=0.0)
+
+        with patch("src.market_predictor._build_candidates") as mock_build:
+            result = _walk_forward_backtest(
+                df, target_col="alt_target", candidates={"Trial": trial_model},
+            )
+
+        mock_build.assert_not_called()
+        self.assertIsNotNone(result)
+        self.assertEqual(set(result["per_model"].keys()), {"Trial"})
+
 
 class TrainAndTrackHorizonTests(unittest.TestCase):
     def test_returns_none_when_too_few_training_rows(self):
