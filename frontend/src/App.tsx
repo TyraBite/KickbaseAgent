@@ -48,22 +48,25 @@ type LoadState = "loading" | "error" | "ready";
 type TabTransition = { kind: "fade" } | { kind: "slide"; direction: 1 | -1 };
 
 type WunschkaderPhase = "active" | "exiting" | "hidden";
-// Eigene, laengere Exit-Dauer nur fuer den WunschkaderTab-State-Erhalt-Wrapper
-// unten (nicht das geteilte fadeVariants aus motionVariants.ts, das bleibt fuer
-// alle anderen Fades bei FADE_EXIT_S). Seit MobileTabMenu selbst animiert
-// (Backdrop+Panel), dauert ein Weg-und-sofort-zurueck-Wechsel ueber das mobile
-// Menue laenger als das globale, kurze FADE_EXIT_S (130ms) - Klicks auf Buttons
-// im gerade ein-/ausfahrenden Menue brauchen selbst sichtbare Zeit, bevor
-// Playwright/ein Touch sie als treffbar behandelt. Mit dem kurzen, geteilten
-// FADE_EXIT_S wuerde WunschkaderTab in diesem Zeitfenster vorzeitig unmounten
-// und eine ungespeicherte Notiz/ein offenes Detail-Modal verlieren (siehe
-// WunschkaderStatePersistsAcrossTabSwitch.spec.ts).
+// Rein optische Exit-Dauer fuer den WunschkaderTab-Wrapper unten (nicht das
+// geteilte fadeVariants aus motionVariants.ts, das bleibt fuer alle anderen
+// Fades bei FADE_EXIT_S) - NICHT sicherheitskritisch: WunschkaderTab wird nie
+// unmounted, solange Daten geladen sind (siehe wunschkaderPhase-Kommentar bei
+// der Render-Stelle unten), sein React-State (Notiz, offenes Detail-Modal)
+// ueberlebt deshalb JEDE Verweildauer auf einem anderen Tab, unabhaengig von
+// dieser Zahl. Diese Dauer bestimmt nur, wie lange der sichtbare Opacity-Fade
+// beim Wegwechseln dauert, bevor der Wrapper per display:none aus dem
+// CSS-Grid-Stack (Layout/Hit-Testing) verschwindet.
 const WUNSCHKADER_FADE_EXIT_S = 0.45;
 const wunschkaderFadeVariants: Variants = {
   initial: fadeVariants.initial,
   animate: fadeVariants.animate,
   exit: { opacity: 0, transition: { duration: WUNSCHKADER_FADE_EXIT_S } },
 };
+// Rein kosmetischer Nachlauf, bevor der (unveraendert gemountete) Wrapper per
+// display:none aus dem Grid-Stack genommen wird, falls onAnimationComplete
+// mal nicht zuverlaessig feuert (siehe Kommentar beim Fallback-Effect unten) -
+// betrifft nur Layout-Sauberkeit/Klick-Durchlaessigkeit, keine State-Erhaltung.
 const WUNSCHKADER_EXIT_FALLBACK_MS = 700;
 
 const TABS = [
@@ -300,7 +303,10 @@ export default function App() {
   // Fallback, falls onAnimationComplete durch schnelles wiederholtes
   // Tab-Wechseln unterbrochen wird und nicht zuverlaessig einmalig feuert
   // (siehe Spec, Abschnitt Fehlerbehandlung) - idempotent, setzt nur das,
-  // was der Callback ohnehin setzen wuerde.
+  // was der Callback ohnehin setzen wuerde. Rein kosmetisch: "hidden" steuert
+  // nur noch display:none am Wrapper (Grid-Hoehe/Klick-Durchlaessigkeit),
+  // WunschkaderTab selbst bleibt in jedem Fall gemountet, State geht hier
+  // nicht mehr verloren.
   useEffect(() => {
     if (wunschkaderPhase !== "exiting") return;
     const timeoutId = window.setTimeout(() => {
@@ -470,9 +476,20 @@ export default function App() {
             </p>
           )}
           <div className="grid">
-            {wunschkaderPhase !== "hidden" && data && data.players && wunschkader && (
+            {/* WunschkaderTab bleibt absichtlich IMMER gemountet, solange Daten
+                geladen sind - wunschkaderPhase steuert nur noch display:none
+                (nicht mehr, ob die Komponente ueberhaupt im Baum ist). Damit
+                ueberlebt ihr lokaler React-State (Notiz, offenes Detail-Modal)
+                jede Verweildauer auf einem anderen Tab, unabhaengig von jeder
+                Animationsdauer - kein Zeitfenster, keine Race-Condition (siehe
+                WunschkaderStatePersistsAcrossTabSwitch.spec.ts, insbesondere
+                den kuenstlichen Delay dort). display:none statt Unmount haelt
+                trotzdem die urspruengliche Grid-Stack-Absicht ein: eine
+                unsichtbare, faktisch verschwundene Karte darf weder Grid-Hoehe
+                beanspruchen noch Klicks auf dem jetzt sichtbaren Tab abfangen. */}
+            {data && data.players && wunschkader && (
               <motion.div
-                style={{ gridArea: "1 / 1" }}
+                style={{ gridArea: "1 / 1", display: wunschkaderPhase === "hidden" ? "none" : undefined }}
                 variants={wunschkaderFadeVariants}
                 initial="initial"
                 animate={wunschkaderPhase === "active" ? "animate" : "exit"}

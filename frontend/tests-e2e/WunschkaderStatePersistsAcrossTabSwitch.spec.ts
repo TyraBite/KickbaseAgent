@@ -24,6 +24,15 @@ test.describe("Wunschkader bleibt bei Tab-Wechsel gemountet", () => {
     await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Dashboard", exact: true }).click();
     await expect(heading).toHaveText("Dashboard");
 
+    // Bewusst lange, kuenstliche Wartezeit - deutlich laenger als jede
+    // denkbare Exit-/Fallback-Animationsdauer (WUNSCHKADER_FADE_EXIT_S=450ms,
+    // WUNSCHKADER_EXIT_FALLBACK_MS=700ms in App.tsx). Der Zustandserhalt beruht
+    // seit dem Strukturfix NICHT mehr auf einem Zeitfenster - WunschkaderTab
+    // bleibt immer gemountet, wunschkaderPhase steuert nur noch display:none -
+    // dieser Delay beweist genau das: die Notiz/das offene Modal ueberleben
+    // auch ein Vielfaches jeder Animationsdauer, nicht nur ein kurzes Fenster.
+    await page.waitForTimeout(2000);
+
     // Zurueckwechseln - Wunschkader ist durchgehend gemountet, das
     // Detail-Modal muss deshalb OHNE erneuten Klick noch offen sein.
     await page.getByRole("button", { name: "Menü öffnen" }).click();
