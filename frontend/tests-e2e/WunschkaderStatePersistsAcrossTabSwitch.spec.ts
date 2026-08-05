@@ -26,8 +26,8 @@ test.describe("Wunschkader bleibt bei Tab-Wechsel gemountet", () => {
     await expect(heading).toHaveText("Dashboard");
 
     // Bewusst lange, kuenstliche Wartezeit - deutlich laenger als jede
-    // denkbare Exit-/Fallback-Animationsdauer (WUNSCHKADER_FADE_EXIT_S=450ms,
-    // WUNSCHKADER_EXIT_FALLBACK_MS=700ms in App.tsx). Der Zustandserhalt beruht
+    // denkbare Exit-/Fallback-Animationsdauer (geteiltes FADE_EXIT_S=130ms,
+    // WUNSCHKADER_EXIT_FALLBACK_MS=200ms in App.tsx). Der Zustandserhalt beruht
     // seit dem Strukturfix NICHT mehr auf einem Zeitfenster - WunschkaderTab
     // bleibt immer gemountet, wunschkaderPhase steuert nur noch display:none -
     // dieser Delay beweist genau das: die Notiz/das offene Modal ueberleben
@@ -196,5 +196,63 @@ test.describe("Wunschkader bleibt bei Tab-Wechsel gemountet", () => {
     // PlayerCompareModal muessen unveraendert offen sein.
     await expect(page.getByLabel("Notiz")).toBeVisible();
     await expect(page.getByText("Diesen als Ersatz wählen").first()).toBeVisible();
+  });
+
+  // Whole-Branch-Review-Fund (separat von Task 5s eigener Review-Kette):
+  // wunschkaderPhase "exiting" laesst opacity>0 laufen, BEVOR die Phase
+  // "hidden" erreicht und display:none greift - in diesem Fenster war der
+  // Wrapper (ohne pointerEvents-Gating) weiterhin normal klickbar und konnte
+  // Klicks abfangen, die eigentlich dem jetzt sichtbaren Tab galten, und so
+  // ein Phantom-Detail-Modal auf dem verlassenen, unsichtbaren
+  // Wunschkader-Stand oeffnen. `pointerEvents: wunschkaderPhase === "active"
+  // ? undefined : "none"` (App.tsx) schliesst diese Luecke SOFORT bei
+  // Phase-Wechsel (synchron mit dem React-State, unabhaengig von der
+  // Animationsdauer).
+  //
+  // Testet die Eigenschaft direkt ueber den berechneten Stil statt ueber
+  // einen Klick-Timing-Wettlauf zu simulieren: ein Klick muesste ein enges,
+  // Millisekunden-praezises Fenster treffen (React committet den
+  // Phasenwechsel teils per Microtask, nicht synchron im selben Tick), das
+  // sich in dieser Sandbox nicht zuverlaessig ueber echte Klicks reproduzieren
+  // liess (App-eigene Latenzen variieren zu stark). expect.poll() fragt
+  // stattdessen wiederholt (kurze Intervalle) den tatsaechlichen
+  // Browser-Zustand ab und faengt dadurch zuverlaessig den Moment ein, in dem
+  // BEIDES gleichzeitig gilt: pointer-events bereits "none" UND display noch
+  // NICHT "none" (also waehrend des sichtbaren Fade-Outs, nicht erst danach) -
+  // genau die Eigenschaft, die den urspruenglichen Bug behebt. Ohne den Fix
+  // bleibt pointer-events dauerhaft "auto" (nie gesetzt) - expect.poll()
+  // laeuft dann in den Timeout, der Test wird korrekt rot.
+  test("Wunschkader-Wrapper wird beim Wegwechseln sofort unklickbar (pointer-events:none), nicht erst wenn er komplett verschwindet (display:none)", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+
+    const heading = page.getByRole("heading", { level: 2 });
+    await expect(heading).toHaveText("Wunschkader");
+
+    // Der WunschkaderTab-Wrapper aus App.tsx - identifiziert ueber sein
+    // `grid-area`-Inline-Style (eindeutig fuer die beiden App.tsx-Grid-Stack-
+    // Wrapper) UND den fuer WunschkaderTab eindeutigen "Formation:"-Text.
+    const wunschkaderWrapper = page.locator('[style*="grid-area"]', { hasText: /^Formation:/ });
+    await expect(wunschkaderWrapper).toBeVisible();
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+
+    await expect
+      .poll(
+        () =>
+          wunschkaderWrapper.evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return `pointerEvents=${cs.pointerEvents} display=${cs.display}`;
+          }),
+        {
+          timeout: 3_000,
+          intervals: [10, 20, 30, 50],
+        }
+      )
+      .toBe("pointerEvents=none display=block");
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { AnimatePresence, motion, MotionConfig, type Variants } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { backdropVariants, fadeVariants, panelVariants, slideFadeVariants } from "./lib/motionVariants";
 import { auth, db } from "./firebase";
 import AlleSpielerTab from "./components/AlleSpielerTab";
@@ -48,26 +48,15 @@ type LoadState = "loading" | "error" | "ready";
 type TabTransition = { kind: "fade" } | { kind: "slide"; direction: 1 | -1 };
 
 type WunschkaderPhase = "active" | "exiting" | "hidden";
-// Rein optische Exit-Dauer fuer den WunschkaderTab-Wrapper unten (nicht das
-// geteilte fadeVariants aus motionVariants.ts, das bleibt fuer alle anderen
-// Fades bei FADE_EXIT_S) - NICHT sicherheitskritisch: WunschkaderTab wird nie
-// unmounted, solange Daten geladen sind (siehe wunschkaderPhase-Kommentar bei
-// der Render-Stelle unten), sein React-State (Notiz, offenes Detail-Modal)
-// ueberlebt deshalb JEDE Verweildauer auf einem anderen Tab, unabhaengig von
-// dieser Zahl. Diese Dauer bestimmt nur, wie lange der sichtbare Opacity-Fade
-// beim Wegwechseln dauert, bevor der Wrapper per display:none aus dem
-// CSS-Grid-Stack (Layout/Hit-Testing) verschwindet.
-const WUNSCHKADER_FADE_EXIT_S = 0.45;
-const wunschkaderFadeVariants: Variants = {
-  initial: fadeVariants.initial,
-  animate: fadeVariants.animate,
-  exit: { opacity: 0, transition: { duration: WUNSCHKADER_FADE_EXIT_S } },
-};
 // Rein kosmetischer Nachlauf, bevor der (unveraendert gemountete) Wrapper per
 // display:none aus dem Grid-Stack genommen wird, falls onAnimationComplete
 // mal nicht zuverlaessig feuert (siehe Kommentar beim Fallback-Effect unten) -
-// betrifft nur Layout-Sauberkeit/Klick-Durchlaessigkeit, keine State-Erhaltung.
-const WUNSCHKADER_EXIT_FALLBACK_MS = 700;
+// betrifft nur Layout-Sauberkeit, keine State-Erhaltung (WunschkaderTab bleibt
+// so oder so permanent gemountet) und keine Klick-Durchlaessigkeit mehr
+// (dafuer sorgt jetzt pointerEvents an der Render-Stelle unten, unabhaengig
+// von dieser Zahl). Passend zum geteilten FADE_EXIT_S aus motionVariants.ts
+// (130ms), das der Wrapper unten wieder unveraendert nutzt.
+const WUNSCHKADER_EXIT_FALLBACK_MS = 200;
 
 const TABS = [
   { key: "dashboard", label: "Dashboard" },
@@ -304,9 +293,10 @@ export default function App() {
   // Tab-Wechseln unterbrochen wird und nicht zuverlaessig einmalig feuert
   // (siehe Spec, Abschnitt Fehlerbehandlung) - idempotent, setzt nur das,
   // was der Callback ohnehin setzen wuerde. Rein kosmetisch: "hidden" steuert
-  // nur noch display:none am Wrapper (Grid-Hoehe/Klick-Durchlaessigkeit),
-  // WunschkaderTab selbst bleibt in jedem Fall gemountet, State geht hier
-  // nicht mehr verloren.
+  // nur noch display:none am Wrapper (Grid-Hoehe), WunschkaderTab selbst
+  // bleibt in jedem Fall gemountet, State geht hier nicht mehr verloren.
+  // Klicks sind schon ab "exiting" (nicht erst ab "hidden") blockiert, siehe
+  // pointerEvents an der Render-Stelle unten.
   useEffect(() => {
     if (wunschkaderPhase !== "exiting") return;
     const timeoutId = window.setTimeout(() => {
@@ -490,10 +480,21 @@ export default function App() {
                 jede Verweildauer auf einem anderen Tab, unabhaengig von jeder
                 Animationsdauer - kein Zeitfenster, keine Race-Condition (siehe
                 WunschkaderStatePersistsAcrossTabSwitch.spec.ts, insbesondere
-                den kuenstlichen Delay dort). display:none statt Unmount haelt
-                trotzdem die urspruengliche Grid-Stack-Absicht ein: eine
-                unsichtbare, faktisch verschwundene Karte darf weder Grid-Hoehe
-                beanspruchen noch Klicks auf dem jetzt sichtbaren Tab abfangen.
+                den kuenstlichen Delay dort). display:none haelt dabei die
+                urspruengliche Grid-Stack-Absicht ein (keine Grid-Hoehe), greift
+                aber erst, sobald die Phase tatsaechlich "hidden" erreicht -
+                waehrend des Fade-Outs (Phase "exiting", opacity > 0) ist der
+                Wrapper noch im DOM und wuerde ohne pointerEvents unten Klicks
+                auf dem jetzt sichtbaren Tab abfangen (Review-Fund: ein Tap auf
+                eine ehemalige Zielkarten-Position waehrend des Fades oeffnete
+                sonst ein Phantom-Detail-Modal auf dem verlassenen, unsichtbaren
+                Wunschkader-Stand). pointerEvents schliesst diese Luecke sofort
+                bei Phase-Wechsel, unabhaengig von der Fade-Dauer - deshalb nutzt
+                der Wrapper wieder das geteilte fadeVariants/FADE_EXIT_S statt
+                einer eigenen, laengeren Dauer (die war nur ein frueherer,
+                inzwischen ueberfluessiger Sicherheitspuffer gegen das
+                Struktur-Race, das WunschkaderTab's permanentes Mounting
+                oben laengst behebt).
                 `isActive` unten ist NICHT dasselbe wie wunschkaderPhase - es
                 sagt WunschkaderTab, ob sein Tab gerade der sichtbare ist, damit
                 dessen Modals (offenes Detail-Modal etc.) ihre globalen
@@ -504,8 +505,12 @@ export default function App() {
                 voellig anderes Modal gedacht ist). */}
             {data && data.players && wunschkader && (
               <motion.div
-                style={{ gridArea: "1 / 1", display: wunschkaderPhase === "hidden" ? "none" : undefined }}
-                variants={wunschkaderFadeVariants}
+                style={{
+                  gridArea: "1 / 1",
+                  display: wunschkaderPhase === "hidden" ? "none" : undefined,
+                  pointerEvents: wunschkaderPhase === "active" ? undefined : "none",
+                }}
+                variants={fadeVariants}
                 initial="initial"
                 animate={wunschkaderPhase === "active" ? "animate" : "exit"}
                 onAnimationComplete={() => {
