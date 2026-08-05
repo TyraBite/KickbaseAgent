@@ -3,16 +3,6 @@
 Offene Aufgaben und Themen, die noch geplant oder umgesetzt werden müssen. Kein Änderungsprotokoll vergangener
 Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbeitet wird: `CLAUDE.md`.
 
-## In Arbeit — PR #13 wartet auf Merge
-
-`ML: embargo-korrekte 3T-Hyperparameter-Suche (kein Gewinner)` — PR #13 erstellt, Auto-Merge (Squash)
-aktiv, Checks liefen beim Session-Ende noch. Falls beim Wiedereinstieg noch offen: `gh pr view 13`
-prüfen, ggf. `gh api -X PUT repos/TyraBite/KickbaseAgent/pulls/13/update-branch` falls `mergeStateStatus`
-`BEHIND`/`BLOCKED` zeigt (Ruleset erzwingt aktuelle Basis für die 4 Required Checks). Enthält nur eine
-generisch nützliche Erweiterung von `_walk_forward_backtest()` (`candidates=`/`n_folds=`-Overrides) plus
-Doku — **kein** Hyperparameter-Wechsel, deshalb nach dem Merge **kein** Backfill/Heavy-Lauf nötig (anders
-als beim vorherigen Baseline-Honesty-Merge).
-
 ## Offen aus `feedback/current` (Firestore)
 
 - **Sentiment-Analyse für Marktwert-Turning-Points** (`6b08e2cf`) — technisch umgesetzt (`news_sentiment.py`,
