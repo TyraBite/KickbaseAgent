@@ -191,7 +191,7 @@ class ClassifySentimentTests(unittest.TestCase):
         self.assertEqual(classify_sentiment(model, []), [])
         model.predict_sentiment.assert_not_called()
 
-    def test_batch_call_maps_label_and_matching_probability(self):
+    def test_batch_call_maps_label_score_and_signed_score(self):
         model = MagicMock()
         model.predict_sentiment.return_value = (
             ["positive", "negative"],
@@ -204,10 +204,63 @@ class ClassifySentimentTests(unittest.TestCase):
         result = classify_sentiment(model, ["Text A", "Text B"])
 
         self.assertEqual(result, [
-            {"label": "positive", "score": 0.9761},
-            {"label": "negative", "score": 0.95},
+            {"label": "positive", "score": 0.9761, "signed_score": 0.9761 - 0.0235},
+            {"label": "negative", "score": 0.95, "signed_score": 0.01 - 0.95},
         ])
         model.predict_sentiment.assert_called_once_with(["Text A", "Text B"], output_probabilities=True)
+
+    def test_negation_override_downgrades_known_exclusion_headline_to_neutral(self):
+        # Live verifizierter Fund (2026-08-04, siehe HANDOFF.md): diese exakte
+        # Schlagzeile wurde von germansentiment als "negative" (Score 0.92)
+        # eingestuft, obwohl ein ausgeschlossener Wechsel neutrale/gute News ist.
+        model = MagicMock()
+        headline = "Amiri, Sano, Nebel weg aus Mainz? Für Heidel 'definitiv ausgeschlossen'"
+        model.predict_sentiment.return_value = (
+            ["negative"],
+            [[["positive", 0.03], ["negative", 0.92], ["neutral", 0.05]]],
+        )
+
+        result = classify_sentiment(model, [headline])
+
+        self.assertEqual(result, [{"label": "neutral", "score": 0.05, "signed_score": 0.0}])
+
+    def test_negation_override_does_not_trigger_without_cue(self):
+        model = MagicMock()
+        model.predict_sentiment.return_value = (
+            ["negative"],
+            [[["positive", 0.05], ["negative", 0.9], ["neutral", 0.05]]],
+        )
+
+        result = classify_sentiment(model, ["Spieler fällt wochenlang verletzt aus"])
+
+        self.assertEqual(result, [{"label": "negative", "score": 0.9, "signed_score": 0.05 - 0.9}])
+
+    def test_negation_override_does_not_trigger_for_squad_exclusion_context(self):
+        # Kollisions-Schutz: 'ausgeschlossen' im Kader-/Startelf-Kontext ist
+        # die GEGENTEILIGE, echte negative Bedeutung (Verletzung/Formkrise) -
+        # darf NICHT ueberschrieben werden, nur weil das Reizwort uebereinstimmt.
+        model = MagicMock()
+        model.predict_sentiment.return_value = (
+            ["negative"],
+            [[["positive", 0.05], ["negative", 0.85], ["neutral", 0.1]]],
+        )
+
+        result = classify_sentiment(model, ["Spieler X aus dem Kader ausgeschlossen"])
+
+        self.assertEqual(result, [{"label": "negative", "score": 0.85, "signed_score": 0.05 - 0.85}])
+
+    def test_negation_override_only_applies_to_negative_label(self):
+        # Cue-Wort allein reicht nicht - nur ein vom Modell als "negative"
+        # klassifizierter Text wird ueberhaupt geprueft.
+        model = MagicMock()
+        model.predict_sentiment.return_value = (
+            ["neutral"],
+            [[["positive", 0.2], ["negative", 0.3], ["neutral", 0.5]]],
+        )
+
+        result = classify_sentiment(model, ["Wechsel ausgeschlossen, sagt Trainer"])
+
+        self.assertEqual(result, [{"label": "neutral", "score": 0.5, "signed_score": 0.2 - 0.3}])
 
 
 class CollectNewsSentimentTests(unittest.TestCase):
@@ -241,6 +294,7 @@ class CollectNewsSentimentTests(unittest.TestCase):
         self.assertEqual(entry["pub_date"], "2026-08-01")
         self.assertEqual(entry["sentiment_label"], "positive")
         self.assertEqual(entry["sentiment_score"], 0.9)
+        self.assertEqual(entry["sentiment_signed_score"], 0.9 - 0.05)
         self.assertEqual(entry["date"], self._today())
         self.assertEqual(entry["article_hash"], hashlib.sha1(b"https://example.com/a1").hexdigest()[:12])
         mock_model_cls.return_value.predict_sentiment.assert_called_once_with(["Tor fuer Krauss"], output_probabilities=True)
