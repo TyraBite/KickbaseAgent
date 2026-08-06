@@ -781,6 +781,16 @@ class SentimentFeaturesAsOfTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             _sentiment_features_as_of(articles, datetime.date(2026, 8, 2))
 
+    def test_signed_score_of_exactly_zero_is_used_not_treated_as_missing(self):
+        # Grenzfall fuer die is-not-None-Praesenzpruefung in
+        # _article_signed_score(): 0.0 ist ein gueltiger, echter signed_score
+        # (z.B. der geglaettete Negations-Override-Fall in
+        # news_sentiment.py::classify_sentiment()) und darf NICHT als
+        # "fehlend" behandelt werden, obwohl er falsy ist.
+        articles = [{"pub_date": "2026-08-01", "sentiment_label": "negative", "sentiment_signed_score": 0.0}]
+        result = _sentiment_features_as_of(articles, datetime.date(2026, 8, 2))
+        self.assertEqual(result["avg_sentiment_7d"], 0.0)
+
     def test_uses_signed_score_when_present_instead_of_label(self):
         articles = [
             {"pub_date": "2026-08-01", "sentiment_label": "neutral", "sentiment_signed_score": -0.6},
