@@ -25,10 +25,24 @@ test.describe("Wunschkader-Kartenkopf bei langen Spielernamen", () => {
       <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
-    const heights = await page.evaluate(() => {
+    const debugInfo = await page.evaluate(() => {
       const cards = Array.from(document.querySelectorAll(".grid > div")).filter((el) => el.querySelector("dl"));
-      return cards.map((el) => el.getBoundingClientRect().height);
+      return cards.map((el) => {
+        const header = el.querySelector(":scope > div");
+        const nameSpan = el.querySelector("span.font-semibold");
+        return {
+          cardWidth: el.getBoundingClientRect().width,
+          cardHeight: el.getBoundingClientRect().height,
+          headerHeight: header ? header.getBoundingClientRect().height : null,
+          nameText: nameSpan ? nameSpan.textContent : null,
+          nameWidth: nameSpan ? nameSpan.getBoundingClientRect().width : null,
+          nameHeight: nameSpan ? nameSpan.getBoundingClientRect().height : null,
+        };
+      });
     });
+    console.log("DEBUG_CARD_INFO", JSON.stringify(debugInfo, null, 2));
+
+    const heights = debugInfo.map((d) => d.cardHeight);
 
     expect(heights).toHaveLength(2);
     expect(heights[0]).toBe(heights[1]);
