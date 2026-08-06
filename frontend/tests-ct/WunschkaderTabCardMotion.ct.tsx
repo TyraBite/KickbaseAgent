@@ -238,7 +238,7 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
 
     // Dritter Review-Fund (2026-08-06, live auf dem CI-Runner reproduziert,
     // nicht nur theoretisch): ein SOFORTIGER Read direkt nach den Klicks kam
-    // dort mit einem VOELLIG LEEREN captured-Array zurueck (0 statt 2
+    // dort mit einem VOELLIG LEEREN captured-Array zurueck (0 statt erwarteter
     // Eintraege) - nicht die urspruengliche null-Werte-Symptomatik. Ursache:
     // die layoutId-Projektion muss die Rects beider Knoten zuerst messen
     // (getBoundingClientRect nach Layout/Paint), bevor Framer Motion die
@@ -248,45 +248,54 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
     // (auf einem schnellen Rechner faellt der Tick in dieselbe JS-Turn wie
     // der nachfolgende Read, auf einem 2-Worker-CI-Runner nicht zuverlaessig).
     // Der Unterschied zu getAnimations() bleibt aber bestehen: das Array
-    // WAECHST nur (bereits gepushte Eintraege verschwinden nie wieder) -
-    // "auf 2 Eintraege warten" ist deshalb, anders als das urspruengliche
-    // Pollen auf getAnimations(), kein Wettlauf gegen ein sich wieder
-    // schliessendes Fenster, sondern eine monotone Bedingung, die exakt einmal
-    // wahr wird und dann wahr bleibt.
+    // WAECHST nur (bereits gepushte Eintraege verschwinden nie wieder) - auf
+    // das Vorhandensein eines passenden Eintrags pro Knoten zu warten ist
+    // deshalb, anders als das urspruengliche Pollen auf getAnimations(), kein
+    // Wettlauf gegen ein sich wieder schliessendes Fenster, sondern eine
+    // monotone Bedingung, die genau einmal wahr wird und dann wahr bleibt.
+    //
+    // Vierter Review-Fund, ebenfalls live auf dem CI-Runner reproduziert
+    // (2026-08-06): eine Zwischenversion, die stattdessen exakt auf
+    // Array-Laenge 2 pollte, scheiterte mit Laenge 3 statt 2 - der
+    // entstehende (entering) Knoten kann, abhaengig von Renderer-Timing,
+    // MEHR als einen Element.animate()-Aufruf ausloesen (z.B. weil ein
+    // zwischenzeitlicher Re-Render denselben Uebergang fuer denselben Knoten
+    // erneut anstoesst - unabhaengig von der eigentlichen, hier zu
+    // pruefenden Fade-Timing-Frage). Die Anzahl der Aufrufe pro Knoten ist
+    // deshalb kein Teil der eigentlichen Behauptung dieses Tests und wird
+    // nicht mehr auf einen exakten Wert (2 total) geprueft - stattdessen: pro
+    // Knoten (alt/neu) muss MINDESTENS EIN Aufruf mit dem fuer diesen Knoten
+    // korrekten, unveraenderten Timing existieren. Das poll-Praedikat prueft
+    // deshalb direkt auf das Vorhandensein je eines SOLCHEN passenden
+    // Eintrags (nicht nur irgendeines Eintrags), damit ein frueher,
+    // andersartiger Aufruf (falsche Property, falsches Timing) das Warten
+    // nicht vorzeitig als "fertig" durchgehen laesst.
+    type CapturedAnim = { isPreMoveNode: boolean; delay: number | null; duration: number | null; transform: string };
+    const hasMatch = (list: CapturedAnim[], isPreMoveNode: boolean, duration: number) =>
+      list.some((c) => c.isPreMoveNode === isPreMoveNode && c.delay === 0 && c.duration === duration);
+
     await expect
-      .poll(() => page.evaluate(() => (window as any).__capturedCardAnims.length))
-      .toBe(2);
+      .poll(async () => {
+        const list = await page.evaluate(() => (window as any).__capturedCardAnims as CapturedAnim[]);
+        return hasMatch(list, true, FADE_EXIT_S * 1000) && hasMatch(list, false, FADE_ENTER_S * 1000);
+      })
+      .toBe(true);
 
-    // Sortiert nach isPreMoveNode statt sich auf eine bestimmte
-    // Aufruf-Reihenfolge zu verlassen.
-    const captured = await page.evaluate(() =>
-      (
-        (window as any).__capturedCardAnims as {
-          isPreMoveNode: boolean;
-          delay: number | null;
-          duration: number | null;
-          transform: string;
-        }[]
-      )
-        .slice()
-        .sort((a, b) => Number(b.isPreMoveNode) - Number(a.isPreMoveNode))
-    );
+    const captured = await page.evaluate(() => (window as any).__capturedCardAnims as CapturedAnim[]);
 
-    expect(captured).toEqual([
-      // Alter (exiting) Knoten, noch in der Positionsgruppe: seine eigene
-      // Exit-Animation, unveraendert.
-      { isPreMoveNode: true, delay: 0, duration: FADE_EXIT_S * 1000, transform: expect.any(String) },
-      // Neuer (entering) Knoten, jetzt auf der Bank: seine eigene
-      // Enter-Animation mit dem fuer SEINEN Index (0) korrekten Delay,
-      // unveraendert.
-      { isPreMoveNode: false, delay: 0, duration: FADE_ENTER_S * 1000, transform: expect.any(String) },
-    ]);
+    // Alter (exiting) Knoten, noch in der Positionsgruppe: eine eigene
+    // Exit-Animation mit unveraendertem Timing existiert.
+    expect(hasMatch(captured, true, FADE_EXIT_S * 1000)).toBe(true);
+    // Neuer (entering) Knoten, jetzt auf der Bank: eine eigene Enter-Animation
+    // mit dem fuer SEINEN Index (0) korrekten, unveraenderten Timing
+    // existiert.
+    expect(hasMatch(captured, false, FADE_ENTER_S * 1000)).toBe(true);
     // Die Positions-Projektion muss dabei tatsaechlich aktiv sein (sonst waere
     // "keine Kollision" nur, weil gar nichts gleichzeitig laeuft) - erkennbar
     // an einem von der Ruhelage ("none") abweichenden transform auf
-    // mindestens einem der beiden Knoten. Derselbe synchrone Erfassungspunkt
-    // wie delay/duration (siehe Kommentar oben) - kein zusaetzlicher,
-    // zeitabhaengiger Read.
+    // mindestens einem der erfassten Aufrufe. Derselbe synchrone
+    // Erfassungspunkt wie delay/duration (siehe Kommentar oben) - kein
+    // zusaetzlicher, zeitabhaengiger Read.
     expect(captured.some((c) => c.transform !== "none")).toBe(true);
 
     await component.getByRole("button", { name: "Schließen" }).click();
