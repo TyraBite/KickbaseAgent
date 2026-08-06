@@ -160,6 +160,23 @@ export function IconActionTrash(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+// Greifpunkt-Glyphe (zwei Spalten x drei Punkte) fuer den Drag-Handle der
+// Wunschkader-Karten - das etablierte Muster fuer "hier anfassen und ziehen".
+// Bewusst nur Kreise: der Handle ist klein (Icon 16px in einem 44px-Tap-Ziel),
+// eine detailreichere Form waere dort nicht mehr lesbar.
+export function IconDragHandle(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Ziehen" {...props}>
+      <circle cx="9" cy="6" r="1.7" />
+      <circle cx="15" cy="6" r="1.7" />
+      <circle cx="9" cy="12" r="1.7" />
+      <circle cx="15" cy="12" r="1.7" />
+      <circle cx="9" cy="18" r="1.7" />
+      <circle cx="15" cy="18" r="1.7" />
+    </svg>
+  );
+}
+
 export function IconMenu(props: SVGProps<SVGSVGElement>) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Menü" {...props}>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
@@ -12,7 +12,7 @@ import { Badge, CARD_TONE_CLASSES, ModalOverlay, PositionBadge, Row, SignalBadge
 import { budgetTone, fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerCompareModal from "./PlayerCompareModal";
-import { IconActionBank, IconActionField, IconActionSwap, IconActionTrash } from "./icons";
+import { IconActionBank, IconActionField, IconActionSwap, IconActionTrash, IconDragHandle } from "./icons";
 
 const ML_PREDICTION_THRESHOLDS = { flat: 20_000, strong: 100_000 };
 const ML_PREDICTION_3D_THRESHOLDS = { flat: 210_000, strong: 420_000 };
@@ -27,6 +27,37 @@ const SAVE_INDICATOR_DISMISS_MS = 2500;
 // automatisch gespeichert wird - verhindert einen Firestore-Write pro
 // Zeichen (User-Feedback f462d415, "wirkliches Auto-Save").
 const NOTE_SAVE_DEBOUNCE_MS = 800;
+
+// Origin-Constraints statt eines ref-basierten Rechtecks (Final-Review-Fund
+// 2026-08-06): die Drop-Zone wird ausschliesslich ueber die Zeigerposition
+// bestimmt (handleCardDragEnd), die Karte selbst muss deshalb nach JEDEM
+// Loslassen wieder an ihren Layout-Platz zurueck - auch dann, wenn kein
+// Bank/Startelf-Wechsel ausgeloest wurde.
+//
+// Warum genau diese Kombination (im framer-motion-13-Quellcode nachgelesen,
+// nicht geraten):
+//   - {left:0,right:0,top:0,bottom:0} ergibt ueber calcRelativeConstraints()
+//     + rebaseAxisConstraints() (gestures/drag/utils/constraints.mjs) pro
+//     Achse ein {min:0,max:0}-Fenster. startAnimation() in
+//     VisualElementDragControls.mjs uebergibt genau dieses Fenster als
+//     min/max der Inertia-Animation nach dem Loslassen - die Karte federt
+//     damit garantiert auf x=0/y=0 zurueck.
+//   - Ein WEITES Rechteck (vorher: dragConstraints={cardsAreaRef}) tut das
+//     nicht: die Inertia-Animation laeuft dann innerhalb des erlaubten
+//     Bereichs aus und bleibt dort dauerhaft stehen. framer-motion schreibt
+//     x/y als eigene MotionValues und markiert sie nach dem Drag als
+//     "protected", d.h. auch keine spaetere Layout-Passage setzt sie zurueck
+//     (live gemessen: Karte blieb bei y+108.5px stehen, ueber Re-Renders
+//     hinweg - genau der Steckenbleib-Bug, den dieser Wert behebt).
+//   - dragElastic={1} hebt die Begrenzung WAEHREND des Ziehens vollstaendig
+//     auf: applyConstraints() mischt bei elastic=1 exakt auf die
+//     Zeigerposition, die Karte folgt also weiterhin 1:1 dem Finger/Cursor
+//     bis in die Bank hinein.
+// dragSnapToOrigin waere der naheliegende Weg, ist hier aber verboten - es
+// hat live den Enter-Replay der Stagger-Animation zerschossen (siehe
+// WunschkaderTabCardMotion.ct.tsx, "Enter-Animation wird bei jedem
+// (Wieder-)Aktivieren neu abgespielt").
+const DRAG_RETURN_TO_ORIGIN = { left: 0, right: 0, top: 0, bottom: 0 };
 
 type SaveStatus = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string };
 
@@ -427,35 +458,12 @@ export default function WunschkaderTab({
 
   const totalCount = editState.length;
 
-  // cardsAreaRef zeigt bewusst auf den bereits vorhandenen Wurzel-<div> des
-  // gesamten Tabs (unten am return), nicht auf einen zusaetzlichen
-  // `display: contents`-Wrapper nur um die Positionsgruppen+Bank. Ein
-  // eigener `contents`-Wrapper wurde live getestet und hat die
-  // framer-motion-`layoutId`-Projektion der Karten kaputt gemacht (Karten
-  // rendern mit opacity:0 und einem Transform, der exakt die negative
-  // Position ihres Grids abbildet) - `display: contents` liefert ein
-  // getBoundingClientRect() von (0,0,0,0), auf das motion beim
-  // Layout-Tracking offenbar angewiesen ist. Der Tab-Wurzel-Container ist ein
-  // normaler Block und dadurch unproblematisch; als dragConstraints-Grenze
-  // ist "der ganze Tab" ohnehin die sinnvollere Grenze als nur die
-  // Kartenbereiche.
-  const cardsAreaRef = useRef<HTMLDivElement>(null);
+  // Nur noch die Bank braucht einen Ref: sie ist die einzige Zielzone, gegen
+  // deren Rechteck der Drop-Punkt geprueft wird (siehe handleCardDragEnd).
+  // Ein Ref auf den gesamten Kartenbereich ist seit den Origin-Constraints
+  // (DRAG_RETURN_TO_ORIGIN, siehe oben) nicht mehr noetig.
   const bankGridRef = useRef<HTMLDivElement>(null);
 
-  // Bewusst OHNE `dragSnapToOrigin` an den Karten-motion.divs (siehe unten):
-  // live gegen die bestehende WunschkaderTabCardMotion.ct.tsx-Testsuite
-  // verifiziert, dass `dragSnapToOrigin` in Kombination mit dem
-  // index-basierten Stagger-Delay (siehe staggerItemVariants) den
-  // Enter-Replay beim erneuten Aktivieren des Tabs kaputt macht (zweiter
-  // isActive-Wechsel true->false->true loeste keine neue WAAPI-Animation
-  // mehr aus, getAnimations() blieb bei [null, null] statt [0, stepMs] -
-  // Regressionsfund, kein theoretisches Risiko). Ohne dragSnapToOrigin bleibt
-  // eine Karte nach einem Drop, der KEINEN Bank/Startelf-Wechsel ausloest
-  // (z.B. Ziehen und an derselben Stelle wieder loslassen), bis zur naechsten
-  // Render-Passage leicht versetzt stehen statt sofort zurueckzuspringen -
-  // ein rein kosmetischer Kompromiss, der laut Task-Brief explizit als
-  // Fallback vorgesehen war.
-  //
   // Drop-Zonen-Check ist bewusst binaer (Bank-Rechteck vs. "ausserhalb") statt
   // vier separaten Positionsgruppen-Rechtecken - jede Karte gehoert per
   // Definition zu genau einer Positionsgruppe (byPosition gruppiert nach der
@@ -477,6 +485,12 @@ export default function WunschkaderTab({
   // waere systematisch um den Scroll-Offset verschoben (Review-Fund).
   // event.clientX/clientY ist ebenfalls Viewport-relativ und passt damit zu
   // getBoundingClientRect() - keine Scroll-Offset-Arithmetik noetig.
+  //
+  // Bewusste MVP-Grenze: es gibt KEIN Auto-Scrollen waehrend des Ziehens.
+  // Drag ist die Kurzstrecken-Bequemlichkeit fuer eine Zielzone, die gerade
+  // mit auf dem Bildschirm ist; liegen Karte und Zielzone bei einem hohen/
+  // gescrollten Kader weit auseinander, bleibt der bestehende
+  // "Bank"/"Startelf"-Button in der Detailansicht der zuverlaessige Weg.
   function handleCardDragEnd(target: EditTarget, event: MouseEvent | TouchEvent | PointerEvent) {
     const bankEl = bankGridRef.current;
     if (!bankEl) return;
@@ -498,7 +512,7 @@ export default function WunschkaderTab({
   }
 
   return (
-    <div ref={cardsAreaRef}>
+    <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm text-slate-600 dark:text-slate-300">
           Formation:{" "}
@@ -587,29 +601,17 @@ export default function WunschkaderTab({
                 {targets.map((t, index) => {
                   const computed = resolvedByPlayerId.get(t.player_id)!;
                   return (
-                    <motion.div
+                    <TargetCard
                       key={t._uid}
-                      layoutId={`wunschkader-${t._uid}`}
-                      custom={index}
-                      variants={staggerItemVariants}
-                      initial="initial"
-                      animate={isActive ? "animate" : "initial"}
-                      exit="exit"
-                      drag
-                      dragConstraints={cardsAreaRef}
-                      dragElastic={0.15}
-                      whileDrag={{ scale: 1.03, zIndex: 10 }}
+                      target={t}
+                      computed={computed}
+                      thresholds={thresholds}
+                      clubCount={computed.team_name ? clubCounts[computed.team_name] ?? 0 : 0}
+                      staggerIndex={index}
+                      isActive={isActive}
+                      onSelect={() => setSelected(t)}
                       onDragEnd={(event) => handleCardDragEnd(t, event)}
-                      data-swipe-ignore
-                    >
-                      <TargetCard
-                        target={t}
-                        computed={computed}
-                        thresholds={thresholds}
-                        clubCount={computed.team_name ? clubCounts[computed.team_name] ?? 0 : 0}
-                        onSelect={() => setSelected(t)}
-                      />
-                    </motion.div>
+                    />
                   );
                 })}
               </AnimatePresence>
@@ -628,23 +630,17 @@ export default function WunschkaderTab({
             {bench.map((t, index) => {
               const computed = resolvedByPlayerId.get(t.player_id)!;
               return (
-                <motion.div
+                <TargetCard
                   key={t._uid}
-                  layoutId={`wunschkader-${t._uid}`}
-                  custom={index}
-                  variants={staggerItemVariants}
-                  initial="initial"
-                  animate={isActive ? "animate" : "initial"}
-                  exit="exit"
-                  drag
-                  dragConstraints={cardsAreaRef}
-                  dragElastic={0.15}
-                  whileDrag={{ scale: 1.03, zIndex: 10 }}
+                  target={t}
+                  computed={computed}
+                  thresholds={thresholds}
+                  clubCount={0}
+                  staggerIndex={index}
+                  isActive={isActive}
+                  onSelect={() => setSelected(t)}
                   onDragEnd={(event) => handleCardDragEnd(t, event)}
-                  data-swipe-ignore
-                >
-                  <TargetCard target={t} computed={computed} thresholds={thresholds} clubCount={0} onSelect={() => setSelected(t)} />
-                </motion.div>
+                />
               );
             })}
           </AnimatePresence>
@@ -688,53 +684,131 @@ export default function WunschkaderTab({
   );
 }
 
+// Die Karte bringt ihren Motion-Wrapper selbst mit, statt an der Aufrufstelle
+// in ein motion.div gewickelt zu werden - noetig, weil useDragControls() ein
+// Hook ist und deshalb in einer echten Komponenten-Instanz aufgerufen werden
+// muss, nicht in einem .map()-Callback (React-Hook-Regeln). Genau dieser
+// Hook ist die Voraussetzung fuer das Drag-Handle-Muster unten.
 function TargetCard({
   target,
   computed,
   thresholds,
   clubCount,
+  staggerIndex,
+  isActive,
   onSelect,
+  onDragEnd,
 }: {
   target: EditTarget;
   computed: ResolvedTarget;
   thresholds: DashboardSnapshot["signal_thresholds"];
   clubCount: number;
+  // Index innerhalb der eigenen Gruppe (Positionsgruppe bzw. Bank) - steuert
+  // ueber `custom` den index-basierten Stagger-Delay, siehe staggerItemVariants.
+  staggerIndex: number;
+  isActive: boolean;
   onSelect: () => void;
+  onDragEnd: (event: MouseEvent | TouchEvent | PointerEvent) => void;
 }) {
   const tone = cardTone(computed.status);
+  // Drag startet ausschliesslich ueber den Handle unten (dragListener={false}
+  // schaltet framer-motions eigenen Pointer-Listener auf dem Karten-Element
+  // ab). Zwei Fehler, die dieses Muster gleichzeitig behebt (beide live im
+  // Browser gefunden, Final-Review 2026-08-06):
+  //   1. Am Desktop feuerte Chromium nach mousedown+mousemove+mouseup auf
+  //      derselben Karte trotz laufender Drag-Geste zusaetzlich ein echtes
+  //      `click` - framer-motion unterdrueckt nur seinen eigenen onTap, nicht
+  //      das native Click-Event. Ergebnis: jeder Maus-Drag oeffnete hinterher
+  //      das Detail-Modal. Da der Handle ein GESCHWISTER des klickbaren
+  //      Kartenkoerpers ist (nicht dessen Kind), kann ein Click aus einer
+  //      Drag-Geste den onClick des Koerpers gar nicht mehr erreichen - kein
+  //      "war das ein Drag?"-Heuristik-Flickwerk noetig.
+  //   2. framer-motion setzt `touch-action: none` + `user-select: none` inline
+  //      auf jedes Element mit `drag` - aber nur solange
+  //      `dragListener !== false` (render/html/use-props.mjs). Auf der ganzen
+  //      Karte hat das mobil das vertikale Seiten-Scrollen praktisch ueberall
+  //      im Tab blockiert (einspaltige Karten fuellen fast die volle Breite).
+  //      Mit dragListener={false} entfaellt das; touch-action: none braucht
+  //      jetzt nur noch der kleine Handle selbst (Klasse `touch-none`), sonst
+  //      uebernimmt dort der Browser-Scroll die Geste, bevor framer-motion
+  //      Pointer-Moves sieht.
+  const dragControls = useDragControls();
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      className={`cursor-pointer rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:hover:border-brand-600 ${CARD_TONE_CLASSES[tone]}`}
+    <motion.div
+      layoutId={`wunschkader-${target._uid}`}
+      custom={staggerIndex}
+      variants={staggerItemVariants}
+      initial="initial"
+      animate={isActive ? "animate" : "initial"}
+      exit="exit"
+      drag
+      dragListener={false}
+      dragControls={dragControls}
+      dragConstraints={DRAG_RETURN_TO_ORIGIN}
+      dragElastic={1}
+      whileDrag={{ scale: 1.03, zIndex: 10 }}
+      onDragEnd={onDragEnd}
+      data-swipe-ignore
+      className="relative"
     >
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <TeamCrest teamName={computed.team_name} />
-        <PositionBadge position={computed.position} />
-        <span className="font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
-        {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
-        {clubCount >= 4 && (
-          <Badge tone="warn">
-            {clubCount}× {computed.team_name}
-          </Badge>
-        )}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
+        className={`cursor-pointer rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-500/40 dark:hover:border-brand-600 ${CARD_TONE_CLASSES[tone]}`}
+      >
+        {/* pr-10 haelt die Kopfzeile frei von dem darueberliegenden Handle in
+            der rechten oberen Ecke - ohne das laufen Name/Badges bei langen
+            Namen unter den Handle. */}
+        <div className="mb-3 flex flex-wrap items-center gap-2 pr-10">
+          <TeamCrest teamName={computed.team_name} />
+          <PositionBadge position={computed.position} />
+          <span className="font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
+          {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
+          {clubCount >= 4 && (
+            <Badge tone="warn">
+              {clubCount}× {computed.team_name}
+            </Badge>
+          )}
+        </div>
+        <dl className="space-y-1.5 text-sm">
+          <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
+          <Row label="Startelf-Rang">
+            {computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}
+          </Row>
+          <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
+          <Row label="Signal">
+            <SignalBadge signal={computed.signal} thresholds={thresholds} />
+          </Row>
+        </dl>
       </div>
-      <dl className="space-y-1.5 text-sm">
-        <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
-        <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-        <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
-        <Row label="Signal">
-          <SignalBadge signal={computed.signal} thresholds={thresholds} />
-        </Row>
-      </dl>
-    </div>
+      {/* Bewusst GESCHWISTER des Kartenkoerpers, nicht dessen Kind - siehe
+          Punkt 1 im Kommentar oben (ein Click aus der Drag-Geste darf den
+          onClick des Koerpers nicht erreichen). 44px Tap-Ziel (h-11 w-11)
+          nach der Mobile-Konvention dieses Projekts, das Glyph selbst
+          bleibt klein. tabIndex={-1}: der Handle ist eine reine
+          Zeiger-Bequemlichkeit; der Tastatur-/Screenreader-Weg fuer
+          Bank<->Startelf bleibt der unveraenderte Button in der
+          Detailansicht, ein zusaetzlicher Tab-Stop ohne eigene
+          Tastatur-Funktion waere nur Ballast. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Karte ziehen"
+        title="Zum Verschieben ziehen"
+        draggable={false}
+        onPointerDown={(event) => dragControls.start(event)}
+        className="absolute right-1 top-1 flex h-11 w-11 touch-none select-none items-center justify-center rounded-full text-slate-400 hover:bg-slate-200/70 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-700/70 dark:hover:text-slate-300"
+      >
+        <IconDragHandle aria-hidden className="h-4 w-4" />
+      </button>
+    </motion.div>
   );
 }
 
