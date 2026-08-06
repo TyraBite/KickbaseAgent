@@ -133,7 +133,7 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
   // Reorder-Interaktions-Beleg (Review-Fund 2026-08-06: die urspruengliche
   // Version dieses Tests pruefte nur den bereits SETTLEDen Endzustand
   // (opacity "1"), nicht die eigentliche Behauptung "die layoutId-Reorder-
-  // Animation kollidiert nicht mit dem index-basierten Delay". Ground Truth
+  // Animation kollidiert nicht mit dem index-basierten Delay"). Ground Truth
   // per DOM-Untersuchung waehrend der Transition (nicht angenommen):
   // Bank und Positionsgruppe sind unterschiedliche Eltern-Grids, ein
   // Wechsel per Button ist deshalb ein GENUINER React-Unmount+Mount (zwei
@@ -143,14 +143,37 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
   // sich kontinuierlich aendernden `transform`, das NICHT ueber
   // getAnimations() laeuft - Framer Motions eigene rAF-getriebene
   // Projektion, kein natives WAAPI-Objekt). Die opacity/y-Variante (unser
-  // Exit/Enter) LAEUFT dagegen als eigenes natives WAAPI-Animation-Objekt,
-  // getrennt von dieser Projektion. Der Test unten beweist das direkt: waehrend
-  // beide Knoten nebeneinander im DOM stehen, hat der ALTE (exiting) Knoten
-  // unveraendert die konfigurierte Exit-Dauer (FADE_EXIT_S, kein Delay), der
-  // NEUE (entering) Knoten unveraendert die konfigurierte Enter-Dauer +
-  // sein eigenes index-basiertes Delay (0, da einziges Ziel auf der Bank) -
-  // keins der beiden Timings wird durch die gleichzeitig laufende
-  // Positions-Projektion verfaelscht.
+  // Exit/Enter) LAEUFT dagegen als eigenes natives WAAPI-Animation-Objekt
+  // (Element.animate()), getrennt von dieser Projektion.
+  //
+  // Zweiter Review-Fund, diesmal ein ECHTER CI-Fehlschlag (2026-08-06): eine
+  // erste Version dieses Tests las die Timings per getAnimations() NACH dem
+  // Klick, ungepollt. Auf einem langsameren Runner war das Zeitfenster
+  // (130ms/180ms) zwischen Klick und Read bereits geschlossen - Framer Motion
+  // hatte die fertigen WAAPI-Animationen schon aus getAnimations() entfernt,
+  // delay/duration kamen als null zurueck (kein Produktbug, reine
+  // Test-Racing-Schwaeche). Pollen loest das NICHT zuverlaessig: ist das
+  // Zeitfenster bereits VOR dem ersten Poll-Versuch geschlossen, liefert auch
+  // jeder weitere Versuch dauerhaft null - mehr Versuche helfen nicht gegen
+  // ein Fenster, das sich nicht wieder oeffnet. Stattdessen faengt dieser Test
+  // jeden Element.animate()-Aufruf SYNCHRON beim Erzeugen ab (Element.prototype.
+  // animate patchen, bevor der Klick ausgeloest wird) - die Werte werden
+  // eingefangen, bevor ueberhaupt Echtzeit vergehen kann, und bleiben im
+  // Testkontext erhalten, unabhaengig davon, wie viel Zeit bis zum Read
+  // vergeht oder wie schnell/langsam der Runner ist.
+  //
+  // Der `transform`-Beleg (siehe oben, "Positions-Projektion tatsaechlich
+  // aktiv") wird an derselben synchronen Erfassungsstelle mitgenommen -
+  // ebenfalls ohne jede Zeitabhaengigkeit, kein zweiter, potenziell racender
+  // Read noetig. Empirisch verifiziert (2026-08-06): im selben Moment, in dem
+  // Framer Motion Element.animate() fuer die Opacity/Y-Transition aufruft, hat
+  // die rAF-Projektion bereits eine von der Ruhelage abweichende Matrix
+  // gesetzt (z.B. "matrix(1, 0, 0, 1, 0, 1.34006)" / "matrix(1, 0, 0, 1, 0,
+  // -442.66)") - die Projektion laeuft also bereits, bevor die WAAPI-Animation
+  // ueberhaupt gestartet ist. Deshalb ist ein synchroner
+  // getComputedStyle(...).transform-Read genau hier so racefrei wie
+  // delay/duration und beweist weiterhin, dass "keine Kollision" keine
+  // vakuose Aussage ist (etwas laeuft nachweislich gleichzeitig).
   test("Reorder: Exit- und Enter-Timing bleiben waehrend der layoutId-Positions-Projektion unveraendert, danach genau eine sichtbare Instanz", async ({
     mount,
     page,
@@ -163,36 +186,62 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
     await expect.poll(() => readCardDelaysMs(page)).toEqual([null]);
 
     // Aktuellen (einzigen) Karten-Knoten markieren, damit wir ihn nach dem
-    // Wechsel zweifelsfrei vom neuen Knoten unterscheiden koennen.
+    // Wechsel zweifelsfrei vom neuen Knoten unterscheiden koennen - das
+    // Attribut bleibt auch nach dem Entfernen aus dem DOM lesbar (haengt nicht
+    // an der Dokument-Anbindung).
     await page.evaluate(() => {
       document.querySelectorAll(".grid > div").forEach((el) => {
         if (el.querySelector("dl")) el.setAttribute("data-pre-move", "true");
       });
     });
 
+    // Patch VOR dem Klick installieren, damit beide durch den Wechsel
+    // ausgeloesten animate()-Aufrufe (Exit des alten, Enter des neuen Knotens)
+    // sicher erfasst werden.
+    await page.evaluate(() => {
+      (window as any).__capturedCardAnims = [] as {
+        isPreMoveNode: boolean;
+        delay: number | null;
+        duration: number | null;
+        transform: string;
+      }[];
+      const originalAnimate = Element.prototype.animate;
+      Element.prototype.animate = function (this: Element, keyframes: unknown, options: unknown) {
+        const anim = originalAnimate.call(this, keyframes as Keyframe[], options as KeyframeAnimationOptions);
+        if (this.querySelector("dl")) {
+          const timing = anim.effect?.getComputedTiming();
+          (window as any).__capturedCardAnims.push({
+            isPreMoveNode: this.hasAttribute("data-pre-move"),
+            delay: timing?.delay ?? null,
+            duration: timing?.duration ?? null,
+            transform: getComputedStyle(this).transform,
+          });
+        }
+        return anim;
+      };
+    });
+
     await component.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
     await component.getByRole("button", { name: "Bank" }).click();
 
-    // Waehrend beide Knoten nebeneinander im DOM stehen (alter exiting +
-    // neuer entering): exakt zwei Karten-Wrapper, mit ihren jeweils EIGENEN,
-    // unveraenderten Timings. Ein direkter, ungepollter Read reicht (siehe
-    // readCardDelaysMs-Kommentar oben) - beide Animationen laufen zu diesem
-    // Zeitpunkt garantiert noch (130ms/180ms >> Evaluate-Rundlaufzeit).
-    const midTransition = await page.evaluate(() => {
-      const cards = Array.from(document.querySelectorAll(".grid > div")).filter((el) => el.querySelector("dl"));
-      return cards.map((el) => {
-        const anim = (el as HTMLElement).getAnimations()[0];
-        const timing = anim?.effect?.getComputedTiming();
-        return {
-          isPreMoveNode: el.hasAttribute("data-pre-move"),
-          delay: timing?.delay ?? null,
-          duration: timing?.duration ?? null,
-          transform: getComputedStyle(el).transform,
-        };
-      });
-    });
+    // Kein Warten/Pollen noetig - die Werte wurden bereits synchron beim
+    // Ausloesen des Wechsels eingefangen, unabhaengig davon, wie viel Zeit bis
+    // zu diesem Read vergeht. Sortiert nach isPreMoveNode statt sich auf eine
+    // bestimmte Aufruf-Reihenfolge zu verlassen.
+    const captured = await page.evaluate(() =>
+      (
+        (window as any).__capturedCardAnims as {
+          isPreMoveNode: boolean;
+          delay: number | null;
+          duration: number | null;
+          transform: string;
+        }[]
+      )
+        .slice()
+        .sort((a, b) => Number(b.isPreMoveNode) - Number(a.isPreMoveNode))
+    );
 
-    expect(midTransition).toEqual([
+    expect(captured).toEqual([
       // Alter (exiting) Knoten, noch in der Positionsgruppe: seine eigene
       // Exit-Animation, unveraendert.
       { isPreMoveNode: true, delay: 0, duration: FADE_EXIT_S * 1000, transform: expect.any(String) },
@@ -204,8 +253,10 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
     // Die Positions-Projektion muss dabei tatsaechlich aktiv sein (sonst waere
     // "keine Kollision" nur, weil gar nichts gleichzeitig laeuft) - erkennbar
     // an einem von der Ruhelage ("none") abweichenden transform auf
-    // mindestens einem der beiden Knoten.
-    expect(midTransition.some((c) => c.transform !== "none")).toBe(true);
+    // mindestens einem der beiden Knoten. Derselbe synchrone Erfassungspunkt
+    // wie delay/duration (siehe Kommentar oben) - kein zusaetzlicher,
+    // zeitabhaengiger Read.
+    expect(captured.some((c) => c.transform !== "none")).toBe(true);
 
     await component.getByRole("button", { name: "Schließen" }).click();
 
