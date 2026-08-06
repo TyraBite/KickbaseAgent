@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, type PanInfo } from "framer-motion";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
@@ -427,8 +427,58 @@ export default function WunschkaderTab({
 
   const totalCount = editState.length;
 
+  // cardsAreaRef zeigt bewusst auf den bereits vorhandenen Wurzel-<div> des
+  // gesamten Tabs (unten am return), nicht auf einen zusaetzlichen
+  // `display: contents`-Wrapper nur um die Positionsgruppen+Bank. Ein
+  // eigener `contents`-Wrapper wurde live getestet und hat die
+  // framer-motion-`layoutId`-Projektion der Karten kaputt gemacht (Karten
+  // rendern mit opacity:0 und einem Transform, der exakt die negative
+  // Position ihres Grids abbildet) - `display: contents` liefert ein
+  // getBoundingClientRect() von (0,0,0,0), auf das motion beim
+  // Layout-Tracking offenbar angewiesen ist. Der Tab-Wurzel-Container ist ein
+  // normaler Block und dadurch unproblematisch; als dragConstraints-Grenze
+  // ist "der ganze Tab" ohnehin die sinnvollere Grenze als nur die
+  // Kartenbereiche.
+  const cardsAreaRef = useRef<HTMLDivElement>(null);
+  const bankGridRef = useRef<HTMLDivElement>(null);
+
+  // Bewusst OHNE `dragSnapToOrigin` an den Karten-motion.divs (siehe unten):
+  // live gegen die bestehende WunschkaderTabCardMotion.ct.tsx-Testsuite
+  // verifiziert, dass `dragSnapToOrigin` in Kombination mit dem
+  // index-basierten Stagger-Delay (siehe staggerItemVariants) den
+  // Enter-Replay beim erneuten Aktivieren des Tabs kaputt macht (zweiter
+  // isActive-Wechsel true->false->true loeste keine neue WAAPI-Animation
+  // mehr aus, getAnimations() blieb bei [null, null] statt [0, stepMs] -
+  // Regressionsfund, kein theoretisches Risiko). Ohne dragSnapToOrigin bleibt
+  // eine Karte nach einem Drop, der KEINEN Bank/Startelf-Wechsel ausloest
+  // (z.B. Ziehen und an derselben Stelle wieder loslassen), bis zur naechsten
+  // Render-Passage leicht versetzt stehen statt sofort zurueckzuspringen -
+  // ein rein kosmetischer Kompromiss, der laut Task-Brief explizit als
+  // Fallback vorgesehen war.
+  //
+  // Drop-Zonen-Check ist bewusst binaer (Bank-Rechteck vs. "ausserhalb") statt
+  // vier separaten Positionsgruppen-Rechtecken - jede Karte gehoert per
+  // Definition zu genau einer Positionsgruppe (byPosition gruppiert nach der
+  // echten Spielerposition, siehe oben), es gibt also nur EINE sinnvolle
+  // Zielzone pro Karte ausserhalb der Bank. toggleBench() prueft bewusst
+  // KEINE Formations-Machbarkeit (Kommentar weiter unten bei "Formation:") -
+  // der Drag-Handler uebernimmt dieselbe Semantik 1:1, keine neue Regel.
+  function handleCardDragEnd(target: EditTarget, info: PanInfo) {
+    const bankEl = bankGridRef.current;
+    if (!bankEl) return;
+    const bankRect = bankEl.getBoundingClientRect();
+    const droppedOverBank =
+      info.point.x >= bankRect.left &&
+      info.point.x <= bankRect.right &&
+      info.point.y >= bankRect.top &&
+      info.point.y <= bankRect.bottom;
+    if (droppedOverBank !== isBench(target)) {
+      toggleBench(target._uid);
+    }
+  }
+
   return (
-    <div>
+    <div ref={cardsAreaRef}>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm text-slate-600 dark:text-slate-300">
           Formation:{" "}
@@ -525,6 +575,12 @@ export default function WunschkaderTab({
                       initial="initial"
                       animate={isActive ? "animate" : "initial"}
                       exit="exit"
+                      drag
+                      dragConstraints={cardsAreaRef}
+                      dragElastic={0.15}
+                      whileDrag={{ scale: 1.03, zIndex: 10 }}
+                      onDragEnd={(_event, info) => handleCardDragEnd(t, info)}
+                      data-swipe-ignore
                     >
                       <TargetCard
                         target={t}
@@ -547,7 +603,7 @@ export default function WunschkaderTab({
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Bank ({bench.length})
         </div>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+        <div ref={bankGridRef} className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
           <AnimatePresence>
             {bench.map((t, index) => {
               const computed = resolvedByPlayerId.get(t.player_id)!;
@@ -560,6 +616,12 @@ export default function WunschkaderTab({
                   initial="initial"
                   animate={isActive ? "animate" : "initial"}
                   exit="exit"
+                  drag
+                  dragConstraints={cardsAreaRef}
+                  dragElastic={0.15}
+                  whileDrag={{ scale: 1.03, zIndex: 10 }}
+                  onDragEnd={(_event, info) => handleCardDragEnd(t, info)}
+                  data-swipe-ignore
                 >
                   <TargetCard target={t} computed={computed} thresholds={thresholds} clubCount={0} onSelect={() => setSelected(t)} />
                 </motion.div>
