@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
+import { backdropVariants, fadeVariants, panelVariants, slideFadeVariants } from "./lib/motionVariants";
 import { auth, db } from "./firebase";
 import AlleSpielerTab from "./components/AlleSpielerTab";
 import DashboardTab from "./components/DashboardTab";
@@ -42,6 +44,19 @@ function useNow(intervalMs: number): number {
 }
 
 type LoadState = "loading" | "error" | "ready";
+
+type TabTransition = { kind: "fade" } | { kind: "slide"; direction: 1 | -1 };
+
+type WunschkaderPhase = "active" | "exiting" | "hidden";
+// Rein kosmetischer Nachlauf, bevor der (unveraendert gemountete) Wrapper per
+// display:none aus dem Grid-Stack genommen wird, falls onAnimationComplete
+// mal nicht zuverlaessig feuert (siehe Kommentar beim Fallback-Effect unten) -
+// betrifft nur Layout-Sauberkeit, keine State-Erhaltung (WunschkaderTab bleibt
+// so oder so permanent gemountet) und keine Klick-Durchlaessigkeit mehr
+// (dafuer sorgt jetzt pointerEvents an der Render-Stelle unten, unabhaengig
+// von dieser Zahl). Passend zum geteilten FADE_EXIT_S aus motionVariants.ts
+// (130ms), das der Wrapper unten wieder unveraendert nutzt.
+const WUNSCHKADER_EXIT_FALLBACK_MS = 200;
 
 const TABS = [
   { key: "dashboard", label: "Dashboard" },
@@ -106,7 +121,11 @@ function readStoredActiveTab(): string {
 const SWIPE_THRESHOLD_PX = 60;
 const SWIPE_MAX_VERTICAL_PX = 50;
 
-function useSwipeTabs(activeTab: string, setActiveTab: (key: string) => void) {
+function useSwipeTabs(
+  activeTab: string,
+  setActiveTab: (key: string) => void,
+  setTabTransition: (t: TabTransition) => void
+) {
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   function onTouchStart(e: ReactTouchEvent<HTMLElement>) {
@@ -132,7 +151,10 @@ function useSwipeTabs(activeTab: string, setActiveTab: (key: string) => void) {
     const activeKeys = TABS.filter((t) => ACTIVE_TABS.has(t.key)).map((t) => t.key);
     const i = activeKeys.indexOf(activeTab);
     const next = dx < 0 ? activeKeys[i + 1] : activeKeys[i - 1];
-    if (next) setActiveTab(next);
+    if (next) {
+      setTabTransition({ kind: "slide", direction: dx < 0 ? 1 : -1 });
+      setActiveTab(next);
+    }
   }
 
   return { onTouchStart, onTouchEnd };
@@ -163,8 +185,19 @@ function MobileTabMenu({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-20 bg-slate-950/50 sm:hidden" onClick={onClose}>
-      <nav
+    <motion.div
+      variants={backdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="fixed inset-0 z-40 bg-slate-950/50 sm:hidden"
+      onClick={onClose}
+    >
+      <motion.nav
+        variants={panelVariants("left")}
+        initial="initial"
+        animate="animate"
+        exit="exit"
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-72 max-w-[80vw] flex-col gap-1 overflow-y-auto bg-white p-3 shadow-xl dark:bg-slate-950"
       >
@@ -212,8 +245,8 @@ function MobileTabMenu({
             </button>
           );
         })}
-      </nav>
-    </div>
+      </motion.nav>
+    </motion.div>
   );
 }
 
@@ -225,6 +258,10 @@ export default function App() {
   const [wunschkader, setWunschkader] = useState<{ targets: RawWunschkaderTarget[] } | null>(null);
   const [activeTab, setActiveTab] = useState(readStoredActiveTab);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [tabTransition, setTabTransition] = useState<TabTransition>({ kind: "fade" });
+  const [wunschkaderPhase, setWunschkaderPhase] = useState<WunschkaderPhase>(
+    activeTab === "wunschkader" ? "active" : "hidden"
+  );
   const now = useNow(60_000);
   // data.players kann fehlen, wenn der Firestore-Snapshot noch im alten Schema
   // vorliegt (Deploy-Zeitfenster zwischen Frontend-Push und naechstem Backend-
@@ -238,12 +275,35 @@ export default function App() {
     [data, now]
   );
   const spekulationRows = useMemo(() => buildSpekulationRows(transfermarktRows), [transfermarktRows]);
-  const { onTouchStart, onTouchEnd } = useSwipeTabs(activeTab, setActiveTab);
+  const { onTouchStart, onTouchEnd } = useSwipeTabs(activeTab, setActiveTab, setTabTransition);
   const headerVisible = useHideOnScroll();
 
   useEffect(() => {
     localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    setWunschkaderPhase((prev) => {
+      if (activeTab === "wunschkader") return "active";
+      return prev === "hidden" ? "hidden" : "exiting";
+    });
+  }, [activeTab]);
+
+  // Fallback, falls onAnimationComplete durch schnelles wiederholtes
+  // Tab-Wechseln unterbrochen wird und nicht zuverlaessig einmalig feuert
+  // (siehe Spec, Abschnitt Fehlerbehandlung) - idempotent, setzt nur das,
+  // was der Callback ohnehin setzen wuerde. Rein kosmetisch: "hidden" steuert
+  // nur noch display:none am Wrapper (Grid-Hoehe), WunschkaderTab selbst
+  // bleibt in jedem Fall gemountet, State geht hier nicht mehr verloren.
+  // Klicks sind schon ab "exiting" (nicht erst ab "hidden") blockiert, siehe
+  // pointerEvents an der Render-Stelle unten.
+  useEffect(() => {
+    if (wunschkaderPhase !== "exiting") return;
+    const timeoutId = window.setTimeout(() => {
+      setWunschkaderPhase((prev) => (prev === "exiting" ? "hidden" : prev));
+    }, WUNSCHKADER_EXIT_FALLBACK_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [wunschkaderPhase]);
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u)), []);
 
@@ -293,156 +353,228 @@ export default function App() {
   if (!user) return <Login />;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <header
-        className={`sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:static sm:!translate-y-0 ${
-          headerVisible ? "translate-y-0" : "-translate-y-full"
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(true)}
-            aria-label="Menü öffnen"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 sm:hidden dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            <IconMenu className="h-5 w-5" />
-          </button>
-          <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
-            <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="h-6 w-6" />
-            KickbaseAgent
-          </h1>
-        </div>
-        {data?.generated_at && (
-          <p
-            className="text-xs text-slate-400 dark:text-slate-500"
-            title={data.generated_at}
-          >
-            Stand: {formatRelativeTime(data.generated_at, new Date(now))}
-          </p>
-        )}
-      </header>
-      <nav className="hidden gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 sm:flex dark:border-slate-800 dark:bg-slate-950">
-        {TABS.map((tab) => {
-          const isActive = ACTIVE_TABS.has(tab.key);
-          const isSelected = tab.key === activeTab;
-          const Icon = TAB_ICON[tab.key];
-          const iconTone = !isActive
-            ? "text-slate-500"
-            : isSelected
-              ? "text-brand-600 dark:text-brand-400"
-              : "text-slate-500 hover:text-slate-600 dark:hover:text-slate-300";
-          return (
+    <MotionConfig reducedMotion="user">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+        {/* z-30 haelt den Header oberhalb JEDES Tab-Detail-Modals (durchgaengig
+            z-10, siehe z.B. WunschkaderTab.tsx) - sonst faengt ein offenes Modal
+            Klicks auf "Menü öffnen" ab (deckt per fixed inset-0 den ganzen
+            Screen ab, gewinnt sonst den Stacking-Tie gegen den Header per
+            DOM-Reihenfolge), und Tab-Wechsel waeren bei offenem Modal nicht
+            mehr erreichbar - Voraussetzung fuer
+            WunschkaderStatePersistsAcrossTabSwitch.spec.ts.
+            Das mobile Menue-Overlay (MobileTabMenu) liegt bewusst mit z-40
+            NOCH darueber, nicht darunter: der Header ist `sticky top-0` und
+            ueberlappt genau die eigene Titelzeile des Drawers (Label "Menü" +
+            "✕"-Button) - bei z-20 (< header z-30) haette der Header diesen
+            eigenen Schliessen-Button unklickbar verdeckt (verifiziert, siehe
+            Task-6-Report). Header hoeher als z-40 zu setzen wuerde genau
+            dieses Deckungsproblem reproduzieren - nicht tun. */}
+        <header
+          className={`sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 transition-transform duration-200 dark:border-slate-800 dark:bg-slate-950 sm:static sm:!translate-y-0 ${
+            headerVisible ? "translate-y-0" : "-translate-y-full"
+          }`}
+        >
+          <div className="flex items-center gap-3">
             <button
-              key={tab.key}
               type="button"
-              disabled={!isActive}
-              onClick={() => isActive && setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors ${
-                isSelected
-                  ? "border-brand-500 font-semibold text-slate-900 dark:text-slate-50"
-                  : isActive
-                    ? "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-50"
-                    : "cursor-not-allowed border-transparent text-slate-400 dark:text-slate-600"
-              }`}
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Menü öffnen"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 sm:hidden dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              {Icon && <Icon className={`h-5 w-5 shrink-0 ${iconTone}`} aria-hidden="true" />}
-              {tab.label}
-              {!isActive && <span className="ml-1 text-xs">(bald)</span>}
+              <IconMenu className="h-5 w-5" />
             </button>
-          );
-        })}
-      </nav>
-      {mobileMenuOpen && (
-        <MobileTabMenu
-          activeTab={activeTab}
-          onSelect={setActiveTab}
-          onClose={() => setMobileMenuOpen(false)}
-        />
-      )}
-      <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
-          {TAB_ICON[activeTab] &&
-            (() => {
-              const Icon = TAB_ICON[activeTab];
-              return <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />;
-            })()}
-          {TABS.find((t) => t.key === activeTab)?.label}
-        </h2>
-        {loadState === "loading" && activeTab !== "feedback" && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
-        )}
-        {loadState === "error" && activeTab !== "feedback" && (
-          <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
-        )}
-        {/* Snapshot geladen, aber noch im alten Schema (kein "players"-Feld) - kein
-            ErrorBoundary vorhanden, also gezielt abfangen statt weiss auf weiss
-            abzustuerzen (siehe Review-Fund 2026-07-29). Bewusst KEIN frueher
-            return mehr: sonst waere die Tab-Leiste (und damit der Feedback-Tab)
-            in genau diesem Zustand unerreichbar. Alle datenabhaengigen Tabs
-            unten pruefen deshalb zusaetzlich auf data.players - "hidden" allein
-            wuerde React nicht vom Mounten (und Crashen) abhalten. */}
-        {loadState === "ready" && data && !data.players && activeTab !== "feedback" && (
-          <p className="p-6 text-sm text-slate-500 dark:text-slate-400">
-            Snapshot noch im alten Schema — der nächste Pipeline-Lauf schreibt das neue Format automatisch (bis zu ~2h,
-            oder manuell über GitHub Actions anstoßen).
-          </p>
-        )}
-        {loadState === "ready" && data && data.players && wunschkader && (
-          <div className={activeTab === "dashboard" ? "" : "hidden"}>
-            <DashboardTab data={data} wunschkader={wunschkader} transfermarktRows={transfermarktRows} now={now} />
+            <h1 className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-slate-50">
+              <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="" className="h-6 w-6" />
+              KickbaseAgent
+            </h1>
           </div>
-        )}
-        {loadState === "ready" && data && data.players && (
-          <div className={activeTab === "spekulation" ? "" : "hidden"}>
-            <SpekulationTab
-              rows={spekulationRows}
-              now={now}
-              mlMetrics={data.ml_metrics}
-              mlMetrics3d={data.ml_metrics_3d ?? null}
-              bidHistory={data.bid_premium_history ?? []}
-              positionNeed={data.position_need ?? {}}
+          {data?.generated_at && (
+            <p
+              className="text-xs text-slate-400 dark:text-slate-500"
+              title={data.generated_at}
+            >
+              Stand: {formatRelativeTime(data.generated_at, new Date(now))}
+            </p>
+          )}
+        </header>
+        <nav className="hidden gap-1 overflow-x-auto border-b border-slate-200 bg-white px-6 sm:flex dark:border-slate-800 dark:bg-slate-950">
+          {TABS.map((tab) => {
+            const isActive = ACTIVE_TABS.has(tab.key);
+            const isSelected = tab.key === activeTab;
+            const Icon = TAB_ICON[tab.key];
+            const iconTone = !isActive
+              ? "text-slate-500"
+              : isSelected
+                ? "text-brand-600 dark:text-brand-400"
+                : "text-slate-500 hover:text-slate-600 dark:hover:text-slate-300";
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                disabled={!isActive}
+                onClick={() => {
+                  if (!isActive) return;
+                  setTabTransition({ kind: "fade" });
+                  setActiveTab(tab.key);
+                }}
+                className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors ${
+                  isSelected
+                    ? "border-brand-500 font-semibold text-slate-900 dark:text-slate-50"
+                    : isActive
+                      ? "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-50"
+                      : "cursor-not-allowed border-transparent text-slate-400 dark:text-slate-600"
+                }`}
+              >
+                {Icon && <Icon className={`h-5 w-5 shrink-0 ${iconTone}`} aria-hidden="true" />}
+                {tab.label}
+                {!isActive && <span className="ml-1 text-xs">(bald)</span>}
+              </button>
+            );
+          })}
+        </nav>
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <MobileTabMenu
+              activeTab={activeTab}
+              onSelect={(key) => {
+                setTabTransition({ kind: "fade" });
+                setActiveTab(key);
+              }}
+              onClose={() => setMobileMenuOpen(false)}
             />
+          )}
+        </AnimatePresence>
+        <main className="px-6 py-6" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-900 sm:hidden dark:text-slate-100">
+            {TAB_ICON[activeTab] &&
+              (() => {
+                const Icon = TAB_ICON[activeTab];
+                return <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />;
+              })()}
+            {TABS.find((t) => t.key === activeTab)?.label}
+          </h2>
+          {loadState === "loading" && activeTab !== "feedback" && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Lade Daten…</p>
+          )}
+          {loadState === "error" && activeTab !== "feedback" && (
+            <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
+          )}
+          {/* Snapshot geladen, aber noch im alten Schema (kein "players"-Feld) - kein
+              ErrorBoundary vorhanden, also gezielt abfangen statt weiss auf weiss
+              abzustuerzen (siehe Review-Fund 2026-07-29). Bewusst KEIN frueher
+              return mehr: sonst waere die Tab-Leiste (und damit der Feedback-Tab)
+              in genau diesem Zustand unerreichbar. Alle datenabhaengigen Tabs
+              unten pruefen deshalb zusaetzlich auf data.players - "hidden" allein
+              wuerde React nicht vom Mounten (und Crashen) abhalten. */}
+          {loadState === "ready" && data && !data.players && activeTab !== "feedback" && (
+            <p className="p-6 text-sm text-slate-500 dark:text-slate-400">
+              Snapshot noch im alten Schema — der nächste Pipeline-Lauf schreibt das neue Format automatisch (bis zu ~2h,
+              oder manuell über GitHub Actions anstoßen).
+            </p>
+          )}
+          <div className="grid">
+            {/* WunschkaderTab bleibt absichtlich IMMER gemountet, solange Daten
+                geladen sind - wunschkaderPhase steuert nur noch display:none
+                (nicht mehr, ob die Komponente ueberhaupt im Baum ist). Damit
+                ueberlebt ihr lokaler React-State (Notiz, offenes Detail-Modal)
+                jede Verweildauer auf einem anderen Tab, unabhaengig von jeder
+                Animationsdauer - kein Zeitfenster, keine Race-Condition (siehe
+                WunschkaderStatePersistsAcrossTabSwitch.spec.ts, insbesondere
+                den kuenstlichen Delay dort). display:none haelt dabei die
+                urspruengliche Grid-Stack-Absicht ein (keine Grid-Hoehe), greift
+                aber erst, sobald die Phase tatsaechlich "hidden" erreicht -
+                waehrend des Fade-Outs (Phase "exiting", opacity > 0) ist der
+                Wrapper noch im DOM und wuerde ohne pointerEvents unten Klicks
+                auf dem jetzt sichtbaren Tab abfangen (Review-Fund: ein Tap auf
+                eine ehemalige Zielkarten-Position waehrend des Fades oeffnete
+                sonst ein Phantom-Detail-Modal auf dem verlassenen, unsichtbaren
+                Wunschkader-Stand). pointerEvents schliesst diese Luecke sofort
+                bei Phase-Wechsel, unabhaengig von der Fade-Dauer - deshalb nutzt
+                der Wrapper wieder das geteilte fadeVariants/FADE_EXIT_S statt
+                einer eigenen, laengeren Dauer (die war nur ein frueherer,
+                inzwischen ueberfluessiger Sicherheitspuffer gegen das
+                Struktur-Race, das WunschkaderTab's permanentes Mounting
+                oben laengst behebt).
+                `isActive` unten ist NICHT dasselbe wie wunschkaderPhase - es
+                sagt WunschkaderTab, ob sein Tab gerade der sichtbare ist, damit
+                dessen Modals (offenes Detail-Modal etc.) ihre globalen
+                Seiteneffekte (Modal-Zaehler, Escape-Listener) pausieren
+                koennen, waehrend sie im Hintergrund offen bleiben (Review-Fund
+                nach dem Strukturfix: sonst blockieren sie Swipe-Tab-Wechsel
+                app-weit auf Dauer bzw. reagieren auf ein Escape, das fuer ein
+                voellig anderes Modal gedacht ist). */}
+            {data && data.players && wunschkader && (
+              <motion.div
+                style={{
+                  gridArea: "1 / 1",
+                  display: wunschkaderPhase === "hidden" ? "none" : undefined,
+                  pointerEvents: wunschkaderPhase === "active" ? undefined : "none",
+                }}
+                variants={fadeVariants}
+                initial="initial"
+                animate={wunschkaderPhase === "active" ? "animate" : "exit"}
+                onAnimationComplete={() => {
+                  setWunschkaderPhase((prev) => (prev === "exiting" ? "hidden" : prev));
+                }}
+              >
+                <WunschkaderTab
+                  data={data}
+                  wunschkader={wunschkader}
+                  onSaved={(targets) => setWunschkader({ targets })}
+                  isActive={activeTab === "wunschkader"}
+                />
+              </motion.div>
+            )}
+
+            <AnimatePresence mode="wait">
+              {(() => {
+                if (activeTab === "wunschkader") return null;
+                let content: JSX.Element | null = null;
+                if (activeTab === "dashboard" && data && data.players && wunschkader) {
+                  content = (
+                    <DashboardTab data={data} wunschkader={wunschkader} transfermarktRows={transfermarktRows} now={now} />
+                  );
+                } else if (activeTab === "spekulation" && data && data.players) {
+                  content = (
+                    <SpekulationTab
+                      rows={spekulationRows}
+                      now={now}
+                      mlMetrics={data.ml_metrics}
+                      mlMetrics3d={data.ml_metrics_3d ?? null}
+                      bidHistory={data.bid_premium_history ?? []}
+                      positionNeed={data.position_need ?? {}}
+                    />
+                  );
+                } else if (activeTab === "team" && data && data.players && wunschkader) {
+                  content = <EigenesTeamTab data={data} wunschkader={wunschkader} />;
+                } else if (activeTab === "alle-spieler" && data && data.players) {
+                  content = <AlleSpielerTab data={data} />;
+                } else if (activeTab === "transfermarkt" && data && data.players) {
+                  content = <TransfermarktTab data={data} rows={transfermarktRows} now={now} />;
+                } else if (activeTab === "liga" && data && data.players) {
+                  content = <LigaanalyseTab data={data} />;
+                } else if (activeTab === "ml-genauigkeit" && data && data.players) {
+                  content = <MlGenauigkeitTab data={data} />;
+                } else if (activeTab === "feedback") {
+                  content = <FeedbackTab now={now} />;
+                }
+                return (
+                  <motion.div
+                    key={activeTab}
+                    style={{ gridArea: "1 / 1" }}
+                    variants={tabTransition.kind === "fade" ? fadeVariants : slideFadeVariants(tabTransition.direction)}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                  >
+                    {content}
+                  </motion.div>
+                );
+              })()}
+            </AnimatePresence>
           </div>
-        )}
-        {loadState === "ready" && data && data.players && wunschkader && (
-          <div className={activeTab === "wunschkader" ? "" : "hidden"}>
-            <WunschkaderTab
-              data={data}
-              wunschkader={wunschkader}
-              onSaved={(targets) => setWunschkader({ targets })}
-            />
-          </div>
-        )}
-        {loadState === "ready" && data && data.players && wunschkader && (
-          <div className={activeTab === "team" ? "" : "hidden"}>
-            <EigenesTeamTab data={data} wunschkader={wunschkader} />
-          </div>
-        )}
-        {loadState === "ready" && data && data.players && (
-          <div className={activeTab === "alle-spieler" ? "" : "hidden"}>
-            <AlleSpielerTab data={data} />
-          </div>
-        )}
-        {loadState === "ready" && data && data.players && (
-          <div className={activeTab === "transfermarkt" ? "" : "hidden"}>
-            <TransfermarktTab data={data} rows={transfermarktRows} now={now} />
-          </div>
-        )}
-        {loadState === "ready" && data && data.players && (
-          <div className={activeTab === "liga" ? "" : "hidden"}>
-            <LigaanalyseTab data={data} />
-          </div>
-        )}
-        {loadState === "ready" && data && data.players && (
-          <div className={activeTab === "ml-genauigkeit" ? "" : "hidden"}>
-            <MlGenauigkeitTab data={data} />
-          </div>
-        )}
-        <div className={activeTab === "feedback" ? "" : "hidden"}>
-          <FeedbackTab now={now} />
-        </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </MotionConfig>
   );
 }

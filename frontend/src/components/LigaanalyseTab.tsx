@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DashboardSnapshot, LigaanalyseRow } from "../types";
 import { groupSquadByPosition } from "../lib/derive";
-import { Badge, POSITION_ABBR, POSITION_ICON, Row } from "./ui";
+import { Badge, ModalOverlay, POSITION_ABBR, POSITION_ICON, Row } from "./ui";
 import { budgetTone, fmtNum } from "../format";
 
 const HINT =
@@ -91,61 +91,59 @@ function LigaanalyseDetailModal({
   const groups = groupSquadByPosition(row.squad_player_ids ?? [], players);
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-            {row.is_self && <Badge tone="good">ich</Badge>}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Schließen"
-            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            ✕
-          </button>
+    <ModalOverlay
+      onClose={onClose}
+      panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+    >
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+          {row.is_self && <Badge tone="good">ich</Badge>}
         </div>
-        <dl className="mb-4 space-y-1.5 text-sm">
-          <Row label="Platz">{fmtNum(row.season_placement)}</Row>
-          <Row label="Punkte">{fmtNum(row.season_points)}</Row>
-          <Row label={row.is_self ? "Kapital" : "Kapital (geschätzt)"}>
-            <span className={budgetTone(row.estimated_budget)}>{fmtNum(row.estimated_budget)}</span>
-          </Row>
-        </dl>
-        {groups.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Keine Kaderdaten verfügbar.</p>
-        ) : (
-          <div className="space-y-3">
-            {groups.map((group) => {
-              const Icon = POSITION_ICON[group.position];
-              return (
-                <div key={group.position}>
-                  <p className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">
-                    {Icon && <Icon className="h-3.5 w-3.5" />}
-                    {POSITION_ABBR[group.position] ?? group.position}
-                  </p>
-                  <ul className="space-y-1">
-                    {group.entries.map((entry) => (
-                      <li key={entry.player_id} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
-                          {entry.name}
-                          {entry.is_regular && <Badge tone="good">Stamm</Badge>}
-                        </span>
-                        <span className="text-slate-500 dark:text-slate-400">{fmtNum(entry.market_value)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Schließen"
+          className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          ✕
+        </button>
       </div>
-    </div>
+      <dl className="mb-4 space-y-1.5 text-sm">
+        <Row label="Platz">{fmtNum(row.season_placement)}</Row>
+        <Row label="Punkte">{fmtNum(row.season_points)}</Row>
+        <Row label={row.is_self ? "Kapital" : "Kapital (geschätzt)"}>
+          <span className={budgetTone(row.estimated_budget)}>{fmtNum(row.estimated_budget)}</span>
+        </Row>
+      </dl>
+      {groups.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Keine Kaderdaten verfügbar.</p>
+      ) : (
+        <div className="space-y-3">
+          {groups.map((group) => {
+            const Icon = POSITION_ICON[group.position];
+            return (
+              <div key={group.position}>
+                <p className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">
+                  {Icon && <Icon className="h-3.5 w-3.5" />}
+                  {POSITION_ABBR[group.position] ?? group.position}
+                </p>
+                <ul className="space-y-1">
+                  {group.entries.map((entry) => (
+                    <li key={entry.player_id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+                        {entry.name}
+                        {entry.is_regular && <Badge tone="good">Stamm</Badge>}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400">{fmtNum(entry.market_value)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </ModalOverlay>
   );
 }

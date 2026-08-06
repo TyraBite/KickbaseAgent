@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AnimatePresence } from "framer-motion";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildEigenesTeamSplit, liveModelMae, type EigenesTeamRow } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
-import { Badge, CARD_TONE_CLASSES, FitnessBadge, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
+import { Badge, CARD_TONE_CLASSES, FitnessBadge, ModalOverlay, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import PlayerNamePicker from "./PlayerNamePicker";
 import PlayerCompareModal from "./PlayerCompareModal";
@@ -295,26 +296,24 @@ function DetailModalShell({
   useEscapeClose(onClose);
   useModalOpenTracking();
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          {header}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Schließen"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            ✕
-          </button>
-        </div>
-        <dl className="space-y-2 text-sm">{children}</dl>
-        {footer}
+    <ModalOverlay
+      onClose={onClose}
+      panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+    >
+      <div className="mb-4 flex items-start justify-between gap-2">
+        {header}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Schließen"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          ✕
+        </button>
       </div>
-    </div>
+      <dl className="space-y-2 text-sm">{children}</dl>
+      {footer}
+    </ModalOverlay>
   );
 }
 
@@ -387,16 +386,18 @@ export function PlayerDetailModal({
         <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
         <Row label="Marktwert">{fmtNum(row.market_value)}</Row>
       </DetailModalShell>
-      {compareWith && (
-        <PlayerCompareModal
-          playerIdA={row.player_id}
-          playerIdB={compareWith}
-          players={players}
-          calibration={calibration}
-          thresholds={thresholds}
-          onClose={() => setCompareWith(null)}
-        />
-      )}
+      <AnimatePresence>
+        {compareWith && (
+          <PlayerCompareModal
+            playerIdA={row.player_id}
+            playerIdB={compareWith}
+            players={players}
+            calibration={calibration}
+            thresholds={thresholds}
+            onClose={() => setCompareWith(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }
@@ -458,16 +459,18 @@ function WatchlistDetailModal({
         <Row label="Startelf-Rang">{row.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
         <Row label="Schnitt">{fmtNum(row.average_points)}</Row>
       </DetailModalShell>
-      {compareWith && (
-        <PlayerCompareModal
-          playerIdA={row.player_id}
-          playerIdB={compareWith}
-          players={players}
-          calibration={calibration}
-          thresholds={thresholds}
-          onClose={() => setCompareWith(null)}
-        />
-      )}
+      <AnimatePresence>
+        {compareWith && (
+          <PlayerCompareModal
+            playerIdA={row.player_id}
+            playerIdB={compareWith}
+            players={players}
+            calibration={calibration}
+            thresholds={thresholds}
+            onClose={() => setCompareWith(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }

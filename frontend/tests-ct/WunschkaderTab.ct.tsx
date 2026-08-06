@@ -5,7 +5,7 @@ import { buildFixtureSnapshot, FIXTURE_PLAYERS } from "../src/test-fixtures/dash
 test.describe("Bug A - Add-Dialog ohne Positions-Zwang", () => {
   test("findet einen Torwart ueber den generischen Bank-Add-Dialog, ohne Position vorzuwaehlen", async ({ mount }) => {
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets: [] }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets: [] }} onSaved={() => {}} isActive={true} />
     );
 
     // Gezielt den Bank-"+ Ziel"-Button ansteuern, nicht den einer
@@ -42,6 +42,7 @@ test.describe("Bug B - Vorschlaege vs. Freitext im Wechsel-Dialog", () => {
         data={buildFixtureSnapshot()}
         wunschkader={{ targets: [{ player_id: FIXTURE_PLAYERS.target.player_id, role: "Starter" }] }}
         onSaved={() => {}}
+        isActive={true}
       />
     );
     await component.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();

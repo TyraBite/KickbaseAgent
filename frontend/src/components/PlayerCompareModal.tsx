@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { Calibration, PlayerRecord } from "../types";
 import { buildPlayerRow, type PlayerRow } from "../lib/derive";
-import { FitnessBadge, PositionBadge, SignalBadge, TeamCrest } from "./ui";
+import { AnimatedModalOverlay, FitnessBadge, PositionBadge, SignalBadge, TeamCrest } from "./ui";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerNamePicker from "./PlayerNamePicker";
@@ -47,6 +47,7 @@ export default function PlayerCompareModal({
   thresholds,
   onSelectSide,
   onClose,
+  active = true,
 }: {
   playerIdA: string;
   playerIdB: string;
@@ -55,13 +56,24 @@ export default function PlayerCompareModal({
   thresholds: { good: number; critical: number };
   onSelectSide?: (playerId: string) => void;
   onClose: () => void;
+  // Default true fuer die 3 "normalen" Aufrufer (AlleSpielerTab,
+  // EigenesTeamTab x2), deren Eltern-Detailmodal beim Tab-Wechsel ganz normal
+  // unmounted. WunschkaderTab uebergibt hier explizit sein eigenes
+  // isActive: dessen DetailModal bleibt beim Wegwechseln vom Tab permanent
+  // gemountet (siehe App.tsx/WunschkaderTab.tsx), ein darin verschachteltes
+  // PlayerCompareModal (ueber "Wechsel"/Vorschlag-Chip) sonst also ebenfalls -
+  // ohne dieses Gating wuerden dessen Modal-Zaehler und Escape-Listener auf
+  // ewig aktiv bleiben, waehrend Wunschkader gar nicht der sichtbare Tab ist
+  // (gleiches Muster wie useModalOpenTracking()'s `active`-Parameter).
+  active?: boolean;
 }) {
   const [idA, setIdA] = useState(playerIdA);
   const [idB, setIdB] = useState(playerIdB);
   const [switching, setSwitching] = useState<Side | null>(null);
 
-  useModalOpenTracking();
+  useModalOpenTracking(active);
   useEffect(() => {
+    if (!active) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       e.stopPropagation();
@@ -69,7 +81,7 @@ export default function PlayerCompareModal({
     }
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+  }, [onClose, active]);
 
   const playerA = players[idA];
   const playerB = players[idB];
@@ -77,11 +89,12 @@ export default function PlayerCompareModal({
     // Sollte praktisch nie vorkommen (IDs kommen immer aus data.players),
     // aber ohne diesen Guard wuerde buildPlayerRow() auf undefined crashen.
     return (
-      <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-        <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900">
-          <p className="text-sm text-slate-500 dark:text-slate-400">Spieler nicht gefunden.</p>
-        </div>
-      </div>
+      <AnimatedModalOverlay
+        onClose={onClose}
+        panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+      >
+        <p className="text-sm text-slate-500 dark:text-slate-400">Spieler nicht gefunden.</p>
+      </AnimatedModalOverlay>
     );
   }
 
@@ -117,88 +130,86 @@ export default function PlayerCompareModal({
   }
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div className="grid flex-1 grid-cols-2 gap-4">
-            {renderName(rowA, "a")}
-            {renderName(rowB, "b")}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Schließen"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            ✕
-          </button>
+    <AnimatedModalOverlay
+      onClose={onClose}
+      panelClassName="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+    >
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div className="grid flex-1 grid-cols-2 gap-4">
+          {renderName(rowA, "a")}
+          {renderName(rowB, "b")}
         </div>
-
-        {switching && (
-          <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-              Ersetze Seite {switching === "a" ? "links" : "rechts"} durch…
-            </p>
-            <PlayerNamePicker
-              players={players}
-              excludePlayerId={switching === "a" ? idB : idA}
-              onSelect={(id) => {
-                if (switching === "a") setIdA(id);
-                else setIdB(id);
-                setSwitching(null);
-              }}
-            />
-          </div>
-        )}
-
-        <div>
-          <CompareRow
-            label="Prognose 1T"
-            valueA={<span className={trendClass(rowA.ml_prediction)}>{trendArrow(rowA.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowA.ml_prediction)}</span>}
-            valueB={<span className={trendClass(rowB.ml_prediction)}>{trendArrow(rowB.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowB.ml_prediction)}</span>}
-            winner={better(rowA.ml_prediction, rowB.ml_prediction)}
-          />
-          <CompareRow
-            label="Prognose 3T"
-            valueA={<span className={trendClass(rowA.ml_prediction_3d)}>{trendArrow(rowA.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowA.ml_prediction_3d)}</span>}
-            valueB={<span className={trendClass(rowB.ml_prediction_3d)}>{trendArrow(rowB.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowB.ml_prediction_3d)}</span>}
-            winner={better(rowA.ml_prediction_3d, rowB.ml_prediction_3d)}
-          />
-          <CompareRow
-            label="Signal"
-            valueA={<SignalBadge signal={rowA.signal} thresholds={thresholds} />}
-            valueB={<SignalBadge signal={rowB.signal} thresholds={thresholds} />}
-            winner={better(rowA.signal, rowB.signal)}
-          />
-          <CompareRow
-            label="Marktwert"
-            valueA={fmtNum(rowA.market_value)}
-            valueB={fmtNum(rowB.market_value)}
-            winner={better(rowA.market_value, rowB.market_value, true)}
-          />
-          <CompareRow
-            label="Startelf-Rang"
-            valueA={rowA.starting_rank ?? "n/v"}
-            valueB={rowB.starting_rank ?? "n/v"}
-            winner={better(rowA.starting_rank, rowB.starting_rank, true)}
-          />
-          <CompareRow
-            label="Fitness"
-            valueA={<FitnessBadge label={rowA.status_label} />}
-            valueB={<FitnessBadge label={rowB.status_label} />}
-            winner={betterFitness(rowA.status_label, rowB.status_label)}
-          />
-          <CompareRow
-            label="Schnitt"
-            valueA={fmtNum(rowA.average_points)}
-            valueB={fmtNum(rowB.average_points)}
-            winner={better(rowA.average_points, rowB.average_points)}
-          />
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Schließen"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          ✕
+        </button>
       </div>
-    </div>
+
+      {switching && (
+        <div className="mb-4 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+          <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            Ersetze Seite {switching === "a" ? "links" : "rechts"} durch…
+          </p>
+          <PlayerNamePicker
+            players={players}
+            excludePlayerId={switching === "a" ? idB : idA}
+            onSelect={(id) => {
+              if (switching === "a") setIdA(id);
+              else setIdB(id);
+              setSwitching(null);
+            }}
+          />
+        </div>
+      )}
+
+      <div>
+        <CompareRow
+          label="Prognose 1T"
+          valueA={<span className={trendClass(rowA.ml_prediction)}>{trendArrow(rowA.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowA.ml_prediction)}</span>}
+          valueB={<span className={trendClass(rowB.ml_prediction)}>{trendArrow(rowB.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(rowB.ml_prediction)}</span>}
+          winner={better(rowA.ml_prediction, rowB.ml_prediction)}
+        />
+        <CompareRow
+          label="Prognose 3T"
+          valueA={<span className={trendClass(rowA.ml_prediction_3d)}>{trendArrow(rowA.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowA.ml_prediction_3d)}</span>}
+          valueB={<span className={trendClass(rowB.ml_prediction_3d)}>{trendArrow(rowB.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(rowB.ml_prediction_3d)}</span>}
+          winner={better(rowA.ml_prediction_3d, rowB.ml_prediction_3d)}
+        />
+        <CompareRow
+          label="Signal"
+          valueA={<SignalBadge signal={rowA.signal} thresholds={thresholds} />}
+          valueB={<SignalBadge signal={rowB.signal} thresholds={thresholds} />}
+          winner={better(rowA.signal, rowB.signal)}
+        />
+        <CompareRow
+          label="Marktwert"
+          valueA={fmtNum(rowA.market_value)}
+          valueB={fmtNum(rowB.market_value)}
+          winner={better(rowA.market_value, rowB.market_value, true)}
+        />
+        <CompareRow
+          label="Startelf-Rang"
+          valueA={rowA.starting_rank ?? "n/v"}
+          valueB={rowB.starting_rank ?? "n/v"}
+          winner={better(rowA.starting_rank, rowB.starting_rank, true)}
+        />
+        <CompareRow
+          label="Fitness"
+          valueA={<FitnessBadge label={rowA.status_label} />}
+          valueB={<FitnessBadge label={rowB.status_label} />}
+          winner={betterFitness(rowA.status_label, rowB.status_label)}
+        />
+        <CompareRow
+          label="Schnitt"
+          valueA={fmtNum(rowA.average_points)}
+          valueB={fmtNum(rowB.average_points)}
+          winner={better(rowA.average_points, rowB.average_points)}
+        />
+      </div>
+    </AnimatedModalOverlay>
   );
 }

@@ -19,7 +19,7 @@ test.describe("Bug C - debounced Notiz-Save darf ein spaeter entferntes Ziel nic
       { player_id: FIXTURE_PLAYERS.sturm.player_id, role: "Starter" },
     ];
     const component = await mount(
-      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} />
+      <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
     // 1) Notiz am ERSTEN Ziel tippen - plant den 800ms debounced Save.

@@ -1,0 +1,258 @@
+import { test, expect } from "@playwright/test";
+import { touchDrag } from "./touchHelpers";
+import { FIXTURE_PLAYERS } from "../src/test-fixtures/dashboardSnapshot.fixture";
+
+test.describe("Wunschkader bleibt bei Tab-Wechsel gemountet", () => {
+  test("Ungespeicherte Notiz und offenes Detail-Modal ueberleben Wegwechseln und Zurueckwechseln", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+
+    const heading = page.getByRole("heading", { level: 2 });
+    await expect(heading).toHaveText("Wunschkader");
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
+
+    const noteField = page.getByLabel("Notiz");
+    await expect(noteField).toBeVisible();
+    await noteField.fill("Zwischenstand-Test");
+
+    // Wegwechseln, OHNE das Modal zu schliessen oder die Notiz zu speichern.
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+
+    // Bewusst lange, kuenstliche Wartezeit - deutlich laenger als jede
+    // denkbare Exit-/Fallback-Animationsdauer (geteiltes FADE_EXIT_S=130ms,
+    // WUNSCHKADER_EXIT_FALLBACK_MS=200ms in App.tsx). Der Zustandserhalt beruht
+    // seit dem Strukturfix NICHT mehr auf einem Zeitfenster - WunschkaderTab
+    // bleibt immer gemountet, wunschkaderPhase steuert nur noch display:none -
+    // dieser Delay beweist genau das: die Notiz/das offene Modal ueberleben
+    // auch ein Vielfaches jeder Animationsdauer, nicht nur ein kurzes Fenster.
+    await page.waitForTimeout(2000);
+
+    // Zurueckwechseln - Wunschkader ist durchgehend gemountet, das
+    // Detail-Modal muss deshalb OHNE erneuten Klick noch offen sein.
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+    await expect(heading).toHaveText("Wunschkader");
+
+    await expect(page.getByLabel("Notiz")).toHaveValue("Zwischenstand-Test");
+  });
+
+  // Seit dem Strukturfix bleibt WunschkaderTab (und damit sein DetailModal)
+  // beim Wegwechseln permanent gemountet statt zu unmounten - dessen globale
+  // Seiteneffekte (Modal-Zaehler fuer isAnyModalOpen(), Escape-Listener)
+  // muessen deshalb pausiert werden, waehrend Wunschkader nicht der sichtbare
+  // Tab ist, sonst bleiben sie fuer den Rest der Session aktiv (Review-Fund).
+  // Die beiden folgenden Tests falsifizieren genau diese zwei Faelle.
+  test("Offenes Wunschkader-Detail-Modal im Hintergrund blockiert Swipe auf einem anderen Tab nicht", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+
+    const heading = page.getByRole("heading", { level: 2 });
+    await expect(heading).toHaveText("Wunschkader");
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
+
+    const noteField = page.getByLabel("Notiz");
+    await expect(noteField).toBeVisible(); // Detail-Modal offen
+
+    // Wegwechseln, OHNE das Modal zu schliessen.
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    const mobileNav = page.getByRole("navigation").filter({ hasText: "Menü" });
+    await mobileNav.getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+    // MobileTabMenu haengt selbst (Backdrop/Panel-Animation, siehe
+    // TabSwitchReducedMotion.spec.ts) noch kurz als exiting AnimatePresence-
+    // Kind im DOM inkl. seiner eigenen useModalOpenTracking() - abwarten,
+    // sonst waere ein Fehlschlag hier dem Menue selbst zuzuschreiben, nicht
+    // dem eigentlich zu pruefenden Wunschkader-Hintergrund-Modal.
+    await expect(mobileNav).toHaveCount(0);
+
+    // Positive Kontrolle: der Swipe auf dem jetzt sichtbaren Tab MUSS den Tab
+    // wechseln. Waere isAnyModalOpen() durch das im Hintergrund offene
+    // Wunschkader-Modal faelschlich weiter "true", waere jedes Wischen ab
+    // hier fuer den Rest der Session app-weit blockiert.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("kein Viewport gesetzt");
+    const headingBox = await heading.boundingBox();
+    if (!headingBox) throw new Error("Ueberschrift hat kein boundingBox()");
+    const headingMidY = headingBox.y + headingBox.height / 2;
+    await touchDrag(page, { x: viewport.width - 20, y: headingMidY }, { x: 20, y: headingMidY });
+    // "dashboard" (Index 0) -> dx<0 -> naechster aktiver Tab "team" (Index 1),
+    // Label "Eigenes Team".
+    await expect(heading).toHaveText("Eigenes Team");
+  });
+
+  test("Escape auf einem anderen Tab schliesst das im Hintergrund offene Wunschkader-Detail-Modal nicht", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+
+    const heading = page.getByRole("heading", { level: 2 });
+    await expect(heading).toHaveText("Wunschkader");
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
+
+    const noteField = page.getByLabel("Notiz");
+    await expect(noteField).toBeVisible();
+    await noteField.fill("Hintergrund-Test");
+
+    // Wegwechseln, OHNE das Modal zu schliessen.
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+
+    // Escape auf dem jetzt sichtbaren Tab darf das im Hintergrund offene
+    // Wunschkader-Modal NICHT schliessen - dessen Escape-Listener muss
+    // pausiert sein, waehrend Wunschkader nicht der sichtbare Tab ist.
+    await page.keyboard.press("Escape");
+
+    // Zurueckwechseln - das Detail-Modal (inkl. Notiz) muss unveraendert
+    // offen sein.
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+    await expect(heading).toHaveText("Wunschkader");
+    await expect(page.getByLabel("Notiz")).toHaveValue("Hintergrund-Test");
+  });
+
+  // Gleiches Problem eine Ebene tiefer: DetailModal kann ueber "Wechsel" +
+  // Vorschlag-Chip ein verschachteltes PlayerCompareModal oeffnen
+  // (compareWith-State). Weil DetailModal (und damit compareWith) beim
+  // Wegwechseln vom Tab nicht mehr unmounted, haette dieses verschachtelte
+  // Modal ohne eigenes Gating dieselben zwei Bugs wie oben - PlayerCompareModal
+  // bekommt daher von WunschkaderTab ueber DetailModal dieselbe isActive
+  // durchgereicht (als `active`-Prop). Die folgenden zwei Tests falsifizieren
+  // das fuer diese verschachtelte Ebene.
+  async function openNestedCompareView(page: import("@playwright/test").Page) {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+
+    const heading = page.getByRole("heading", { level: 2 });
+    await expect(heading).toHaveText("Wunschkader");
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
+
+    await expect(page.getByLabel("Notiz")).toBeVisible(); // DetailModal offen
+    await page.getByRole("button", { name: "Wechsel" }).click();
+    await page.getByRole("button", { name: new RegExp(FIXTURE_PLAYERS.suggestion1.name) }).click();
+
+    // Diese Beschriftung erscheint nur, wenn PlayerCompareModal mit
+    // onSelectSide gerendert wird (genau der Fall hier) - siehe
+    // tests-ct/WunschkaderTab.ct.tsx fuer dasselbe Muster.
+    await expect(page.getByText("Diesen als Ersatz wählen").first()).toBeVisible();
+    return heading;
+  }
+
+  test("Im Hintergrund offene, verschachtelte PlayerCompareModal blockiert Swipe auf einem anderen Tab nicht", async ({ page }) => {
+    const heading = await openNestedCompareView(page);
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    const mobileNav = page.getByRole("navigation").filter({ hasText: "Menü" });
+    await mobileNav.getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+    await expect(mobileNav).toHaveCount(0);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("kein Viewport gesetzt");
+    const headingBox = await heading.boundingBox();
+    if (!headingBox) throw new Error("Ueberschrift hat kein boundingBox()");
+    const headingMidY = headingBox.y + headingBox.height / 2;
+    await touchDrag(page, { x: viewport.width - 20, y: headingMidY }, { x: 20, y: headingMidY });
+    await expect(heading).toHaveText("Eigenes Team");
+  });
+
+  test("Escape auf einem anderen Tab schliesst die im Hintergrund offene, verschachtelte PlayerCompareModal nicht", async ({ page }) => {
+    const heading = await openNestedCompareView(page);
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+    await expect(heading).toHaveText("Wunschkader");
+
+    // Sowohl das aeussere DetailModal als auch das darin verschachtelte
+    // PlayerCompareModal muessen unveraendert offen sein.
+    await expect(page.getByLabel("Notiz")).toBeVisible();
+    await expect(page.getByText("Diesen als Ersatz wählen").first()).toBeVisible();
+  });
+
+  // Whole-Branch-Review-Fund (separat von Task 5s eigener Review-Kette):
+  // wunschkaderPhase "exiting" laesst opacity>0 laufen, BEVOR die Phase
+  // "hidden" erreicht und display:none greift - in diesem Fenster war der
+  // Wrapper (ohne pointerEvents-Gating) weiterhin normal klickbar und konnte
+  // Klicks abfangen, die eigentlich dem jetzt sichtbaren Tab galten, und so
+  // ein Phantom-Detail-Modal auf dem verlassenen, unsichtbaren
+  // Wunschkader-Stand oeffnen. `pointerEvents: wunschkaderPhase === "active"
+  // ? undefined : "none"` (App.tsx) schliesst diese Luecke SOFORT bei
+  // Phase-Wechsel (synchron mit dem React-State, unabhaengig von der
+  // Animationsdauer).
+  //
+  // Testet die Eigenschaft direkt ueber den berechneten Stil statt ueber
+  // einen Klick-Timing-Wettlauf zu simulieren: ein Klick muesste ein enges,
+  // Millisekunden-praezises Fenster treffen (React committet den
+  // Phasenwechsel teils per Microtask, nicht synchron im selben Tick), das
+  // sich in dieser Sandbox nicht zuverlaessig ueber echte Klicks reproduzieren
+  // liess (App-eigene Latenzen variieren zu stark). expect.poll() fragt
+  // stattdessen wiederholt (kurze Intervalle) den tatsaechlichen
+  // Browser-Zustand ab und faengt dadurch zuverlaessig den Moment ein, in dem
+  // BEIDES gleichzeitig gilt: pointer-events bereits "none" UND display noch
+  // NICHT "none" (also waehrend des sichtbaren Fade-Outs, nicht erst danach) -
+  // genau die Eigenschaft, die den urspruenglichen Bug behebt. Ohne den Fix
+  // bleibt pointer-events dauerhaft "auto" (nie gesetzt) - expect.poll()
+  // laeuft dann in den Timeout, der Test wird korrekt rot.
+  test("Wunschkader-Wrapper wird beim Wegwechseln sofort unklickbar (pointer-events:none), nicht erst wenn er komplett verschwindet (display:none)", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Wunschkader", exact: true }).click();
+
+    const heading = page.getByRole("heading", { level: 2 });
+    await expect(heading).toHaveText("Wunschkader");
+
+    // Der WunschkaderTab-Wrapper aus App.tsx - identifiziert ueber sein
+    // `grid-area`-Inline-Style (eindeutig fuer die beiden App.tsx-Grid-Stack-
+    // Wrapper) UND den fuer WunschkaderTab eindeutigen "Formation:"-Text.
+    const wunschkaderWrapper = page.locator('[style*="grid-area"]', { hasText: /^Formation:/ });
+    await expect(wunschkaderWrapper).toBeVisible();
+
+    await page.getByRole("button", { name: "Menü öffnen" }).click();
+    await page.getByRole("navigation").filter({ hasText: "Menü" }).getByRole("button", { name: "Dashboard", exact: true }).click();
+    await expect(heading).toHaveText("Dashboard");
+
+    await expect
+      .poll(
+        () =>
+          wunschkaderWrapper.evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return `pointerEvents=${cs.pointerEvents} display=${cs.display}`;
+          }),
+        {
+          timeout: 3_000,
+          intervals: [10, 20, 30, 50],
+        }
+      )
+      .toBe("pointerEvents=none display=block");
+  });
+});

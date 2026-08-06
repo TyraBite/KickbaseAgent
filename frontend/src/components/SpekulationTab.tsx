@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, MlMetrics, PositionNeed } from "../types";
 import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, suggestBid, type SpekulationRow } from "../lib/derive";
 import { fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
-import { Badge, PositionBadge, Row, TeamCrest } from "./ui";
+import { Badge, ModalOverlay, PositionBadge, Row, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import { useViewMode } from "../lib/useViewMode";
@@ -315,69 +315,64 @@ function SpekulationDetailModal({
   const need = positionNeed[row.position];
 
   return (
-    <div
-      className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4"
-      onClick={onClose}
+    <ModalOverlay
+      onClose={onClose}
+      panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <CardHeader row={row} />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Schließen"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            ✕
-          </button>
-        </div>
-        <dl className="space-y-2 text-sm">
-          <Row label="Prognose 1T">
-            <span className={trendClass(row.ml_prediction)}>
-              {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
-            </span>
-            {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
-          </Row>
-          <Row label="Prognose 3T">
-            <span className={trendClass(row.ml_prediction_3d)}>
-              {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
-            </span>
-            {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
-          </Row>
-          <Row label="Trend 7T">
-            <span className={trendClass(row.market_value_change_7d)}>
-              {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)}{" "}
-              {fmtSigned(row.market_value_change_7d)}
-            </span>
-          </Row>
-          <Row label="Preis">{fmtNum(row.price)}</Row>
-          <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
-          <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
-          <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
-          <Row label="Auktion">
-            <AuctionValue row={row} now={now} />
-          </Row>
-          {hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
-            <Row label="Orientierungsgebot">
-              {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
-            </Row>
-          ) : hasValidSuggestion && suggestion ? (
-            <>
-              <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
-              <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>
-              <Row label="Gebot für ~90%">{fmtNum(suggestion.p90)}</Row>
-              <Row label="Basis">{suggestion.n} ähnliche historische Käufe</Row>
-            </>
-          ) : (
-            <Row label="Gebotsempfehlung">Keine historischen Vergleichskäufe dieser Position</Row>
-          )}
-          {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
-        </dl>
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <CardHeader row={row} />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Schließen"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          ✕
+        </button>
       </div>
-    </div>
+      <dl className="space-y-2 text-sm">
+        <Row label="Prognose 1T">
+          <span className={trendClass(row.ml_prediction)}>
+            {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
+          </span>
+          {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
+        </Row>
+        <Row label="Prognose 3T">
+          <span className={trendClass(row.ml_prediction_3d)}>
+            {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+          </span>
+          {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
+        </Row>
+        <Row label="Trend 7T">
+          <span className={trendClass(row.market_value_change_7d)}>
+            {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)}{" "}
+            {fmtSigned(row.market_value_change_7d)}
+          </span>
+        </Row>
+        <Row label="Preis">{fmtNum(row.price)}</Row>
+        <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
+        <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
+        <Row label="Rendite%">{row.roi_pct.toFixed(1)}%</Row>
+        <Row label="Auktion">
+          <AuctionValue row={row} now={now} />
+        </Row>
+        {hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
+          <Row label="Orientierungsgebot">
+            {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
+          </Row>
+        ) : hasValidSuggestion && suggestion ? (
+          <>
+            <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
+            <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>
+            <Row label="Gebot für ~90%">{fmtNum(suggestion.p90)}</Row>
+            <Row label="Basis">{suggestion.n} ähnliche historische Käufe</Row>
+          </>
+        ) : (
+          <Row label="Gebotsempfehlung">Keine historischen Vergleichskäufe dieser Position</Row>
+        )}
+        {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
+      </dl>
+    </ModalOverlay>
   );
 }
 

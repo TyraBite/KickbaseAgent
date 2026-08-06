@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BidPremiumEntry, DashboardSnapshot, PositionNeed } from "../types";
 import { liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, suggestBid, type TransfermarktRow } from "../lib/derive";
-import { Badge, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
+import { Badge, ModalOverlay, PositionBadge, Row, SignalBadge, TeamCrest } from "./ui";
 import { SortableTable, type TableColumn } from "./table";
 import { budgetTone, fmtNum, fmtPct, fmtSigned, trendArrow, trendClass } from "../format";
 import { useViewMode } from "../lib/useViewMode";
@@ -309,81 +309,79 @@ export function TransfermarktDetailModal({
   const need = positionNeed[row.position];
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <TeamCrest teamName={row.team_name} />
-            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
-            <PositionBadge position={row.position} />
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Schließen"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            ✕
-          </button>
+    <ModalOverlay
+      onClose={onClose}
+      panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+    >
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <TeamCrest teamName={row.team_name} />
+          <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{row.name}</span>
+          <PositionBadge position={row.position} />
         </div>
-        <dl className="space-y-2 text-sm">
-          <Row label="Prognose 1T">
-            <span className={trendClass(row.ml_prediction)}>
-              {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
-            </span>
-            {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
-          </Row>
-          <Row label="Prognose 3T">
-            <span className={trendClass(row.ml_prediction_3d)}>
-              {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
-            </span>
-            {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
-          </Row>
-          <StatusLabelRow value={row.status_label} />
-          <Row label="Trend 7T">
-            <span className={trendClass(row.market_value_change_7d)}>
-              {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
-            </span>
-          </Row>
-          <Row label="Preis">{fmtNum(row.price)}</Row>
-          <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
-          <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
-          <Row label="Delta%">{fmtPct(row.price_delta_pct)}</Row>
-          <Row label="Auktion">
-            {row.auction_critical ? (
-              <Badge tone="crit">⏰ {row.auction_status}</Badge>
-            ) : row.auction_urgent ? (
-              <Badge tone="crit">{row.auction_status}</Badge>
-            ) : (
-              row.auction_status ?? <span className="text-slate-400 dark:text-slate-500">unbekannt</span>
-            )}
-          </Row>
-          <Row label="Anbieter">{row.is_system_offer ? "Kickbase" : row.offering_username ?? "—"}</Row>
-          {row.is_system_offer ? (
-            hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
-              <Row label="Orientierungsgebot">
-                {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
-              </Row>
-            ) : hasValidSuggestion && suggestion ? (
-              <>
-                <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
-                <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>
-                <Row label="Gebot für ~90%">{fmtNum(suggestion.p90)}</Row>
-                <Row label="Basis">{suggestion.n} ähnliche historische Käufe</Row>
-              </>
-            ) : (
-              <Row label="Gebotsempfehlung">Keine historischen Vergleichskäufe dieser Position</Row>
-            )
-          ) : (
-            <Row label="Gebotsempfehlung">Nur für Kickbase-Systemangebote verfügbar</Row>
-          )}
-          {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
-        </dl>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Schließen"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          ✕
+        </button>
       </div>
-    </div>
+      <dl className="space-y-2 text-sm">
+        <Row label="Prognose 1T">
+          <span className={trendClass(row.ml_prediction)}>
+            {trendArrow(row.ml_prediction, ML_PREDICTION_THRESHOLDS)} {fmtSigned(row.ml_prediction)}
+          </span>
+          {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
+        </Row>
+        <Row label="Prognose 3T">
+          <span className={trendClass(row.ml_prediction_3d)}>
+            {trendArrow(row.ml_prediction_3d, ML_PREDICTION_3D_THRESHOLDS)} {fmtSigned(row.ml_prediction_3d)}
+          </span>
+          {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
+        </Row>
+        <StatusLabelRow value={row.status_label} />
+        <Row label="Trend 7T">
+          <span className={trendClass(row.market_value_change_7d)}>
+            {trendArrow(row.market_value_change_7d, TREND_7D_THRESHOLDS)} {fmtSigned(row.market_value_change_7d)}
+          </span>
+        </Row>
+        <Row label="Preis">{fmtNum(row.price)}</Row>
+        <Row label="3-Monats-Tief">{fmtNum(row.market_value_low_92d)}</Row>
+        <Row label="3-Monats-Hoch">{fmtNum(row.market_value_high_92d)}</Row>
+        <Row label="Delta%">{fmtPct(row.price_delta_pct)}</Row>
+        <Row label="Auktion">
+          {row.auction_critical ? (
+            <Badge tone="crit">⏰ {row.auction_status}</Badge>
+          ) : row.auction_urgent ? (
+            <Badge tone="crit">{row.auction_status}</Badge>
+          ) : (
+            row.auction_status ?? <span className="text-slate-400 dark:text-slate-500">unbekannt</span>
+          )}
+        </Row>
+        <Row label="Anbieter">{row.is_system_offer ? "Kickbase" : row.offering_username ?? "—"}</Row>
+        {row.is_system_offer ? (
+          hasValidSuggestion && suggestion && suggestion.n < MIN_N_FOR_PERCENTILE_SPREAD ? (
+            <Row label="Orientierungsgebot">
+              {fmtNum(suggestion.p75)} (geringe Datenbasis, n={suggestion.n})
+            </Row>
+          ) : hasValidSuggestion && suggestion ? (
+            <>
+              <Row label="Gebot für ~50%">{fmtNum(suggestion.p50)}</Row>
+              <Row label="Gebot für ~75%">{fmtNum(suggestion.p75)}</Row>
+              <Row label="Gebot für ~90%">{fmtNum(suggestion.p90)}</Row>
+              <Row label="Basis">{suggestion.n} ähnliche historische Käufe</Row>
+            </>
+          ) : (
+            <Row label="Gebotsempfehlung">Keine historischen Vergleichskäufe dieser Position</Row>
+          )
+        ) : (
+          <Row label="Gebotsempfehlung">Nur für Kickbase-Systemangebote verfügbar</Row>
+        )}
+        {need && <Row label={`Ligabedarf ${row.position}`}>{Math.round(need.avg_coverage * 100)}% Deckung bei {need.n_rivals} Gegnern</Row>}
+      </dl>
+    </ModalOverlay>
   );
 }
 

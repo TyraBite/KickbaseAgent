@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
+import { staggerItemVariants } from "../lib/motionVariants";
 import type { DashboardSnapshot, RawWunschkaderTarget } from "../types";
 import { buildAlleSpielerRows, buildBudgetPlan, liveBidFor, liveModelMae, MIN_N_FOR_PERCENTILE_SPREAD, normalizeSearchText, plannedPriceFor, type AlleSpielerRow, type BudgetPlan, type PlannedPrice } from "../lib/derive";
 import { resolveTarget, type ResolvedTarget } from "../lib/wunschkaderResolve";
 import { canAddStarter, matchedFormation, POSITIONS, type Position, type PositionCounts } from "../lib/formations";
-import { Badge, CARD_TONE_CLASSES, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
+import { Badge, CARD_TONE_CLASSES, ModalOverlay, PositionBadge, Row, SignalBadge, TeamCrest, cardTone } from "./ui";
 import { budgetTone, fmtNum, fmtSigned, trendArrow, trendClass } from "../format";
 import { useModalOpenTracking } from "../lib/modalOpenTracker";
 import PlayerCompareModal from "./PlayerCompareModal";
@@ -106,10 +108,17 @@ export default function WunschkaderTab({
   data,
   wunschkader,
   onSaved,
+  isActive,
 }: {
   data: DashboardSnapshot;
   wunschkader: { targets: RawWunschkaderTarget[] };
   onSaved: (targets: RawWunschkaderTarget[]) => void;
+  // Ist Wunschkader gerade der sichtbare Tab? Unabhaengig davon, ob diese
+  // Komponente gemountet ist (sie bleibt es permanent, siehe App.tsx) -
+  // steuert nur, ob DetailModal/AddTargetModal ihre globalen Seiteneffekte
+  // (Modal-Zaehler, Escape-Listener) aktiv halten, waehrend sie im
+  // Hintergrund offen bleiben duerfen.
+  isActive: boolean;
 }) {
   let nextUid = 0;
   const [editState, setEditState] = useState<EditTarget[]>(() =>
@@ -504,19 +513,30 @@ export default function WunschkaderTab({
               {position} · {targets.length} belegt
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-              {targets.map((t) => {
-                const computed = resolvedByPlayerId.get(t.player_id)!;
-                return (
-                  <TargetCard
-                    key={t._uid}
-                    target={t}
-                    computed={computed}
-                    thresholds={thresholds}
-                    clubCount={computed.team_name ? clubCounts[computed.team_name] ?? 0 : 0}
-                    onSelect={() => setSelected(t)}
-                  />
-                );
-              })}
+              <AnimatePresence>
+                {targets.map((t, index) => {
+                  const computed = resolvedByPlayerId.get(t.player_id)!;
+                  return (
+                    <motion.div
+                      key={t._uid}
+                      layoutId={`wunschkader-${t._uid}`}
+                      custom={index}
+                      variants={staggerItemVariants}
+                      initial="initial"
+                      animate={isActive ? "animate" : "initial"}
+                      exit="exit"
+                    >
+                      <TargetCard
+                        target={t}
+                        computed={computed}
+                        thresholds={thresholds}
+                        clubCount={computed.team_name ? clubCounts[computed.team_name] ?? 0 : 0}
+                        onSelect={() => setSelected(t)}
+                      />
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
               {canAdd && <EmptySlotCard onClick={() => setAddDialog({ presetPosition: position })} />}
             </div>
           </div>
@@ -528,19 +548,24 @@ export default function WunschkaderTab({
           Bank ({bench.length})
         </div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-          {bench.map((t) => {
-            const computed = resolvedByPlayerId.get(t.player_id)!;
-            return (
-              <TargetCard
-                key={t._uid}
-                target={t}
-                computed={computed}
-                thresholds={thresholds}
-                clubCount={0}
-                onSelect={() => setSelected(t)}
-              />
-            );
-          })}
+          <AnimatePresence>
+            {bench.map((t, index) => {
+              const computed = resolvedByPlayerId.get(t.player_id)!;
+              return (
+                <motion.div
+                  key={t._uid}
+                  layoutId={`wunschkader-${t._uid}`}
+                  custom={index}
+                  variants={staggerItemVariants}
+                  initial="initial"
+                  animate={isActive ? "animate" : "initial"}
+                  exit="exit"
+                >
+                  <TargetCard target={t} computed={computed} thresholds={thresholds} clubCount={0} onSelect={() => setSelected(t)} />
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
           <EmptySlotCard onClick={() => setAddDialog({ presetPosition: null })} />
         </div>
       </div>
@@ -564,6 +589,7 @@ export default function WunschkaderTab({
           onRemove={() => removeTarget(selected._uid)}
           onReplace={(playerId) => replaceTarget(selected._uid, playerId)}
           onNoteChange={(note) => updateNote(selected._uid, note)}
+          isActive={isActive}
         />
       )}
 
@@ -573,6 +599,7 @@ export default function WunschkaderTab({
           alleSpieler={alleSpieler}
           onAdd={addTarget}
           onClose={() => setAddDialog(null)}
+          isActive={isActive}
         />
       )}
     </div>
@@ -657,6 +684,7 @@ function DetailModal({
   onRemove,
   onReplace,
   onNoteChange,
+  isActive,
 }: {
   target: EditTarget;
   computed: ResolvedTarget;
@@ -673,19 +701,26 @@ function DetailModal({
   onRemove: () => void;
   onReplace: (playerId: string) => void;
   onNoteChange: (note: string) => void;
+  isActive: boolean;
 }) {
   const [wechselOpen, setWechselOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [compareWith, setCompareWith] = useState<AlleSpielerRow | null>(null);
 
-  useModalOpenTracking();
+  // isActive gate: WunschkaderTab bleibt beim Tab-Wechsel permanent gemountet
+  // (siehe App.tsx), dieses Modal darf deshalb im Hintergrund offen bleiben,
+  // ohne app-weit auf Dauer als "offenes Modal" zu zaehlen (blockiert sonst
+  // Swipe-Tab-Wechsel) oder auf ein Escape zu reagieren, das fuer ein
+  // voellig anderes, tatsaechlich sichtbares Modal gedacht ist.
+  useModalOpenTracking(isActive);
   useEffect(() => {
+    if (!isActive) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, isActive]);
 
   const targetForSearch = {
     player_id: target.player_id,
@@ -698,185 +733,186 @@ function DetailModal({
 
   return (
     <>
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <TeamCrest teamName={computed.team_name} />
-            <PositionBadge position={computed.position} />
-            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Schließen"
-            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            ✕
-          </button>
+    <ModalOverlay
+      onClose={onClose}
+      panelClassName="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+    >
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <TeamCrest teamName={computed.team_name} />
+          <PositionBadge position={computed.position} />
+          <span className="text-base font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
         </div>
-        <dl className="mb-4 space-y-2 text-sm">
-          <Row label="Verfügbarkeit">{computed.status}</Row>
-          <Row label="Signal">
-            <SignalBadge signal={computed.signal} thresholds={thresholds} />
-          </Row>
-          <Row label="Prognose 1T">
-            <span className={trendClass(players[target.player_id]?.ml_prediction ?? null)}>
-              {trendArrow(players[target.player_id]?.ml_prediction ?? null, ML_PREDICTION_THRESHOLDS)}{" "}
-              {fmtSigned(players[target.player_id]?.ml_prediction ?? null)}
-            </span>
-            {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
-          </Row>
-          <Row label="Prognose 3T">
-            <span className={trendClass(players[target.player_id]?.ml_prediction_3d ?? null)}>
-              {trendArrow(players[target.player_id]?.ml_prediction_3d ?? null, ML_PREDICTION_3D_THRESHOLDS)}{" "}
-              {fmtSigned(players[target.player_id]?.ml_prediction_3d ?? null)}
-            </span>
-            {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
-          </Row>
-          <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
-          {ownSquadIds.has(target.player_id) ? (
-            <Row label="Tatsächlicher Kaufpreis">
-              {players[target.player_id]?.purchase_price != null
-                ? fmtNum(players[target.player_id].purchase_price)
-                : <span className="text-slate-400 dark:text-slate-500">n/v</span>}
-            </Row>
-          ) : (
-            <Row label="Geplanter Preis">
-              {fmtNum(plannedPrice.price)}
-              {plannedPrice.source === "estimate" && plannedPrice.suggestionN !== null && plannedPrice.suggestionN < MIN_N_FOR_PERCENTILE_SPREAD ? (
-                <span className="text-slate-400 dark:text-slate-500"> (geringe Datenbasis, n={plannedPrice.suggestionN})</span>
-              ) : plannedPrice.source === "estimate" ? (
-                <span className="text-slate-400 dark:text-slate-500"> (Schätzung)</span>
-              ) : null}
-            </Row>
-          )}
-          <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-          <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
-          <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
-        </dl>
-        <label className="mb-4 block text-sm">
-          <span className="mb-1 block text-slate-500 dark:text-slate-400">Notiz</span>
-          <textarea
-            value={target.note ?? ""}
-            onChange={(e) => onNoteChange(e.target.value)}
-            rows={2}
-            maxLength={500}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          />
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onToggleBench}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            {isBench(target) ? (
-              <>
-                <IconActionField className="h-4 w-4" />
-                Startelf
-              </>
-            ) : (
-              <>
-                <IconActionBank className="h-4 w-4" />
-                Bank
-              </>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setWechselOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            <IconActionSwap className="h-4 w-4" />
-            Wechsel
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="flex items-center gap-1.5 rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
-          >
-            <IconActionTrash className="h-4 w-4" />
-            Entfernen
-          </button>
-        </div>
-        {wechselOpen && (
-          <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vorschläge</div>
-            {suggestions.length ? (
-              <div className="mb-3 flex flex-wrap gap-2">
-                {suggestions.map((s) => (
-                  <button
-                    key={s.player_id}
-                    type="button"
-                    onClick={() => setCompareWith(s)}
-                    className="rounded-full border border-brand-300 bg-brand-50 px-3 py-1 text-xs text-brand-800 hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-300"
-                  >
-                    {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">Keine freien Alternativen gleicher Position gefunden.</p>
-            )}
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Anderen freien Spieler gleicher Position suchen…"
-              className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            />
-            {search.trim() && (
-              <div className="flex flex-wrap gap-2">
-                {searchResults.length ? (
-                  searchResults.map((s) => (
-                    <div
-                      key={s.player_id}
-                      className="flex items-center overflow-hidden rounded-full border border-slate-300 dark:border-slate-700"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onReplace(s.player_id)}
-                        className="px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
-                      >
-                        {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCompareWith(s)}
-                        title="Vergleichen"
-                        className="border-l border-slate-300 px-2 py-1 text-xs text-brand-600 hover:bg-slate-100 dark:border-slate-700 dark:text-brand-400 dark:hover:bg-slate-800"
-                      >
-                        Vergleichen
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <span className="text-xs text-slate-400 dark:text-slate-500">Keine Treffer.</span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Schließen"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          ✕
+        </button>
       </div>
-    </div>
-    {compareWith && (
-      <PlayerCompareModal
-        playerIdA={target.player_id}
-        playerIdB={compareWith.player_id}
-        players={players}
-        calibration={calibration}
-        thresholds={thresholds}
-        onSelectSide={(playerId) => {
-          if (playerId !== target.player_id) onReplace(playerId);
-          setCompareWith(null);
-        }}
-        onClose={() => setCompareWith(null)}
-      />
-    )}
+      <dl className="mb-4 space-y-2 text-sm">
+        <Row label="Verfügbarkeit">{computed.status}</Row>
+        <Row label="Signal">
+          <SignalBadge signal={computed.signal} thresholds={thresholds} />
+        </Row>
+        <Row label="Prognose 1T">
+          <span className={trendClass(players[target.player_id]?.ml_prediction ?? null)}>
+            {trendArrow(players[target.player_id]?.ml_prediction ?? null, ML_PREDICTION_THRESHOLDS)}{" "}
+            {fmtSigned(players[target.player_id]?.ml_prediction ?? null)}
+          </span>
+          {mae != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae)})</span>}
+        </Row>
+        <Row label="Prognose 3T">
+          <span className={trendClass(players[target.player_id]?.ml_prediction_3d ?? null)}>
+            {trendArrow(players[target.player_id]?.ml_prediction_3d ?? null, ML_PREDICTION_3D_THRESHOLDS)}{" "}
+            {fmtSigned(players[target.player_id]?.ml_prediction_3d ?? null)}
+          </span>
+          {mae3d != null && <span className="text-slate-400 dark:text-slate-500"> (± {fmtNum(mae3d)})</span>}
+        </Row>
+        <Row label="Marktwert">{fmtNum(computed.market_value)}</Row>
+        {ownSquadIds.has(target.player_id) ? (
+          <Row label="Tatsächlicher Kaufpreis">
+            {players[target.player_id]?.purchase_price != null
+              ? fmtNum(players[target.player_id].purchase_price)
+              : <span className="text-slate-400 dark:text-slate-500">n/v</span>}
+          </Row>
+        ) : (
+          <Row label="Geplanter Preis">
+            {fmtNum(plannedPrice.price)}
+            {plannedPrice.source === "estimate" && plannedPrice.suggestionN !== null && plannedPrice.suggestionN < MIN_N_FOR_PERCENTILE_SPREAD ? (
+              <span className="text-slate-400 dark:text-slate-500"> (geringe Datenbasis, n={plannedPrice.suggestionN})</span>
+            ) : plannedPrice.source === "estimate" ? (
+              <span className="text-slate-400 dark:text-slate-500"> (Schätzung)</span>
+            ) : null}
+          </Row>
+        )}
+        <Row label="Startelf-Rang">{computed.starting_rank ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+        <Row label="Verein">{computed.team_name ?? <span className="text-slate-400 dark:text-slate-500">n/v</span>}</Row>
+        <Row label="Schnitt">{fmtNum(computed.average_points)}</Row>
+      </dl>
+      <label className="mb-4 block text-sm">
+        <span className="mb-1 block text-slate-500 dark:text-slate-400">Notiz</span>
+        <textarea
+          value={target.note ?? ""}
+          onChange={(e) => onNoteChange(e.target.value)}
+          rows={2}
+          maxLength={500}
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onToggleBench}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          {isBench(target) ? (
+            <>
+              <IconActionField className="h-4 w-4" />
+              Startelf
+            </>
+          ) : (
+            <>
+              <IconActionBank className="h-4 w-4" />
+              Bank
+            </>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setWechselOpen((v) => !v)}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          <IconActionSwap className="h-4 w-4" />
+          Wechsel
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="flex items-center gap-1.5 rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+        >
+          <IconActionTrash className="h-4 w-4" />
+          Entfernen
+        </button>
+      </div>
+      {wechselOpen && (
+        <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vorschläge</div>
+          {suggestions.length ? (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {suggestions.map((s) => (
+                <button
+                  key={s.player_id}
+                  type="button"
+                  onClick={() => setCompareWith(s)}
+                  className="rounded-full border border-brand-300 bg-brand-50 px-3 py-1 text-xs text-brand-800 hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-300"
+                >
+                  {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">Keine freien Alternativen gleicher Position gefunden.</p>
+          )}
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Anderen freien Spieler gleicher Position suchen…"
+            className="mb-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          />
+          {search.trim() && (
+            <div className="flex flex-wrap gap-2">
+              {searchResults.length ? (
+                searchResults.map((s) => (
+                  <div
+                    key={s.player_id}
+                    className="flex items-center overflow-hidden rounded-full border border-slate-300 dark:border-slate-700"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onReplace(s.player_id)}
+                      className="px-3 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      {s.name} ({fmtNum(s.market_value)}, Ø{fmtNum(s.average_points)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCompareWith(s)}
+                      title="Vergleichen"
+                      className="border-l border-slate-300 px-2 py-1 text-xs text-brand-600 hover:bg-slate-100 dark:border-slate-700 dark:text-brand-400 dark:hover:bg-slate-800"
+                    >
+                      Vergleichen
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <span className="text-xs text-slate-400 dark:text-slate-500">Keine Treffer.</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </ModalOverlay>
+    <AnimatePresence>
+      {compareWith && (
+        <PlayerCompareModal
+          playerIdA={target.player_id}
+          playerIdB={compareWith.player_id}
+          players={players}
+          calibration={calibration}
+          thresholds={thresholds}
+          onSelectSide={(playerId) => {
+            if (playerId !== target.player_id) onReplace(playerId);
+            setCompareWith(null);
+          }}
+          onClose={() => setCompareWith(null)}
+          active={isActive}
+        />
+      )}
+    </AnimatePresence>
     </>
   );
 }
@@ -921,23 +957,27 @@ function AddTargetModal({
   alleSpieler,
   onAdd,
   onClose,
+  isActive,
 }: {
   presetPosition: Position | null;
   alleSpieler: AlleSpielerRow[];
   onAdd: (target: { player_id: string; position: Position; role: string }) => void;
   onClose: () => void;
+  isActive: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<AlleSpielerRow | null>(null);
 
-  useModalOpenTracking();
+  // Gleiche Begruendung wie in DetailModal oben - siehe dort.
+  useModalOpenTracking(isActive);
   useEffect(() => {
+    if (!isActive) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, isActive]);
 
   const results = search.trim()
     ? presetPosition
@@ -957,70 +997,68 @@ function AddTargetModal({
   }
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/50 px-4" onClick={onClose}>
-      <form
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
-      >
-        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-50">
-          Ziel hinzufügen{presetPosition ? ` (${presetPosition})` : ""}
-        </h3>
-        <input
-          type="text"
-          value={selected ? selected.name : search}
-          onChange={(e) => {
-            setSelected(null);
-            setSearch(e.target.value);
-          }}
-          placeholder="Spieler suchen…"
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        />
-        {selected && (
-          <p className="text-sm text-brand-700 dark:text-brand-400">
-            ✓ Ausgewählt: {selected.name} ({fmtNum(selected.market_value)})
-          </p>
-        )}
-        {!selected && search.trim() && (
-          <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            {results.length ? (
-              results.map((p) => (
-                <button
-                  key={p.player_id}
-                  type="button"
-                  onClick={() => {
-                    setSelected(p);
-                    setSearch("");
-                  }}
-                  className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  {p.name} ({fmtNum(p.market_value)}, Ø{fmtNum(p.average_points)})
-                </button>
-              ))
-            ) : (
-              <p className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
-                Keine Treffer (freie Spieler/eigener Kader{presetPosition ? `, Position ${presetPosition}` : ""}).
-              </p>
-            )}
-          </div>
-        )}
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            Abbrechen
-          </button>
-          <button
-            type="submit"
-            disabled={!selected}
-            className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            Hinzufügen
-          </button>
+    <ModalOverlay
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      panelClassName="w-full max-w-sm space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+    >
+      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-50">
+        Ziel hinzufügen{presetPosition ? ` (${presetPosition})` : ""}
+      </h3>
+      <input
+        type="text"
+        value={selected ? selected.name : search}
+        onChange={(e) => {
+          setSelected(null);
+          setSearch(e.target.value);
+        }}
+        placeholder="Spieler suchen…"
+        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+      {selected && (
+        <p className="text-sm text-brand-700 dark:text-brand-400">
+          ✓ Ausgewählt: {selected.name} ({fmtNum(selected.market_value)})
+        </p>
+      )}
+      {!selected && search.trim() && (
+        <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
+          {results.length ? (
+            results.map((p) => (
+              <button
+                key={p.player_id}
+                type="button"
+                onClick={() => {
+                  setSelected(p);
+                  setSearch("");
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {p.name} ({fmtNum(p.market_value)}, Ø{fmtNum(p.average_points)})
+              </button>
+            ))
+          ) : (
+            <p className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
+              Keine Treffer (freie Spieler/eigener Kader{presetPosition ? `, Position ${presetPosition}` : ""}).
+            </p>
+          )}
         </div>
-      </form>
-    </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          Abbrechen
+        </button>
+        <button
+          type="submit"
+          disabled={!selected}
+          className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          Hinzufügen
+        </button>
+      </div>
+    </ModalOverlay>
   );
 }
