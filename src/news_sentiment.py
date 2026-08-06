@@ -115,21 +115,63 @@ def fetch_news_for_player(player_name: str, team_name: str | None) -> list[dict]
     return articles
 
 
+NEGATION_OVERRIDE_CUES = ("ausgeschlossen",)
+SQUAD_EXCLUSION_CONTEXT_WORDS = ("kader", "startelf", "aufstellung")
+
+
+def _has_negation_override_cue(title: str) -> bool:
+    """Schlanke, bewusst enge Heuristik gegen EINEN live verifizierten
+    Fehlklassifikations-Fall (2026-08-04, siehe HANDOFF.md): germansentiment
+    stuft Ausschluss-/Dementi-Meldungen ('Wechsel ... definitiv
+    ausgeschlossen') als negativ ein, weil es auf das Reizwort
+    'ausgeschlossen' reagiert, ohne die Verneinung/den Kontext zu
+    invertieren - tatsaechlich ist ein ausgeschlossener Wechsel neutrale bis
+    gute News (Spieler bleibt). SQUAD_EXCLUSION_CONTEXT_WORDS schuetzt vor
+    der Kollision mit der GEGENTEILIGEN Bedeutung von 'ausgeschlossen' im
+    selben Themenfeld - 'aus dem Kader/der Startelf ausgeschlossen' IST
+    echte schlechte News (Verletzung/Formkrise/Streit) und darf NICHT
+    ueberschrieben werden. Bewusst nur EIN verifizierter Trigger-Begriff,
+    kein breiteres Verneinungs-Set - diese Heuristik deckt nur bekannte
+    Formulierungsmuster ab, keine allgemeine Negationserkennung."""
+    lowered = title.lower()
+    has_cue = any(cue in lowered for cue in NEGATION_OVERRIDE_CUES)
+    has_squad_context = any(word in lowered for word in SQUAD_EXCLUSION_CONTEXT_WORDS)
+    return has_cue and not has_squad_context
+
+
 def classify_sentiment(model: "SentimentModel", texts: list[str]) -> list[dict]:
     """Batch-Klassifikation ueber germansentiment - gibt pro Text
-    {label: 'positive'|'negative'|'neutral', score: float} zurueck. Batch
-    statt Einzelaufruf pro Artikel, da germansentiment.predict_sentiment()
-    nativ Listen akzeptiert - spart Modell-Overhead pro Aufruf. score ist
-    die Wahrscheinlichkeit DES vorhergesagten Labels (nicht z.B. immer die
-    von 'positive'), aus der von output_probabilities=True zurueckgegebenen
-    Liste aller drei Klassen-Wahrscheinlichkeiten herausgesucht."""
+    {label, score, signed_score} zurueck. Batch statt Einzelaufruf pro
+    Artikel, da germansentiment.predict_sentiment() nativ Listen akzeptiert
+    - spart Modell-Overhead pro Aufruf. score ist die Wahrscheinlichkeit DES
+    vorhergesagten Labels (Argmax-Konfidenz). signed_score ist
+    p(positive) - p(negative) aus der vollen 3-Klassen-Verteilung - ein
+    kontinuierlicher Wert, der auch innerhalb eines als 'neutral' gelabelten
+    Bereichs Richtung/Gradient erhaelt (live beobachtet 2026-08-04: in der
+    Amiri-Geruechtephase vor der Verbleib-Verkuendung lag der signierte
+    Score klar negativer als danach, obwohl beide Phasen als 'neutral'
+    gelabelt waren). Wendet zusaetzlich die enge Negations-Override-
+    Heuristik an (siehe _has_negation_override_cue): ein als 'negative'
+    klassifizierter Text mit passendem Cue wird auf 'neutral' gedaempft
+    (NICHT auf 'positive' gedreht - wir wissen nur, dass es nicht sicher
+    negativ ist, keine positive Faerbung erfinden, siehe CLAUDE.md
+    'ehrliche Daten schlagen vollstaendige Daten') und signed_score wird
+    fuer diesen Fall auf 0.0 gekappt, damit der Override auch das
+    nachgelagerte ML-Feature (avg_sentiment_7d in market_predictor.py)
+    tatsaechlich erreicht."""
     if not texts:
         return []
     labels, probabilities = model.predict_sentiment(texts, output_probabilities=True)
     results = []
-    for label, probs in zip(labels, probabilities):
-        score = next((float(p[1]) for p in probs if p[0] == label), None)
-        results.append({"label": label, "score": score})
+    for text, label, probs in zip(texts, labels, probabilities):
+        prob_by_label = {p[0]: float(p[1]) for p in probs}
+        score = prob_by_label.get(label)
+        signed_score = prob_by_label.get("positive", 0.0) - prob_by_label.get("negative", 0.0)
+        if label == "negative" and _has_negation_override_cue(text):
+            label = "neutral"
+            score = prob_by_label.get("neutral")
+            signed_score = 0.0
+        results.append({"label": label, "score": score, "signed_score": signed_score})
     return results
 
 
@@ -193,6 +235,7 @@ def collect_news_sentiment(players: list[dict]) -> list[dict]:
             "link": article["link"],
             "sentiment_label": sentiment["label"],
             "sentiment_score": sentiment["score"],
+            "sentiment_signed_score": sentiment["signed_score"],
         })
     return entries
 
