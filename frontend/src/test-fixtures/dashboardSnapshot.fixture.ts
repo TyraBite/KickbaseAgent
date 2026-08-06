@@ -44,6 +44,14 @@ export const FIXTURE_PLAYERS = {
     player_id: "p-abwehr-weitweg", name: "Werner Weitweg", position: "Abwehr",
     market_value: 500_000, average_points: 20,
   }),
+  // Kartenkopf-Wrap-Regression (2026-08-06): bewusst ein deutlich laengerer
+  // Name als die uebrigen Fixtures, um bei knapper Kartenbreite (Drag-Handle
+  // reserviert Platz rechts oben) sicher ueber die verfuegbare Zeilenbreite
+  // hinauszulaufen.
+  longName: player({
+    player_id: "p-abwehr-langername", name: "Maximilian Langername", position: "Abwehr",
+    market_value: 5_050_000, average_points: 178,
+  }),
   // Bug-1-Regression (Task 3) braucht bewusst einen NICHT-Sturm-Spieler als
   // Haupt-Testsubjekt: der entfernte Code hatte "Sturm" als Default-Position -
   // ein Test, der nur nach einem Sturm-Spieler sucht, waere auch mit dem
