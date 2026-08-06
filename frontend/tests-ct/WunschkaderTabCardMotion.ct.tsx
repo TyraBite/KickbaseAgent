@@ -157,23 +157,35 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
   // jeder weitere Versuch dauerhaft null - mehr Versuche helfen nicht gegen
   // ein Fenster, das sich nicht wieder oeffnet. Stattdessen faengt dieser Test
   // jeden Element.animate()-Aufruf SYNCHRON beim Erzeugen ab (Element.prototype.
-  // animate patchen, bevor der Klick ausgeloest wird) - die Werte werden
-  // eingefangen, bevor ueberhaupt Echtzeit vergehen kann, und bleiben im
-  // Testkontext erhalten, unabhaengig davon, wie viel Zeit bis zum Read
-  // vergeht oder wie schnell/langsam der Runner ist.
+  // animate patchen, bevor der Klick ausgeloest wird) - der jeweilige Wert
+  // wird in dem Moment eingefangen, in dem Framer Motion animate() aufruft,
+  // und bleibt danach unveraendert im Testkontext erhalten, unabhaengig
+  // davon, wie viel Zeit bis zum Read vergeht.
   //
   // Der `transform`-Beleg (siehe oben, "Positions-Projektion tatsaechlich
-  // aktiv") wird an derselben synchronen Erfassungsstelle mitgenommen -
-  // ebenfalls ohne jede Zeitabhaengigkeit, kein zweiter, potenziell racender
-  // Read noetig. Empirisch verifiziert (2026-08-06): im selben Moment, in dem
-  // Framer Motion Element.animate() fuer die Opacity/Y-Transition aufruft, hat
-  // die rAF-Projektion bereits eine von der Ruhelage abweichende Matrix
-  // gesetzt (z.B. "matrix(1, 0, 0, 1, 0, 1.34006)" / "matrix(1, 0, 0, 1, 0,
-  // -442.66)") - die Projektion laeuft also bereits, bevor die WAAPI-Animation
-  // ueberhaupt gestartet ist. Deshalb ist ein synchroner
-  // getComputedStyle(...).transform-Read genau hier so racefrei wie
-  // delay/duration und beweist weiterhin, dass "keine Kollision" keine
-  // vakuose Aussage ist (etwas laeuft nachweislich gleichzeitig).
+  // aktiv") wird an derselben Stelle mitgenommen - kein zweiter, separat
+  // racender Read noetig. Empirisch verifiziert (2026-08-06): im selben
+  // Moment, in dem Framer Motion Element.animate() fuer die Opacity/Y-
+  // Transition aufruft, hat die rAF-Projektion bereits eine von der Ruhelage
+  // abweichende Matrix gesetzt (z.B. "matrix(1, 0, 0, 1, 0, 1.34006)" /
+  // "matrix(1, 0, 0, 1, 0, -442.66)") - die Projektion laeuft also bereits,
+  // bevor die WAAPI-Animation ueberhaupt gestartet ist.
+  //
+  // Dritter Review-Fund, live auf dem echten CI-Runner reproduziert (2026-08-
+  // 06, siehe Kommentar direkt vor dem Poll unten): WANN Framer Motion
+  // Element.animate() ueberhaupt zum ersten Mal aufruft, ist selbst nicht
+  // synchron mit dem Klick - das haengt an einem eigenen rAF-Tick fuer die
+  // Rect-Messung der layoutId-Projektion, dessen Zeitpunkt runner-abhaengig
+  // ist. Der erste, ungepollte Anlauf dieses Fixes kam auf dem CI-Runner
+  // deshalb mit einem komplett LEEREN captured-Array zurueck (0 statt 2
+  // Eintraege), nicht mit den urspruenglichen null-Werten. Die Werte selbst
+  // sind weiterhin racefrei erfasst (siehe oben) - nur das "ist der Capture
+  // ueberhaupt schon passiert" braucht ein Warten. Anders als bei
+  // getAnimations() ist dieses Warten aber ungefaehrlich: das Array WAECHST
+  // nur, ein einmal gepushter Eintrag verschwindet nie wieder - "auf 2
+  // Eintraege pollen" ist eine monotone Bedingung (genau einmal wahr, danach
+  // fuer immer wahr), kein Wettlauf gegen ein sich wieder schliessendes
+  // Fenster wie beim urspruenglichen getAnimations()-Bug.
   test("Reorder: Exit- und Enter-Timing bleiben waehrend der layoutId-Positions-Projektion unveraendert, danach genau eine sichtbare Instanz", async ({
     mount,
     page,
@@ -224,10 +236,29 @@ test.describe("Wunschkader-Kartenliste mit Motion-Wrapper", () => {
     await component.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
     await component.getByRole("button", { name: "Bank" }).click();
 
-    // Kein Warten/Pollen noetig - die Werte wurden bereits synchron beim
-    // Ausloesen des Wechsels eingefangen, unabhaengig davon, wie viel Zeit bis
-    // zu diesem Read vergeht. Sortiert nach isPreMoveNode statt sich auf eine
-    // bestimmte Aufruf-Reihenfolge zu verlassen.
+    // Dritter Review-Fund (2026-08-06, live auf dem CI-Runner reproduziert,
+    // nicht nur theoretisch): ein SOFORTIGER Read direkt nach den Klicks kam
+    // dort mit einem VOELLIG LEEREN captured-Array zurueck (0 statt 2
+    // Eintraege) - nicht die urspruengliche null-Werte-Symptomatik. Ursache:
+    // die layoutId-Projektion muss die Rects beider Knoten zuerst messen
+    // (getBoundingClientRect nach Layout/Paint), bevor Framer Motion die
+    // Element.animate()-Aufrufe fuer Exit/Enter ausloest - dieser Schritt
+    // haengt an einem eigenen rAF-Tick, nicht mehr an derselben synchronen
+    // Turn wie der Klick. Wie viele Ticks das braucht, ist runner-abhaengig
+    // (auf einem schnellen Rechner faellt der Tick in dieselbe JS-Turn wie
+    // der nachfolgende Read, auf einem 2-Worker-CI-Runner nicht zuverlaessig).
+    // Der Unterschied zu getAnimations() bleibt aber bestehen: das Array
+    // WAECHST nur (bereits gepushte Eintraege verschwinden nie wieder) -
+    // "auf 2 Eintraege warten" ist deshalb, anders als das urspruengliche
+    // Pollen auf getAnimations(), kein Wettlauf gegen ein sich wieder
+    // schliessendes Fenster, sondern eine monotone Bedingung, die exakt einmal
+    // wahr wird und dann wahr bleibt.
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__capturedCardAnims.length))
+      .toBe(2);
+
+    // Sortiert nach isPreMoveNode statt sich auf eine bestimmte
+    // Aufruf-Reihenfolge zu verlassen.
     const captured = await page.evaluate(() =>
       (
         (window as any).__capturedCardAnims as {
