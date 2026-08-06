@@ -251,6 +251,19 @@ def _change_recency_features(
     return {days_feature: days_since, count_feature: count}
 
 
+def _article_signed_score(article: dict) -> float:
+    """Bevorzugt den kontinuierlichen signed_score (p(positive) -
+    p(negative), siehe news_sentiment.py::classify_sentiment()) - faellt
+    auf die grobe Label-Zuordnung SENTIMENT_LABEL_SCORE zurueck fuer
+    Artikel aus player_news_log, die VOR diesem Fix geschrieben wurden und
+    deshalb noch kein 'sentiment_signed_score'-Feld haben (Firestore ist
+    schemalos, keine Migration bestehender Dokumente geplant)."""
+    signed_score = article.get("sentiment_signed_score")
+    if signed_score is not None:
+        return signed_score
+    return SENTIMENT_LABEL_SCORE[article["sentiment_label"]]
+
+
 def _sentiment_features_as_of(articles: list[dict], as_of_date: datetime.date) -> dict:
     """articles: EIN Spielers Eintraege aus player_news_log (jeweils
     {'pub_date': 'YYYY-MM-DD', 'sentiment_label': 'positive'|'neutral'|'negative', ...}).
@@ -259,7 +272,9 @@ def _sentiment_features_as_of(articles: list[dict], as_of_date: datetime.date) -
     Prinzip wie _change_recency_features, hier aber ueber ein rollierendes Fenster
     statt "Tage seit letztem Ereignis", da es bei Nachrichten kein einzelnes
     diskretes 'Ereignis' wie einen Status-Wechsel gibt, sondern eine variable
-    Anzahl Artikel pro Tag). Siehe
+    Anzahl Artikel pro Tag). Sentiment-Wert bevorzugt den kontinuierlichen
+    signed_score, faellt aber auf die grobe Label-Zuordnung zurueck (siehe
+    _article_signed_score() fuer die Legacy-Fallback-Logik). Siehe
     docs/superpowers/specs/2026-08-02-sentiment-ml-integration-design.md.
     Absichtlich EIGENE Funktion statt Wiederverwendung der Recency-Feature-
     Funktion - andere Aggregationssemantik (Fenster-Durchschnitt statt
@@ -271,7 +286,7 @@ def _sentiment_features_as_of(articles: list[dict], as_of_date: datetime.date) -
     ]
     if not relevant:
         return {"avg_sentiment_7d": 0, "news_volume_7d": 0}
-    avg_sentiment = sum(SENTIMENT_LABEL_SCORE[a["sentiment_label"]] for a in relevant) / len(relevant)
+    avg_sentiment = sum(_article_signed_score(a) for a in relevant) / len(relevant)
     return {"avg_sentiment_7d": avg_sentiment, "news_volume_7d": len(relevant)}
 
 
