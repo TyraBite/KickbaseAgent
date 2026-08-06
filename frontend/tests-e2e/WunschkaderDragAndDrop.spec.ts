@@ -88,7 +88,7 @@ test.describe("Wunschkader Drag-and-Drop (Bank ↔ Startelf)", () => {
     const bankHeading = page.getByText(/^Bank \(/);
     const bankGrid = bankHeading.locator("xpath=following-sibling::div[1]");
 
-    const handleBox = await dragHandleIn(abwehrGrid).boundingBox();
+    const handleBox = await waitForBoundingBoxSettled(dragHandleIn(abwehrGrid));
     const bankBox = await bankGrid.boundingBox();
     if (!handleBox || !bankBox) throw new Error("boundingBox fehlt");
 
@@ -171,7 +171,7 @@ test.describe("Wunschkader Drag-and-Drop (Bank ↔ Startelf)", () => {
     // nach dem Scroll oben automatisch die aktuell auf dem Bildschirm
     // sichtbare Position, exakt das, was auch ein echter Touch-Punkt treffen
     // wuerde.
-    const handleBox = await dragHandleIn(abwehrGrid).boundingBox();
+    const handleBox = await waitForBoundingBoxSettled(dragHandleIn(abwehrGrid));
     const bankBox = await bankGrid.boundingBox();
     if (!handleBox || !bankBox) throw new Error("boundingBox fehlt");
 
