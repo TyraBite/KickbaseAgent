@@ -31,6 +31,12 @@ Arbeit — das steht in der Git-Historie (`git log`). Wie in diesem Repo gearbei
   `frontend-playwright-tests.yml`, `pyproject.toml` mit `pythonpath = ["."]`.
 - **`KICKBASE_LEAGUE_START_BUDGET` steht als Klartext-Wert in beiden Workflow-YAMLs** statt über das gleichnamige
   Secret referenziert zu werden — funktioniert, ist aber nicht best practice.
+- **Wunschkader-Drag-and-Drop (PR #16, 2026-08-06), kleine offene Politur, keine Bugs**: Drag-Handle ist
+  `tabIndex={-1}` ohne `aria-hidden` (AT-Nutzer finden per Tab-Reihenfolge zwar keinen, aber per Screenreader-
+  Elementliste einen Button ohne Wirkung — Funktionalität ist über den Button im Detail-Modal vollständig
+  vorhanden). Kartenkörper hat kein `select-none` mehr (Long-Press zeigt jetzt das native Text-Auswahl-Menü). Kein
+  Auto-Scroll während des Ziehens — bei weit auseinanderliegenden Zielen auf einem vollen, gescrollten Kader (z.B.
+  Torwart↔Bank bei 17 Spielern auf dem Handy) bleibt der Klick-Button im Detail-Modal der verlässliche Weg.
 
 ## Test-Coverage (Audit 2026-08-03)
 
@@ -55,10 +61,9 @@ Frontend/gescoptes Follow-up, siehe zugehörige Pläne im selben Ordner). Bewuss
   zwar einen Escape-Listener, aber ein Swipe über dem offenen Modal wechselt trotzdem den Hintergrund-Tab.
   Vorbestehender Bug, bei der Motion-Pilot-Review (PR #14) als Nebenfund entdeckt, nicht dadurch verursacht. Noch
   offen.
-- **Motion-Pilot Folge-Arbeit** (beide bewusst zurückgestellt, kein aktueller Auftrag): (a) Drag-and-Drop für
-  Wunschkader-Karten (Bank ↔ Positionsgruppe, eigene Spec, User-Idee vom 2026-08-05, noch nicht begonnen),
-  (b) Phase-2-Rollout: Motion für Transfermarkt-/Alle-Spieler-Kartenlisten und Sortier-Tabellen-Row-Reorder in
-  `components/table.tsx`.
+- **Motion-Pilot Folge-Arbeit, Phase-2-Rollout** (bewusst zurückgestellt, kein aktueller Auftrag): Motion für
+  Transfermarkt-/Alle-Spieler-Kartenlisten und Sortier-Tabellen-Row-Reorder in `components/table.tsx`. (Drag-and-Drop
+  für Wunschkader-Karten selbst ist seit PR #16, 2026-08-06, umgesetzt.)
 - **Modelle nochmal tunen, sobald genug echte Daten da sind** — Fitness-/Startelf-/Sentiment-Features liefern noch
   Cold-Start-Platzhalter, eine erneute Hyperparameter-Suche lohnt erst danach. 1-Tages-Horizont bereits getunt
   (277 Configs, 2026-07-31); 3-Tages-Horizont jetzt ebenfalls embargo-korrekt getestet (324 Configs,
