@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AnimatePresence, motion, type PanInfo } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useDebouncedCallback } from "../lib/useDebouncedCallback";
@@ -463,15 +463,35 @@ export default function WunschkaderTab({
   // Zielzone pro Karte ausserhalb der Bank. toggleBench() prueft bewusst
   // KEINE Formations-Machbarkeit (Kommentar weiter unten bei "Formation:") -
   // der Drag-Handler uebernimmt dieselbe Semantik 1:1, keine neue Regel.
-  function handleCardDragEnd(target: EditTarget, info: PanInfo) {
+  //
+  // Bewusst `event.clientX/clientY`, NICHT `info.point` (PanInfo): framer-motion
+  // baut `info.point` aus `event.pageX/pageY` (siehe
+  // node_modules/framer-motion/dist/es/events/event-info.mjs,
+  // extractEventInfo()) - das ist Dokument-relativ und schliesst den
+  // Scroll-Offset mit ein. `bankRect` kommt dagegen aus
+  // getBoundingClientRect(), das IMMER Viewport-relativ ist (schliesst
+  // window.scrollX/scrollY explizit AUS). Bei ungescrollter Seite (Scroll 0)
+  // sind beide Werte zufaellig identisch - bei einem uebervollen Kader
+  // (bis zu MAX_SQUAD_SIZE Ziele, 4 Positionsgruppen + Bank, klar hoeher als
+  // ein Mobile-Viewport) ist das Dokument aber gescrollt, und der Vergleich
+  // waere systematisch um den Scroll-Offset verschoben (Review-Fund).
+  // event.clientX/clientY ist ebenfalls Viewport-relativ und passt damit zu
+  // getBoundingClientRect() - keine Scroll-Offset-Arithmetik noetig.
+  function handleCardDragEnd(target: EditTarget, event: MouseEvent | TouchEvent | PointerEvent) {
     const bankEl = bankGridRef.current;
     if (!bankEl) return;
+    // TouchEvent hat kein clientX/clientY (nur ueber .touches[]) - im
+    // Unions-Typ von framer-motion (DragHandler) reine Altlast, da Chromiums
+    // Drag-Gesten-Handling intern durchgehend auf Pointer Events laeuft
+    // (auch fuer Touch-Input). Ohne clientX/clientY sicherheitshalber
+    // abbrechen statt zu raten.
+    if (!("clientX" in event)) return;
     const bankRect = bankEl.getBoundingClientRect();
     const droppedOverBank =
-      info.point.x >= bankRect.left &&
-      info.point.x <= bankRect.right &&
-      info.point.y >= bankRect.top &&
-      info.point.y <= bankRect.bottom;
+      event.clientX >= bankRect.left &&
+      event.clientX <= bankRect.right &&
+      event.clientY >= bankRect.top &&
+      event.clientY <= bankRect.bottom;
     if (droppedOverBank !== isBench(target)) {
       toggleBench(target._uid);
     }
@@ -579,7 +599,7 @@ export default function WunschkaderTab({
                       dragConstraints={cardsAreaRef}
                       dragElastic={0.15}
                       whileDrag={{ scale: 1.03, zIndex: 10 }}
-                      onDragEnd={(_event, info) => handleCardDragEnd(t, info)}
+                      onDragEnd={(event) => handleCardDragEnd(t, event)}
                       data-swipe-ignore
                     >
                       <TargetCard
@@ -620,7 +640,7 @@ export default function WunschkaderTab({
                   dragConstraints={cardsAreaRef}
                   dragElastic={0.15}
                   whileDrag={{ scale: 1.03, zIndex: 10 }}
-                  onDragEnd={(_event, info) => handleCardDragEnd(t, info)}
+                  onDragEnd={(event) => handleCardDragEnd(t, event)}
                   data-swipe-ignore
                 >
                   <TargetCard target={t} computed={computed} thresholds={thresholds} clubCount={0} onSelect={() => setSelected(t)} />

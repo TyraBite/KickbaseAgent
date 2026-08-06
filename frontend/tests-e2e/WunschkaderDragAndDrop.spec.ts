@@ -102,4 +102,59 @@ test.describe("Wunschkader Drag-and-Drop (Bank ↔ Startelf)", () => {
     await expect(abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true })).toBeVisible();
     await expect(bankGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true })).toHaveCount(0);
   });
+
+  // Review-Fund (Coordinate-Space-Bug): handleCardDragEnd() verglich zunaechst
+  // `info.point` (PanInfo - framer-motion baut das aus event.pageX/pageY,
+  // siehe node_modules/framer-motion/dist/es/events/event-info.mjs,
+  // Dokument-relativ INKLUSIVE Scroll-Offset) gegen `bankRect`
+  // (getBoundingClientRect() - IMMER Viewport-relativ, OHNE Scroll-Offset).
+  // Bei window.scrollY===0 sind beide Werte zufaellig identisch, weshalb die
+  // beiden Tests oben den Bug nicht gefangen haben - die Standard-Fixture hat
+  // nur EIN wunschkader_targets-Element und wurde in keinem der beiden Tests
+  // aktiv gescrollt. Der Wunschkader-Tab ist aber bereits mit diesem einzigen
+  // Ziel hoeher als der Pixel-5-Viewport (empirisch verifiziert:
+  // scrollHeight ca. 1227px vs. innerHeight ca. 727px) - es braucht also
+  // keine zusaetzlichen Ziele, nur einen expliziten Scroll vor dem Drag, um
+  // die reale Nutzungssituation (Kader > 1 Bildschirm, siehe MAX_SQUAD_SIZE)
+  // nachzustellen.
+  test("Drag funktioniert korrekt, wenn die Seite gescrollt ist (Scroll-Offset darf die Drop-Zonen-Erkennung nicht verschieben)", async ({
+    page,
+  }) => {
+    await openWunschkader(page);
+
+    const maxScroll = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    // Sanity-Check der eigentlichen Testpraemisse: ohne echten Scroll-Spielraum
+    // wuerde dieser Test nichts beweisen (identisch zu den beiden Tests oben).
+    expect(maxScroll).toBeGreaterThan(0);
+    const scrollTarget = Math.min(200, maxScroll);
+    await page.evaluate((y) => window.scrollTo(0, y), scrollTarget);
+    const scrollY = await page.evaluate(() => window.scrollY);
+    expect(scrollY).toBeGreaterThan(0);
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    const card = abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true });
+    await expect(card).toBeVisible();
+
+    const bankHeading = page.getByText(/^Bank \(/);
+    const bankGrid = bankHeading.locator("xpath=following-sibling::div[1]");
+
+    // boundingBox() ist wie getBoundingClientRect() Viewport-relativ - liefert
+    // nach dem Scroll oben automatisch die aktuell auf dem Bildschirm
+    // sichtbare Position, exakt das, was auch ein echter Touch-Punkt treffen
+    // wuerde.
+    const cardBox = await card.boundingBox();
+    const bankBox = await bankGrid.boundingBox();
+    if (!cardBox || !bankBox) throw new Error("boundingBox fehlt");
+
+    await touchDrag(
+      page,
+      { x: cardBox.x + cardBox.width / 2, y: cardBox.y + cardBox.height / 2 },
+      { x: bankBox.x + bankBox.width / 2, y: bankBox.y + bankBox.height / 2 },
+      12
+    );
+
+    await expect(bankGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true })).toBeVisible();
+    await expect(abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true })).toHaveCount(0);
+  });
 });
