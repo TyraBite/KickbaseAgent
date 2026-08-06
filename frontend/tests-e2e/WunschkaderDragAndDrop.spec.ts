@@ -157,4 +157,33 @@ test.describe("Wunschkader Drag-and-Drop (Bank ↔ Startelf)", () => {
     await expect(bankGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true })).toBeVisible();
     await expect(abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true })).toHaveCount(0);
   });
+
+  test("Ein reiner Tap auf eine Karte oeffnet weiterhin das Detail-Modal (Drag darf Tap nicht kaputt machen)", async ({ page }) => {
+    await openWunschkader(page);
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    await abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true }).click();
+
+    await expect(page.getByLabel("Notiz")).toBeVisible();
+  });
+
+  test("Horizontales Ziehen auf einer Wunschkader-Karte wechselt NICHT versehentlich den Tab", async ({ page }) => {
+    const heading = await openWunschkader(page);
+
+    const abwehrHeading = page.getByText(/^Abwehr ·/);
+    const abwehrGrid = abwehrHeading.locator("xpath=following-sibling::div[1]");
+    const card = abwehrGrid.getByText(FIXTURE_PLAYERS.target.name, { exact: true });
+    const cardBox = await card.boundingBox();
+    if (!cardBox) throw new Error("boundingBox fehlt");
+    const cardMidY = cardBox.y + cardBox.height / 2;
+
+    // Weiter Wisch nach links, wie ein echter Tab-Wechsel-Swipe (siehe
+    // WunschkaderStatePersistsAcrossTabSwitch.spec.ts) - aber mit Start
+    // GENAU auf der Karte statt auf der Ueberschrift, um data-swipe-ignore
+    // zu pruefen.
+    await touchDrag(page, { x: cardBox.x + cardBox.width - 5, y: cardMidY }, { x: cardBox.x - 200, y: cardMidY }, 8);
+
+    await expect(heading).toHaveText("Wunschkader");
+  });
 });
