@@ -260,6 +260,13 @@ User nachfragte). Ebenso nach jedem manuell ausgelösten CI-Rerun
 aufsetzen (Watcher/Hintergrund-Polling) statt implizit anzunehmen, man behalte
 es "im Blick" — sonst bemerkt niemand, wenn der Lauf durch ist.
 
+Bei Subagent-Driven-Development-Ausführung: die finale Whole-Branch-Review
+**vor** dem Auto-Merge des letzten Code-Tasks abwarten, nicht parallel dazu
+laufen lassen (2026-08-07 live passiert: PR wurde durch CI+Auto-Merge schon
+gemergt, bevor die parallel dispatchte finale Review fertig war — ein davon
+gefundener, echter Coverage-Gap musste per separatem Follow-up-PR nachgezogen
+werden, statt vor dem ersten Merge geschlossen zu sein).
+
 Zeilenenden sind LF (`.gitattributes: * text=auto eol=lf`) — CRLF-Drift von der
 Windows-Seite nicht mitcommitten. `data/kickbase.db` ist gitignored und wird
 bei jedem Lauf neu erzeugt; nie zurückcommitten.

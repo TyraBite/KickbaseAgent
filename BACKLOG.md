@@ -26,9 +26,10 @@ diesem Repo gearbeitet wird: `CLAUDE.md`.
   öffentliche Datenbank für andere Kickbase-User anzubieten, komplett getrennt vom persönlichen Agent. Offene
   Fragen: rechtlich zulässig? Monetarisierung? Domain-Kosten? Skalierbare Infrastruktur? Noch nicht gescoped, kein
   Plan.
-- **Achievements/Login-Boni anderer Manager** (`84ad6dff`) — Achievement-Teil wird umgesetzt: Plan
-  `docs/superpowers/plans/2026-08-07-manager-budgets-exact-achievements.md` (exakte Schwellenprüfung statt
-  Punkte-Verhältnis-Skalierung für 5 live verifizierte Achievement-Ids). Zwei Teile davon bewusst NICHT im Plan:
+- **Achievements/Login-Boni anderer Manager** (`84ad6dff`) — Achievement-Teil UMGESETZT (PR #19 + Follow-up PR #20,
+  2026-08-07, beide gemergt): exakte Schwellenprüfung statt Punkte-Verhältnis-Skalierung für 5 live verifizierte
+  Achievement-Ids, siehe `docs/superpowers/plans/2026-08-07-manager-budgets-exact-achievements.md`. Noch NICHT auf
+  `status:"done"` gesetzt, da zwei Teile der ursprünglichen Idee bewusst nicht umgesetzt wurden:
   - **Login-Bonus per erkannter Aktivität** (statt Gleichverteilung auf alle Manager) zurückgestellt — Login-Bonus
     ist live als Streak bestätigt (10k/20k/…/gedeckelt bei 100k ab Tag 10, vermutlich Reset bei Lücke), aber pro Tag
     nicht zuverlässig als aktiv/inaktiv belegbar (Aufstellungsänderung anderer Manager wird zwar pro Lauf abgerufen,
@@ -38,6 +39,11 @@ diesem Repo gearbeitet wird: `CLAUDE.md`.
     `/user/achievements/{id}` ignoriert einen `managerId`-Query-Param stillschweigend (liefert weiter nur eigene
     Daten), `/managers/{id}/achievements` → 404. Kein Hinweis auf einen Manager-scoped Achievement-Endpoint ohne
     tiefere Reverse-Engineering-Arbeit, die bewusst nicht verfolgt wird.
+- **Workflows über einen Raspberry Pi laufen lassen** (`306066b2`) — Light/Heavy-Workflows statt/zusätzlich über
+  einen Pi mit Internet-Zugang statt (nur) GitHub Actions, würde Cron-Timing-Drift fixen und wäre robust gegen
+  GH-Actions-Ausfälle (wie am 2026-08-06 erlebt). Offene Fragen: wie kommen die Workflows auf den Pi, wie wird das
+  gemaintaint? User wollte das als Nächstes im Dialog planen — noch keine Antwort zu Hardware/OS/Docker-Status
+  erhalten, noch nicht begonnen.
 
 ## Technische Schulden
 
@@ -52,13 +58,15 @@ diesem Repo gearbeitet wird: `CLAUDE.md`.
   vorhanden). Kartenkörper hat kein `select-none` mehr (Long-Press zeigt jetzt das native Text-Auswahl-Menü). Kein
   Auto-Scroll während des Ziehens — bei weit auseinanderliegenden Zielen auf einem vollen, gescrollten Kader (z.B.
   Torwart↔Bank bei 17 Spielern auf dem Handy) bleibt der Klick-Button im Detail-Modal der verlässliche Weg.
-- **`WunschkaderDragAndDrop.spec.ts`, vermutlich flaky (beobachtet 2026-08-07, PR #17)**: die `maxScroll`-Sanity-
-  Checks ("ohne echten Scroll-Spielraum würde dieser Test nichts beweisen") in den Tests "Drag funktioniert
-  korrekt, wenn die Seite gescrollt ist" und "Vertikales Wischen auf dem Kartenkörper scrollt weiterhin die Seite"
-  schlugen über drei aufeinanderfolgende CI-Läufe je unterschiedlich fehl — auch auf Commits ohne jede
-  Code-Änderung an Wunschkader. Deutet auf eine Timing-/Render-Race in der mobilen Viewport-Emulation, nicht auf
-  einen echten Drag-Bug. Läufe fanden alle kurz nach einem größeren GitHub-Actions-Ausfall statt (evtl. degradierte
-  Runner-Performance als Mitverursacher, nicht bestätigt). Noch nicht root-caused, kein aktueller Auftrag.
+- **`WunschkaderDragAndDrop.spec.ts`, vermutlich flaky (beobachtet 2026-08-07, PR #17 und PR #20)**: die
+  `maxScroll`-Sanity-Checks ("ohne echten Scroll-Spielraum würde dieser Test nichts beweisen") in den Tests "Drag
+  funktioniert korrekt, wenn die Seite gescrollt ist" und "Vertikales Wischen auf dem Kartenkörper scrollt
+  weiterhin die Seite" schlugen über drei aufeinanderfolgende CI-Läufe auf PR #17 je unterschiedlich fehl — auch
+  auf Commits ohne jede Code-Änderung an Wunschkader. Deutet auf eine Timing-/Render-Race in der mobilen
+  Viewport-Emulation, nicht auf einen echten Drag-Bug. Zweiter, unabhängiger Beleg auf PR #20 (2026-08-07, reiner
+  Backend-Diff ohne jede Frontend-Änderung, per Job-Log bestätigt unrelated, nach Rerun grün) — Flake tritt also
+  auch unabhängig von einem größeren GitHub-Actions-Ausfall auf, die Ausfall-Theorie von PR #17 ist damit allein
+  nicht hinreichend. Noch nicht root-caused, kein aktueller Auftrag.
 
 ## Test-Coverage (Audit 2026-08-03)
 

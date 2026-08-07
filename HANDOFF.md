@@ -6,37 +6,40 @@ Arbeit (das steht in der Git-Historie, `git log`). Wie in diesem Repo gearbeitet
 
 ## Zuletzt gemacht (2026-08-07)
 
-- **Wunschkader-Kartenkopf wrap-Bug behoben** (PR #17, gemergt): `flex-wrap` auf der Kartenkopfzeile
-  (`WunschkaderTab.tsx`) ließ einen zu langen Namen als eigenes Flex-Item in eine zweite Zeile kippen, kürzere Namen
-  blieben einzeilig — macht Karten derselben Positionsgruppe/Bank unterschiedlich hoch. Fix: `flex-wrap` entfernt,
-  `flex-1 min-w-0 truncate` auf den Namen-Span, Crest/Badges behalten ihre Größe. Volle Namen bleiben über das
-  Detail-Modal erreichbar.
-  - Wichtiger Nebenfund beim Verifizieren: der ursprüngliche Test (aus der Vorsession) maß die Höhe des
-    `motion.div`-Wrappers (CSS-Grid-Item) statt der sichtbaren, umrandeten Karte darunter — CSS Grids
-    `align-items: stretch` gleicht das Grid-Item IMMER an, unabhängig vom Bug, daher war der Test grün, obwohl der
-    Bug noch da war. Live per Diagnose-Commit bestätigt (Grid-Item 224px beide, sichtbare Karte 200px vs. 224px).
-    Test korrigiert, misst jetzt `div[role="button"]` eine Ebene tiefer.
-- **Zweiter, unabhängig gefundener Bug behoben** (PR #18, gemergt): `db.py::connect()`-Migration hatte keinen
-  `_ensure_column()`-Eintrag für `purchase_price` — eine bereits bestehende, ältere `data/kickbase.db` crasht beim
-  Export mit `sqlite3.OperationalError`. Live in der Sandbox reproduziert (beim manuellen Heavy-Lauf, siehe unten).
-  Betrifft nur langlebige lokale/Windows-seitige DB-Dateien, nicht CI (immer frischer Checkout).
-- **Manueller Heavy-Dashboard-Lauf**: während eines mehrstündigen GitHub-Actions-Gesamtausfalls (bestätigt über
-  githubstatus.com, 2026-08-06 ~18:46 UTC bis ins Deployment-Fenster von PR #17/#18 hinein) lief weder der
-  stündliche Light- noch der tägliche Heavy-Cron. Auf Nutzerwunsch wurde `python -m src.dashboard_export`
-  (Heavy-Äquivalent zu `dashboard-marktwerte.yml`) direkt in der Sandbox gegen die echte Kickbase-API/Firestore
-  ausgeführt, `dashboard_snapshot/latest` ist seitdem wieder aktuell (Stand 2026-08-06/07). Dabei kam der
-  `purchase_price`-Bug oben ans Licht.
-- Beide PRs liefen über den normalen Workflow (Branch, PR, `--auto --squash`), verzögert durch den Actions-Ausfall
-  (Checks blieben teils stundenlang `pending`/`queued`, ein Re-Trigger durch einen `main`-Merge-Commit auf dem
-  PR-#17-Branch half, sobald GitHub wieder lief). Kein offener PR, kein offener Worktree mehr — beide Worktrees
-  (`.claude/worktrees/wunschkader-card-header-wrap`, Branch für PR #18) inkl. lokaler Branches entfernt.
-- **`CLAUDE.md` ergänzt** (Git- und PR-Workflow): Auto-Merge wurde nur auf PR #18 gesetzt, nicht auf PR #17 —
-  blieb trotz grüner Checks unbemerkt offen, bis der User nachfragte. Regel ergänzt: `gh pr merge --auto --squash`
-  bei mehreren offenen PRs für jede einzeln direkt nach Erstellung ausführen, und nach jedem manuellen CI-Rerun
-  sofort einen Beobachtungsmechanismus aufsetzen statt implizit "im Blick behalten".
+- **Feedback-Log geprüft** (`feedback/current`, alle 27 Items durchgesehen): 4 offene (`status:"open"`). Zwei bereits
+  bekannt und dokumentiert (Sentiment-Turningpoints `6b08e2cf`, Public-Domain-DB-Idee `f686c8db`). Zwei neu, jetzt in
+  `BACKLOG.md` nachgetragen: Achievements/Login-Boni in die Budget-Schätzung einbeziehen (`84ad6dff`) und
+  Light/Heavy-Workflows über einen Raspberry Pi laufen lassen statt/zusätzlich zu GitHub Actions (`306066b2`).
+- **Manager-Budgets: exakte Achievement-Erkennung statt Punkte-Verhältnis-Skalierung** (PR #19 + Follow-up PR #20,
+  beide gemergt) — Umsetzung von `84ad6dff`, Teil 1. Für ANDERE Liga-Manager (nicht das eigene, ohnehin exakte
+  Kapital) wird der Achievement-Bonus-Anteil für 5 live verifizierte, exakt prüfbare Achievement-Ids (Teamwert-,
+  Trade-Count-, Liga-Größe-Schwellen) jetzt exakt statt per Saisonpunkte-Verhältnis geschätzt. Plan:
+  `docs/superpowers/plans/2026-08-07-manager-budgets-exact-achievements.md`, subagent-driven umgesetzt (3
+  Code-Tasks + PR + finale Whole-Branch-Review + eine Fix-Welle).
+  - Live-Recherche vor der Umsetzung ergab: Login-Bonus ist ein Streak (10k→20k→…→100k gedeckelt ab Tag 10, Reset
+    vermutlich bei Lücke), nicht der bislang angenommene feste Betrag. Login-Bonus- und Achievement-Feed-Einträge
+    sind strikt auf den Token-Owner beschränkt (ein `managerId`-Query-Param wird stillschweigend ignoriert). Die
+    "Jackpot"-Idee (Achievements anderer Manager direkt/season-weit auslesen) wurde deshalb live getestet und
+    verworfen — kein Manager-scoped Achievement-Endpoint. Beides in `BACKLOG.md` dokumentiert; die
+    Login-Bonus-Aktivitätserkennung (Teil 2 der Idee) ist auf User-Wunsch bewusst zurückgestellt, nicht Teil dieser
+    Umsetzung.
+  - Die finale Whole-Branch-Review (dispatcht auf dem leistungsfähigsten verfügbaren Modell) fand einen
+    mutation-verifizierten Coverage-Gap: die `trade_count`/`league_size`-Verdrahtung in `estimate_all()` hatte keine
+    Integrationstests (nur `team_value` war abgedeckt) — der Code selbst war korrekt. Per Follow-up-PR #20
+    geschlossen (2 neue, mutation-verifizierte Integrationstests + 2 kleine Doku-Fixes).
+  - **Prozess-Lehre, in `CLAUDE.md` nachgetragen**: Task 4 (PR + Auto-Merge) lief parallel zur finalen
+    Whole-Branch-Review statt danach — PR #19 merged, bevor die Review fertig war. Künftig: bei
+    Subagent-Driven-Development-Ausführung die finale Review abwarten, bevor Auto-Merge für den letzten Code-Task
+    gesetzt wird.
+  - Live-Produktions-Delta heute: exakt 0 € für alle 8 Manager (alle bereits über jeder Schwelle, `season_points=0`
+    aktuell macht auch den alten Skalierungs-Pfad wirkungslos) — kein erzwungener Heavy-Lauf nötig, kein
+    Firestore-Schema- oder Output-Change.
+  - E2E-Flaky-Test (`WunschkaderDragAndDrop.spec.ts`, `maxScroll`-Sanity-Check) trat auf PR #20 erneut auf, per
+    Job-Log bestätigt unabhängig vom (reinen Backend-)Diff, nach Rerun grün — zweiter Beleg für den in
+    `BACKLOG.md` bereits vermerkten, noch nicht root-caused Flake.
 
 ## Aufzugreifen
 
-Nichts Offenes aus dieser Session. Ein live beobachteter, wahrscheinlich vorbestehender Flaky-Test
-(`WunschkaderDragAndDrop.spec.ts`, `maxScroll`-Sanity-Check) ist als technische Schuld in `BACKLOG.md` vermerkt,
-nicht hier — kein aktueller Auftrag.
+- **Raspi-Workflow-Idee** (`306066b2`, `BACKLOG.md`) — sollte laut User als Nächstes im Dialog geplant werden
+  (parallel zur Achievement-Umsetzung angestoßen). Noch keine Antwort zu Hardware/OS/Docker-Status erhalten, noch
+  nicht begonnen.
