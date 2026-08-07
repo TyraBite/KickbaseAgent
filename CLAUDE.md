@@ -3,12 +3,17 @@
 Diese Datei wird zu Beginn jeder Claude-Code-Session geladen. Sie beschreibt,
 **wie** in diesem Repo gearbeitet wird — vor jeder neuen Session lesen.
 
-`HANDOFF.md` ist der Gegenpart dazu: offene Aufgaben und Themen, die noch
-geplant oder umgesetzt werden müssen — ebenfalls vor jeder neuen Session
-lesen. `HANDOFF.md` ist bewusst **kein** fortlaufendes Änderungsprotokoll
-vergangener Arbeit (das steht in der Git-Historie, `git log`) — sondern eine
-kompakte, aktuell gehaltene Liste dessen, was als Nächstes ansteht. Abgeschlossene
-Punkte werden aus `HANDOFF.md` entfernt, nicht dort angehäuft.
+`HANDOFF.md` ist der Gegenpart dazu: der Zustand nach der letzten Session —
+was zuletzt gemacht wurde und was die nächste Session ggf. aufgreifen sollte
+— ebenfalls vor jeder neuen Session lesen. Kein fortlaufendes
+Änderungsprotokoll vergangener Arbeit (das steht in der Git-Historie,
+`git log`) und kein Backlog. Wird durch die nächste Session überschrieben,
+nicht angehäuft.
+
+`BACKLOG.md` ist der dritte Pflicht-Lesestoff: offene Aufgaben, Ideen und
+technische Schulden ohne aktuellen Auftrag — ebenfalls vor jeder neuen Session
+lesen, aber anders als `HANDOFF.md` nicht bei jedem Commit zwingend aktuell
+gehalten. Abgeschlossene Punkte werden auch hier entfernt, nicht angehäuft.
 
 Setup-Befehle stehen im `README.md` und werden hier nicht wiederholt — das
 README muss deshalb selbst aktuell gehalten werden. Ändert sich Setup,
@@ -243,7 +248,7 @@ Jede funktionale Änderung (`src/`, `tests/`, `frontend/src/`,
 `main` ist per Ruleset geschützt, 4 Required Checks.
 
 Direkt-Push auf `main` bleibt nur für reine Doku-/Planungs-Commits (Specs,
-Pläne, `HANDOFF.md`, diese Datei) ohne Code-Wirkung. Im Zweifel: PR.
+Pläne, `HANDOFF.md`, `BACKLOG.md`, diese Datei) ohne Code-Wirkung. Im Zweifel: PR.
 
 Zeilenenden sind LF (`.gitattributes: * text=auto eol=lf`) — CRLF-Drift von der
 Windows-Seite nicht mitcommitten. `data/kickbase.db` ist gitignored und wird
@@ -264,6 +269,22 @@ prüfen, nicht davon ausgehen, dass ein lokaler Commit schon gepusht ist.
   `npm run` auf der Windows/Rider-Seite brechen). In einer eigenen, isolierten
   Git-Worktree ist `npm install` dagegen unproblematisch (eigene
   `node_modules`-Kopie).
+- **Playwright-Browserausführung (CT `frontend/tests-ct/`, E2E
+  `frontend/tests-e2e/`) läuft in dieser Sandbox NICHT lokal** — dem
+  installierten `chrome-headless-shell` fehlen mehrere System-Shared-Libraries
+  (u.a. `libnspr4`, `libnss3`, `libatk`, `libdbus`, die `libX11`-Familie,
+  `libgbm`, `libasound`), und es gibt kein root/sudo für `apt-get install`
+  oder `npx playwright install-deps` (2026-08-06 verifiziert, kein
+  Alternativ-Chromium im System gefunden). Verifikation für
+  Playwright-abhängige Fixes läuft deshalb über CI (Branch pushen, `gh pr
+  checks` beobachten) statt lokal erzwungen zu werden — Vitest (jsdom, kein
+  echter Browser nötig) läuft dagegen lokal problemlos.
+- Ein lokales `npm install` in einer Worktree kann `frontend/package-lock.json`
+  durch die dort installierte npm-Version umschreiben (großer Diff, entfernt
+  z.B. optionale Plattform-Pakete) — CI pinnt eine andere npm-Version, dieser
+  Diff darf nicht mitcommittet werden (schon einmal in PR #14 passiert,
+  `EBADPLATFORM` in CI). Vor dem Commit `git diff frontend/package-lock.json`
+  prüfen und bei reinem Versions-Rauschen verwerfen.
 
 ## Vorgehen bei größeren Änderungen
 
