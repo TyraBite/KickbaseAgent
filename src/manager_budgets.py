@@ -174,13 +174,15 @@ def estimate_all(
     own_budget: float,
     start_budget: float,
     league_start_date: str | None,
-    achievement_bonus_total: float,
+    achievement_rewards: list[dict],
 ) -> list[dict]:
     """Schaetzt Budgets aller Manager. ranking_rows braucht mind. 'user_id'/
     'name'/'team_value'/'season_points' (wie in fetcher.py aufgebaut).
-    achievement_bonus_total ist die Summe aus ac*er ueber alle deduplizierten
-    Achievement-Ids des EIGENEN Users (siehe _unique_achievement_ids), wird
-    hier pro Manager nach Punkte-Verhaeltnis skaliert.
+    achievement_rewards ist die Liste der {id, ac, er}-Dicts aus
+    fetcher._fetch_achievement_rewards() fuer alle deduplizierten
+    Achievement-Ids des EIGENEN Users. Fuer Ids in _EXACT_ACHIEVEMENTS wird
+    der Bonus pro Manager exakt anhand vorhandener Daten geprueft, alle
+    anderen werden weiterhin nach Punkte-Verhaeltnis skaliert.
 
     Gibt eine nach 'available_budget' absteigend sortierte Liste fertiger
     DB-Row-Dicts zurueck. Die eigene Zeile wird mit dem echten own_budget
@@ -197,6 +199,7 @@ def estimate_all(
     for name in budgets:
         budgets[name] += login_bonus
 
+    league_size = len(known_names)
     own_points = next(
         (row.get("season_points") for row in ranking_rows if row.get("name") == own_name),
         None,
@@ -205,9 +208,19 @@ def estimate_all(
         name = row.get("name")
         if not name or name not in budgets:
             continue
-        budgets[name] += _scale_achievement_bonus(
-            achievement_bonus_total, own_points, row.get("season_points")
-        )
+        for reward in achievement_rewards:
+            ac = reward.get("ac") or 0
+            er = reward.get("er") or 0
+            hit = _exact_achievement_hit(
+                reward.get("id"),
+                team_value=row.get("team_value"),
+                trade_count=trade_counts.get(name, 0),
+                league_size=league_size,
+            )
+            if hit is None:
+                budgets[name] += _scale_achievement_bonus(ac * er, own_points, row.get("season_points"))
+            elif hit:
+                budgets[name] += ac * er
 
     if own_name in budgets:
         budgets[own_name] = float(own_budget)
