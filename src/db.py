@@ -129,6 +129,7 @@ def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
     _ensure_column(conn, "own_squad", "starting_rank", "INTEGER")
+    _ensure_column(conn, "own_squad", "purchase_price", "INTEGER")
     _ensure_column(conn, "market_listings", "starting_rank", "INTEGER")
     _ensure_column(conn, "market_listings", "listed_at", "TEXT")
     _ensure_column(conn, "market_listings", "expires_at", "TEXT")
