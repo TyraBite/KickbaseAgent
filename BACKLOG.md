@@ -26,6 +26,18 @@ diesem Repo gearbeitet wird: `CLAUDE.md`.
   öffentliche Datenbank für andere Kickbase-User anzubieten, komplett getrennt vom persönlichen Agent. Offene
   Fragen: rechtlich zulässig? Monetarisierung? Domain-Kosten? Skalierbare Infrastruktur? Noch nicht gescoped, kein
   Plan.
+- **Achievements/Login-Boni anderer Manager** (`84ad6dff`) — Achievement-Teil wird umgesetzt: Plan
+  `docs/superpowers/plans/2026-08-07-manager-budgets-exact-achievements.md` (exakte Schwellenprüfung statt
+  Punkte-Verhältnis-Skalierung für 5 live verifizierte Achievement-Ids). Zwei Teile davon bewusst NICHT im Plan:
+  - **Login-Bonus per erkannter Aktivität** (statt Gleichverteilung auf alle Manager) zurückgestellt — Login-Bonus
+    ist live als Streak bestätigt (10k/20k/…/gedeckelt bei 100k ab Tag 10, vermutlich Reset bei Lücke), aber pro Tag
+    nicht zuverlässig als aktiv/inaktiv belegbar (Aufstellungsänderung anderer Manager wird zwar pro Lauf abgerufen,
+    aber nicht cross-run persistiert — `data/kickbase.db` ist pro CI-Lauf frisch). User-Entscheidung 2026-08-07:
+    vorerst weiter "jeder Manager loggt sich jeden Tag ein" annehmen, keine Aktivitätserkennung bauen.
+  - **"Jackpot"-Idee (Achievements anderer Manager direkt/season-weit auslesen)** live getestet und verworfen:
+    `/user/achievements/{id}` ignoriert einen `managerId`-Query-Param stillschweigend (liefert weiter nur eigene
+    Daten), `/managers/{id}/achievements` → 404. Kein Hinweis auf einen Manager-scoped Achievement-Endpoint ohne
+    tiefere Reverse-Engineering-Arbeit, die bewusst nicht verfolgt wird.
 
 ## Technische Schulden
 
