@@ -125,6 +125,39 @@ def _scale_achievement_bonus(anchor_bonus: float, own_points, target_points) -> 
     return anchor_bonus * (target_points / own_points)
 
 
+# Verifiziert 2026-08-07 gegen echte get_achievement_reward()-Responses des
+# eigenen Accounts (Name/Beschreibung/Schwelle live geprueft). Nur Ids, die
+# der eigene Account bereits selbst freigeschaltet hat, sind hier bekannt -
+# hoehere, noch unerreichte Tiers bleiben unsichtbar und fallen weiter unter
+# _scale_achievement_bonus.
+_EXACT_ACHIEVEMENTS: dict[int, tuple[str, float]] = {
+    400: ("team_value", 125_000_000),  # "Own a team with a value of 125 mil."
+    401: ("team_value", 150_000_000),  # "Own a team with a value of 150 mil."
+    500: ("trade_count", 1),  # "Sell or buy 1 player during a season"
+    600: ("league_size", 3),  # "Your league has at least 3 managers"
+    601: ("league_size", 6),  # "Your league has at least 6 managers"
+}
+
+
+def _exact_achievement_hit(
+    achievement_id: int, *, team_value, trade_count: int, league_size: int
+) -> bool | None:
+    """Prueft, ob ein Manager ein verifiziertes Achievement (siehe
+    _EXACT_ACHIEVEMENTS) anhand bereits vorhandener Daten exakt erreicht hat.
+    None heisst: kein verifizierter Typ, der Aufrufer muss auf
+    _scale_achievement_bonus zurueckfallen (z.B. profit-basierte Achievements
+    ohne Kauf/Verkaufs-Ledger je Spieler)."""
+    entry = _EXACT_ACHIEVEMENTS.get(achievement_id)
+    if entry is None:
+        return None
+    metric, threshold = entry
+    if metric == "team_value":
+        return (team_value or 0) >= threshold
+    if metric == "trade_count":
+        return trade_count >= threshold
+    return league_size >= threshold
+
+
 def _overdraft(budget: float, team_value) -> tuple[float, float]:
     """Kickbase-Regel: maximal 33% des Teamwerts Ueberziehung erlaubt."""
     team_value = team_value or 0

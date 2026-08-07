@@ -115,6 +115,48 @@ class ScaleAchievementBonusTests(unittest.TestCase):
         self.assertEqual(mb._scale_achievement_bonus(1000, own_points=50, target_points=None), 0.0)
 
 
+class ExactAchievementHitTests(unittest.TestCase):
+    def test_unknown_id_returns_none(self):
+        self.assertIsNone(
+            mb._exact_achievement_hit(999, team_value=200_000_000, trade_count=5, league_size=8)
+        )
+
+    def test_team_value_threshold_hit(self):
+        self.assertTrue(
+            mb._exact_achievement_hit(400, team_value=125_000_000, trade_count=0, league_size=8)
+        )
+
+    def test_team_value_threshold_miss(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(401, team_value=149_999_999, trade_count=0, league_size=8)
+        )
+
+    def test_team_value_none_is_treated_as_zero_not_a_crash(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(400, team_value=None, trade_count=0, league_size=8)
+        )
+
+    def test_trade_count_threshold_hit(self):
+        self.assertTrue(
+            mb._exact_achievement_hit(500, team_value=0, trade_count=1, league_size=8)
+        )
+
+    def test_trade_count_threshold_miss(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(500, team_value=0, trade_count=0, league_size=8)
+        )
+
+    def test_league_size_threshold_hit(self):
+        self.assertTrue(
+            mb._exact_achievement_hit(601, team_value=0, trade_count=0, league_size=6)
+        )
+
+    def test_league_size_threshold_miss(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(601, team_value=0, trade_count=0, league_size=5)
+        )
+
+
 class OverdraftTests(unittest.TestCase):
     def test_matches_kickbase_33_percent_rule(self):
         max_negative, available = mb._overdraft(budget=1_000_000, team_value=10_000_000)
