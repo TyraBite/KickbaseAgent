@@ -6,10 +6,19 @@ import { buildFixtureSnapshot, FIXTURE_PLAYERS } from "../src/test-fixtures/dash
 // Kartenkopfzeile reserviert seit dem Drag-Handle rechts oben `pr-10`, ist
 // aber weiterhin `flex flex-wrap` - bei knapper Kartenbreite (Grid-Minimum
 // 220px) laeuft ein ausreichend langer Name in eine zweite Zeile, waehrend
-// kuerzere Namen einzeilig bleiben. Karten derselben Positionsgruppe/Bank
-// wurden dadurch unterschiedlich hoch. 480px Viewport (statt des CT-
+// kuerzere Namen einzeilig bleiben. 480px Viewport (statt des CT-
 // Standard-Viewports) erzwingt zwei ~220px-Spalten - genau die knappe Breite,
 // bei der das reproduzierbar auftritt.
+//
+// Wichtig fuer die Assertion: `.grid > div` ist der motion.div-Wrapper (das
+// eigentliche Grid-Item) - CSS Grids Default `align-items: stretch` gleicht
+// dessen Hoehe IMMER auf die groesste Karte der Zeile an, unabhaengig vom
+// Bug. Die sichtbare, umrandete Karte ist ein Kind-`div[role="button"]`
+// EINE Ebene darunter und wird vom Grid NICHT gestreckt - live per
+// Diagnose-Lauf bestaetigt (2026-08-07): Grid-Item bei beiden Karten 224px,
+// die sichtbare Karte darunter 200px (kurzer Name) vs. 224px (langer Name).
+// Ein Test, der stattdessen `.grid > div` selbst misst, waere immer gruen
+// (genau das ist PR #17s erstem Testversuch passiert).
 test.use({ viewport: { width: 480, height: 800 } });
 
 test.describe("Wunschkader-Kartenkopf bei langen Spielernamen", () => {
@@ -25,24 +34,12 @@ test.describe("Wunschkader-Kartenkopf bei langen Spielernamen", () => {
       <WunschkaderTab data={buildFixtureSnapshot()} wunschkader={{ targets }} onSaved={() => {}} isActive={true} />
     );
 
-    const debugInfo = await page.evaluate(() => {
-      const cards = Array.from(document.querySelectorAll(".grid > div")).filter((el) => el.querySelector("dl"));
-      return cards.map((el) => {
-        const header = el.querySelector(":scope > div");
-        const nameSpan = el.querySelector("span.font-semibold");
-        return {
-          cardWidth: el.getBoundingClientRect().width,
-          cardHeight: el.getBoundingClientRect().height,
-          headerHeight: header ? header.getBoundingClientRect().height : null,
-          nameText: nameSpan ? nameSpan.textContent : null,
-          nameWidth: nameSpan ? nameSpan.getBoundingClientRect().width : null,
-          nameHeight: nameSpan ? nameSpan.getBoundingClientRect().height : null,
-        };
-      });
+    const heights = await page.evaluate(() => {
+      const gridItems = Array.from(document.querySelectorAll(".grid > div")).filter((el) => el.querySelector("dl"));
+      return gridItems.map(
+        (el) => el.querySelector(':scope > div[role="button"]')!.getBoundingClientRect().height
+      );
     });
-    console.log("DEBUG_CARD_INFO", JSON.stringify(debugInfo, null, 2));
-
-    const heights = debugInfo.map((d) => d.cardHeight);
 
     expect(heights).toHaveLength(2);
     expect(heights[0]).toBe(heights[1]);
