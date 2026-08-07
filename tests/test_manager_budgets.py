@@ -268,6 +268,73 @@ class EstimateAllTests(unittest.TestCase):
         other_row = next(r for r in results if r["name"] == "Bobetinho")
         self.assertEqual(other_row["estimated_budget"], 50_000_000 + 100_000)
 
+    def test_exact_achievement_trade_count_credited_only_to_trading_manager(self):
+        # Id 500 (Schwelle 1 Trade): Bobetinho kauft einmal, Tyra handelt gar
+        # nicht - nur Bobetinho darf den exakten Bonus bekommen. own_name ist
+        # bewusst ein dritter Manager ("Admin"), nicht Tyra/Bobetinho: die
+        # eigene Zeile wird am Ende IMMER auf own_budget ueberschrieben (siehe
+        # estimate_all()-Docstring), ein Test ueber die eigene Zeile wuerde
+        # die Verdrahtung also nicht wirklich pruefen.
+        ranking_rows = [
+            {"user_id": "1", "name": "Tyra", "team_value": 80_000_000, "season_points": 100},
+            {"user_id": "2", "name": "Bobetinho", "team_value": 60_000_000, "season_points": 50},
+            {"user_id": "3", "name": "Admin", "team_value": 60_000_000, "season_points": 50},
+        ]
+        activities = [_trade(1, 1_000_000, byr="Bobetinho")]
+        results = mb.estimate_all(
+            activities=activities,
+            ranking_rows=ranking_rows,
+            own_name="Admin",
+            own_budget=50_000_000,
+            start_budget=50_000_000,
+            league_start_date=None,
+            achievement_rewards=[{"id": 500, "ac": 1, "er": 100_000}],
+        )
+        tyra_row = next(r for r in results if r["name"] == "Tyra")
+        bobetinho_row = next(r for r in results if r["name"] == "Bobetinho")
+        # Bobetinho: start_budget - Kaufpreis + exakter Bonus (trade_count 1 >= 1)
+        self.assertEqual(bobetinho_row["estimated_budget"], 50_000_000 - 1_000_000 + 100_000)
+        # Tyra: start_budget unveraendert, kein Trade -> kein Bonus
+        self.assertEqual(tyra_row["estimated_budget"], 50_000_000)
+
+    def test_exact_achievement_league_size_credited_only_when_league_big_enough(self):
+        # Id 601 (Schwelle 6 Manager). own_name ist wieder ein eigener
+        # "Admin"-Manager aus demselben Grund wie oben (eigene Zeile wird
+        # unabhaengig vom Bonus ueberschrieben).
+        big_league = [
+            {"user_id": str(i), "name": name, "team_value": 50_000_000, "season_points": 50}
+            for i, name in enumerate(
+                ["Tyra", "Bobetinho", "Admin", "Carla", "Dennis", "Elke"], start=1
+            )
+        ]
+        small_league = big_league[:5]  # nur 5 Manager -> Schwelle 6 nicht erreicht
+        achievement_rewards = [{"id": 601, "ac": 1, "er": 1_000_000}]
+
+        results_big = mb.estimate_all(
+            activities=[],
+            ranking_rows=big_league,
+            own_name="Admin",
+            own_budget=50_000_000,
+            start_budget=50_000_000,
+            league_start_date=None,
+            achievement_rewards=achievement_rewards,
+        )
+        results_small = mb.estimate_all(
+            activities=[],
+            ranking_rows=small_league,
+            own_name="Admin",
+            own_budget=50_000_000,
+            start_budget=50_000_000,
+            league_start_date=None,
+            achievement_rewards=achievement_rewards,
+        )
+
+        for name in ("Tyra", "Bobetinho"):
+            big_row = next(r for r in results_big if r["name"] == name)
+            small_row = next(r for r in results_small if r["name"] == name)
+            self.assertEqual(big_row["estimated_budget"], 50_000_000 + 1_000_000)
+            self.assertEqual(small_row["estimated_budget"], 50_000_000)
+
     def test_unverified_achievement_id_still_falls_back_to_points_scaling(self):
         # Id 700 ist absichtlich NICHT in _EXACT_ACHIEVEMENTS - muss weiter
         # ueber season_points-Verhaeltnis skaliert werden (bestehendes
