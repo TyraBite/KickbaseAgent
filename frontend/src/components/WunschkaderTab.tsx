@@ -765,11 +765,22 @@ function TargetCard({
       >
         {/* pr-10 haelt die Kopfzeile frei von dem darueberliegenden Handle in
             der rechten oberen Ecke - ohne das laufen Name/Badges bei langen
-            Namen unter den Handle. */}
-        <div className="mb-3 flex flex-wrap items-center gap-2 pr-10">
+            Namen unter den Handle. Bewusst KEIN flex-wrap mehr (siehe PR #17):
+            ein zu langer Name kippte sonst als eigenes Flex-Item in eine
+            zweite Zeile, waehrend Karten mit kuerzerem Namen einzeilig
+            blieben - macht Karten derselben Positionsgruppe/Bank
+            unterschiedlich hoch (CSS Grids align-items:stretch gleicht nur
+            das unsichtbare Grid-Item an, nicht die sichtbare Karte darunter).
+            flex-1 min-w-0 truncate auf dem Namen laesst stattdessen NUR den
+            Namen schrumpfen/ellipsieren, Crest/Badges behalten ihre
+            natuerliche Groesse - der volle Name bleibt ueber das
+            Detail-Modal erreichbar. */}
+        <div className="mb-3 flex items-center gap-2 pr-10">
           <TeamCrest teamName={computed.team_name} />
           <PositionBadge position={computed.position} />
-          <span className="font-semibold text-slate-900 dark:text-slate-50">{computed.name}</span>
+          <span className="flex-1 min-w-0 truncate font-semibold text-slate-900 dark:text-slate-50">
+            {computed.name}
+          </span>
           {tone === "market" && <Badge tone="good">🛒 Markt</Badge>}
           {clubCount >= 4 && (
             <Badge tone="warn">
