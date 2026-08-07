@@ -30,6 +30,10 @@ Arbeit (das steht in der Git-Historie, `git log`). Wie in diesem Repo gearbeitet
   (Checks blieben teils stundenlang `pending`/`queued`, ein Re-Trigger durch einen `main`-Merge-Commit auf dem
   PR-#17-Branch half, sobald GitHub wieder lief). Kein offener PR, kein offener Worktree mehr — beide Worktrees
   (`.claude/worktrees/wunschkader-card-header-wrap`, Branch für PR #18) inkl. lokaler Branches entfernt.
+- **`CLAUDE.md` ergänzt** (Git- und PR-Workflow): Auto-Merge wurde nur auf PR #18 gesetzt, nicht auf PR #17 —
+  blieb trotz grüner Checks unbemerkt offen, bis der User nachfragte. Regel ergänzt: `gh pr merge --auto --squash`
+  bei mehreren offenen PRs für jede einzeln direkt nach Erstellung ausführen, und nach jedem manuellen CI-Rerun
+  sofort einen Beobachtungsmechanismus aufsetzen statt implizit "im Blick behalten".
 
 ## Aufzugreifen
 

@@ -250,6 +250,16 @@ Jede funktionale Änderung (`src/`, `tests/`, `frontend/src/`,
 Direkt-Push auf `main` bleibt nur für reine Doku-/Planungs-Commits (Specs,
 Pläne, `HANDOFF.md`, `BACKLOG.md`, diese Datei) ohne Code-Wirkung. Im Zweifel: PR.
 
+**Bei mehreren gleichzeitig offenen PRs `gh pr merge --auto --squash` für JEDE
+einzeln ausführen**, direkt nach deren Erstellung — nicht davon ausgehen, dass
+ein einmal in der Session ausgeführter Auto-Merge-Befehl für eine andere PR
+mitgilt (2026-08-07 live passiert: Auto-Merge nur auf einer von zwei offenen
+PRs gesetzt, die zweite blieb trotz grüner Checks unbemerkt offen, bis der
+User nachfragte). Ebenso nach jedem manuell ausgelösten CI-Rerun
+(`gh run rerun`) sofort einen Mechanismus zum Beobachten des Abschlusses
+aufsetzen (Watcher/Hintergrund-Polling) statt implizit anzunehmen, man behalte
+es "im Blick" — sonst bemerkt niemand, wenn der Lauf durch ist.
+
 Zeilenenden sind LF (`.gitattributes: * text=auto eol=lf`) — CRLF-Drift von der
 Windows-Seite nicht mitcommitten. `data/kickbase.db` ist gitignored und wird
 bei jedem Lauf neu erzeugt; nie zurückcommitten.
