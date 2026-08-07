@@ -238,9 +238,11 @@ def get_activities_feed(token: str, league_id: str, max_entries: int = 5000) -> 
 
 def get_achievement_reward(token: str, league_id: str, achievement_id: str) -> dict:
     """Rohes Achievement-Dict fuer den EIGENEN User ("ac" = Anzahl Treffer,
-    "er" = Belohnung pro Treffer). Dient als Anker-Betrag, der fuer andere
-    Manager in src/manager_budgets.py nach Punkte-Verhaeltnis skaliert wird,
-    da diese Route offenbar nur die eigenen Achievement-Zahlen liefert.
+    "er" = Belohnung pro Treffer). Dient als Anker-Betrag: fuer Ids in
+    manager_budgets._EXACT_ACHIEVEMENTS wird er anderen Managern exakt
+    gutgeschrieben (Treffer/Nicht-Treffer), fuer alle anderen weiterhin nach
+    Punkte-Verhaeltnis skaliert - da diese Route offenbar nur die eigenen
+    Achievement-Zahlen liefert.
     Ebenfalls unbestaetigt, siehe get_activities_feed()."""
     response = requests.get(
         f"{BASE_URL}/v4/leagues/{league_id}/user/achievements/{achievement_id}",

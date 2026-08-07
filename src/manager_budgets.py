@@ -130,6 +130,12 @@ def _scale_achievement_bonus(anchor_bonus: float, own_points, target_points) -> 
 # der eigene Account bereits selbst freigeschaltet hat, sind hier bekannt -
 # hoehere, noch unerreichte Tiers bleiben unsichtbar und fallen weiter unter
 # _scale_achievement_bonus.
+# Einschraenkung: die Pruefung nutzt den AKTUELLEN team_value/trade_count/
+# league_size-Stand, nicht die Historie - ein Manager, der eine Schwelle
+# bereits ueberschritten hatte und seitdem wieder darunter liegt (z.B.
+# Teamwert nach einem Peak wieder gefallen), zeigt hier faelschlich "nicht
+# erreicht". Das kann nur unter-, nie ueberschaetzen, denn ein aktuell
+# erreichter Schwellenwert belegt immer, dass er irgendwann erreicht wurde.
 _EXACT_ACHIEVEMENTS: dict[int, tuple[str, float]] = {
     400: ("team_value", 125_000_000),  # "Own a team with a value of 125 mil."
     401: ("team_value", 150_000_000),  # "Own a team with a value of 150 mil."
@@ -155,7 +161,9 @@ def _exact_achievement_hit(
         return (team_value or 0) >= threshold
     if metric == "trade_count":
         return trade_count >= threshold
-    return league_size >= threshold
+    if metric == "league_size":
+        return league_size >= threshold
+    raise ValueError(f"Unbekannte Metrik in _EXACT_ACHIEVEMENTS: {metric!r}")
 
 
 def _overdraft(budget: float, team_value) -> tuple[float, float]:
