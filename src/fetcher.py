@@ -257,12 +257,15 @@ def _fetch_activities_feed(token: str, league_id: str) -> list[dict] | None:
     return activities
 
 
-def _fetch_achievement_bonus_total(token: str, league_id: str, achievement_ids: set) -> float:
-    """Fragt jede (deduplizierte) Achievement-Id einmal ab und summiert
-    ac*er. Ein einzelner fehlgeschlagener Call darf die Budget-Schaetzung
-    nicht komplett verhindern, daher try/except pro Id, analog
-    _apply_market_value_history."""
-    total = 0.0
+def _fetch_achievement_rewards(token: str, league_id: str, achievement_ids: set) -> list[dict]:
+    """Fragt jede (deduplizierte) Achievement-Id einmal ab. Ein einzelner
+    fehlgeschlagener Call darf die Budget-Schaetzung nicht komplett
+    verhindern, daher try/except pro Id, analog _apply_market_value_history.
+    Gibt pro Id ein Dict {id, ac, er} zurueck - die Granularitaet bleibt bis
+    manager_budgets.estimate_all() erhalten, damit dort pro Achievement
+    exakt statt nur pauschal skaliert werden kann (siehe
+    manager_budgets._EXACT_ACHIEVEMENTS)."""
+    rewards = []
     for achievement_id in achievement_ids:
         try:
             reward = get_achievement_reward(token, league_id, achievement_id)
@@ -272,8 +275,10 @@ def _fetch_achievement_bonus_total(token: str, league_id: str, achievement_ids: 
                 file=sys.stderr,
             )
             continue
-        total += (reward.get("ac") or 0) * (reward.get("er") or 0)
-    return total
+        rewards.append(
+            {"id": achievement_id, "ac": reward.get("ac") or 0, "er": reward.get("er") or 0}
+        )
+    return rewards
 
 
 def _fetch_recent_matchday_points(
@@ -428,7 +433,7 @@ def run() -> str:
 
     activities = _fetch_activities_feed(token, league_id)
     if activities is not None:
-        achievement_bonus_total = _fetch_achievement_bonus_total(
+        achievement_rewards = _fetch_achievement_rewards(
             token, league_id, manager_budgets.unique_achievement_ids(activities)
         )
         start_budget = float(
@@ -442,7 +447,7 @@ def run() -> str:
             own_budget=budget,
             start_budget=start_budget,
             league_start_date=league_start_date,
-            achievement_bonus_total=achievement_bonus_total,
+            achievement_rewards=achievement_rewards,
         )
     else:
         manager_budget_rows = []

@@ -6,6 +6,7 @@ from src.fetcher import (
     _apply_market_value_history,
     _apply_or_reuse_market_value_history,
     _compute_expiry,
+    _fetch_achievement_rewards,
     _market_item_to_row,
     _squad_item_to_row,
 )
@@ -149,3 +150,34 @@ class ApplyMarketValueHistoryTests(unittest.TestCase):
 
         self.assertEqual(row["market_value_change_7d"], 70_000)
         self.assertEqual(row["market_value_in_drop_phase"], 1)
+
+
+class FetchAchievementRewardsTests(unittest.TestCase):
+    @patch("src.fetcher.get_achievement_reward")
+    def test_returns_id_ac_er_per_achievement(self, mock_get):
+        mock_get.side_effect = lambda token, league_id, achievement_id: {
+            400: {"t": 400, "ac": 1, "er": 100_000},
+            500: {"t": 500, "ac": 1, "er": 100_000},
+        }[achievement_id]
+
+        rewards = _fetch_achievement_rewards("tok", "l1", {400, 500})
+
+        self.assertEqual(
+            sorted(rewards, key=lambda r: r["id"]),
+            [{"id": 400, "ac": 1, "er": 100_000}, {"id": 500, "ac": 1, "er": 100_000}],
+        )
+
+    @patch("src.fetcher.get_achievement_reward")
+    def test_skips_id_on_failed_call_without_raising(self, mock_get):
+        from src.kickbase_client import KickbaseError
+
+        def side_effect(token, league_id, achievement_id):
+            if achievement_id == 400:
+                raise KickbaseError("boom")
+            return {"t": achievement_id, "ac": 1, "er": 50_000}
+
+        mock_get.side_effect = side_effect
+
+        rewards = _fetch_achievement_rewards("tok", "l1", {400, 601})
+
+        self.assertEqual(rewards, [{"id": 601, "ac": 1, "er": 50_000}])

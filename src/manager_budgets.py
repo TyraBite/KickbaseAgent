@@ -125,6 +125,39 @@ def _scale_achievement_bonus(anchor_bonus: float, own_points, target_points) -> 
     return anchor_bonus * (target_points / own_points)
 
 
+# Verifiziert 2026-08-07 gegen echte get_achievement_reward()-Responses des
+# eigenen Accounts (Name/Beschreibung/Schwelle live geprueft). Nur Ids, die
+# der eigene Account bereits selbst freigeschaltet hat, sind hier bekannt -
+# hoehere, noch unerreichte Tiers bleiben unsichtbar und fallen weiter unter
+# _scale_achievement_bonus.
+_EXACT_ACHIEVEMENTS: dict[int, tuple[str, float]] = {
+    400: ("team_value", 125_000_000),  # "Own a team with a value of 125 mil."
+    401: ("team_value", 150_000_000),  # "Own a team with a value of 150 mil."
+    500: ("trade_count", 1),  # "Sell or buy 1 player during a season"
+    600: ("league_size", 3),  # "Your league has at least 3 managers"
+    601: ("league_size", 6),  # "Your league has at least 6 managers"
+}
+
+
+def _exact_achievement_hit(
+    achievement_id: int, *, team_value, trade_count: int, league_size: int
+) -> bool | None:
+    """Prueft, ob ein Manager ein verifiziertes Achievement (siehe
+    _EXACT_ACHIEVEMENTS) anhand bereits vorhandener Daten exakt erreicht hat.
+    None heisst: kein verifizierter Typ, der Aufrufer muss auf
+    _scale_achievement_bonus zurueckfallen (z.B. profit-basierte Achievements
+    ohne Kauf/Verkaufs-Ledger je Spieler)."""
+    entry = _EXACT_ACHIEVEMENTS.get(achievement_id)
+    if entry is None:
+        return None
+    metric, threshold = entry
+    if metric == "team_value":
+        return (team_value or 0) >= threshold
+    if metric == "trade_count":
+        return trade_count >= threshold
+    return league_size >= threshold
+
+
 def _overdraft(budget: float, team_value) -> tuple[float, float]:
     """Kickbase-Regel: maximal 33% des Teamwerts Ueberziehung erlaubt."""
     team_value = team_value or 0
@@ -141,13 +174,15 @@ def estimate_all(
     own_budget: float,
     start_budget: float,
     league_start_date: str | None,
-    achievement_bonus_total: float,
+    achievement_rewards: list[dict],
 ) -> list[dict]:
     """Schaetzt Budgets aller Manager. ranking_rows braucht mind. 'user_id'/
     'name'/'team_value'/'season_points' (wie in fetcher.py aufgebaut).
-    achievement_bonus_total ist die Summe aus ac*er ueber alle deduplizierten
-    Achievement-Ids des EIGENEN Users (siehe _unique_achievement_ids), wird
-    hier pro Manager nach Punkte-Verhaeltnis skaliert.
+    achievement_rewards ist die Liste der {id, ac, er}-Dicts aus
+    fetcher._fetch_achievement_rewards() fuer alle deduplizierten
+    Achievement-Ids des EIGENEN Users. Fuer Ids in _EXACT_ACHIEVEMENTS wird
+    der Bonus pro Manager exakt anhand vorhandener Daten geprueft, alle
+    anderen werden weiterhin nach Punkte-Verhaeltnis skaliert.
 
     Gibt eine nach 'available_budget' absteigend sortierte Liste fertiger
     DB-Row-Dicts zurueck. Die eigene Zeile wird mit dem echten own_budget
@@ -164,6 +199,7 @@ def estimate_all(
     for name in budgets:
         budgets[name] += login_bonus
 
+    league_size = len(known_names)
     own_points = next(
         (row.get("season_points") for row in ranking_rows if row.get("name") == own_name),
         None,
@@ -172,9 +208,19 @@ def estimate_all(
         name = row.get("name")
         if not name or name not in budgets:
             continue
-        budgets[name] += _scale_achievement_bonus(
-            achievement_bonus_total, own_points, row.get("season_points")
-        )
+        for reward in achievement_rewards:
+            ac = reward.get("ac") or 0
+            er = reward.get("er") or 0
+            hit = _exact_achievement_hit(
+                reward.get("id"),
+                team_value=row.get("team_value"),
+                trade_count=trade_counts.get(name, 0),
+                league_size=league_size,
+            )
+            if hit is None:
+                budgets[name] += _scale_achievement_bonus(ac * er, own_points, row.get("season_points"))
+            elif hit:
+                budgets[name] += ac * er
 
     if own_name in budgets:
         budgets[own_name] = float(own_budget)

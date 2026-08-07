@@ -115,6 +115,48 @@ class ScaleAchievementBonusTests(unittest.TestCase):
         self.assertEqual(mb._scale_achievement_bonus(1000, own_points=50, target_points=None), 0.0)
 
 
+class ExactAchievementHitTests(unittest.TestCase):
+    def test_unknown_id_returns_none(self):
+        self.assertIsNone(
+            mb._exact_achievement_hit(999, team_value=200_000_000, trade_count=5, league_size=8)
+        )
+
+    def test_team_value_threshold_hit(self):
+        self.assertTrue(
+            mb._exact_achievement_hit(400, team_value=125_000_000, trade_count=0, league_size=8)
+        )
+
+    def test_team_value_threshold_miss(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(401, team_value=149_999_999, trade_count=0, league_size=8)
+        )
+
+    def test_team_value_none_is_treated_as_zero_not_a_crash(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(400, team_value=None, trade_count=0, league_size=8)
+        )
+
+    def test_trade_count_threshold_hit(self):
+        self.assertTrue(
+            mb._exact_achievement_hit(500, team_value=0, trade_count=1, league_size=8)
+        )
+
+    def test_trade_count_threshold_miss(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(500, team_value=0, trade_count=0, league_size=8)
+        )
+
+    def test_league_size_threshold_hit(self):
+        self.assertTrue(
+            mb._exact_achievement_hit(601, team_value=0, trade_count=0, league_size=6)
+        )
+
+    def test_league_size_threshold_miss(self):
+        self.assertFalse(
+            mb._exact_achievement_hit(601, team_value=0, trade_count=0, league_size=5)
+        )
+
+
 class OverdraftTests(unittest.TestCase):
     def test_matches_kickbase_33_percent_rule(self):
         max_negative, available = mb._overdraft(budget=1_000_000, team_value=10_000_000)
@@ -143,7 +185,7 @@ class EstimateAllTests(unittest.TestCase):
             own_budget=87_832_916,
             start_budget=50_000_000,
             league_start_date=None,
-            achievement_bonus_total=0,
+            achievement_rewards=[],
         )
         own_row = next(r for r in results if r["name"] == "Tyra")
         self.assertEqual(own_row["estimated_budget"], 87_832_916)
@@ -157,7 +199,7 @@ class EstimateAllTests(unittest.TestCase):
             own_budget=50_000_000,
             start_budget=50_000_000,
             league_start_date=None,
-            achievement_bonus_total=0,
+            achievement_rewards=[],
         )
         other_row = next(r for r in results if r["name"] == "Bobetinho")
         self.assertEqual(other_row["is_own_exact"], 0)
@@ -175,7 +217,7 @@ class EstimateAllTests(unittest.TestCase):
             own_budget=50_000_000,
             start_budget=50_000_000,
             league_start_date=None,
-            achievement_bonus_total=0,
+            achievement_rewards=[],
         )
         other_row = next(r for r in results if r["name"] == "Bobetinho")
         self.assertEqual(other_row["trade_count"], 2)
@@ -188,10 +230,60 @@ class EstimateAllTests(unittest.TestCase):
             own_budget=50_000_000,
             start_budget=50_000_000,
             league_start_date=None,
-            achievement_bonus_total=0,
+            achievement_rewards=[],
         )
         available = [r["available_budget"] for r in results]
         self.assertEqual(available, sorted(available, reverse=True))
+
+    def test_exact_achievement_credited_only_to_managers_who_hit_threshold(self):
+        # Bobetinho (team_value=60_000_000) erreicht 125 Mio nicht, Tyra
+        # (team_value=80_000_000 im setUp) ebenfalls nicht - beide Zeilen
+        # duerfen den exakten Bonus NICHT bekommen.
+        results = mb.estimate_all(
+            activities=[],
+            ranking_rows=self.ranking_rows,
+            own_name="Tyra",
+            own_budget=50_000_000,
+            start_budget=50_000_000,
+            league_start_date=None,
+            achievement_rewards=[{"id": 400, "ac": 1, "er": 100_000}],
+        )
+        other_row = next(r for r in results if r["name"] == "Bobetinho")
+        self.assertEqual(other_row["estimated_budget"], 50_000_000)
+
+    def test_exact_achievement_credited_when_threshold_met(self):
+        ranking_rows = [
+            {"user_id": "1", "name": "Tyra", "team_value": 80_000_000, "season_points": 100},
+            {"user_id": "2", "name": "Bobetinho", "team_value": 200_000_000, "season_points": 50},
+        ]
+        results = mb.estimate_all(
+            activities=[],
+            ranking_rows=ranking_rows,
+            own_name="Tyra",
+            own_budget=50_000_000,
+            start_budget=50_000_000,
+            league_start_date=None,
+            achievement_rewards=[{"id": 400, "ac": 1, "er": 100_000}],
+        )
+        other_row = next(r for r in results if r["name"] == "Bobetinho")
+        self.assertEqual(other_row["estimated_budget"], 50_000_000 + 100_000)
+
+    def test_unverified_achievement_id_still_falls_back_to_points_scaling(self):
+        # Id 700 ist absichtlich NICHT in _EXACT_ACHIEVEMENTS - muss weiter
+        # ueber season_points-Verhaeltnis skaliert werden (bestehendes
+        # Verhalten, unveraendert).
+        results = mb.estimate_all(
+            activities=[],
+            ranking_rows=self.ranking_rows,
+            own_name="Tyra",
+            own_budget=50_000_000,
+            start_budget=50_000_000,
+            league_start_date=None,
+            achievement_rewards=[{"id": 700, "ac": 1, "er": 100_000}],
+        )
+        other_row = next(r for r in results if r["name"] == "Bobetinho")
+        # own_points=100, target_points=50 -> 50% skaliert
+        self.assertEqual(other_row["estimated_budget"], 50_000_000 + 50_000)
 
 
 if __name__ == "__main__":
