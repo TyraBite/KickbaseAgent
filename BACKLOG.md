@@ -40,6 +40,13 @@ diesem Repo gearbeitet wird: `CLAUDE.md`.
   vorhanden). Kartenkörper hat kein `select-none` mehr (Long-Press zeigt jetzt das native Text-Auswahl-Menü). Kein
   Auto-Scroll während des Ziehens — bei weit auseinanderliegenden Zielen auf einem vollen, gescrollten Kader (z.B.
   Torwart↔Bank bei 17 Spielern auf dem Handy) bleibt der Klick-Button im Detail-Modal der verlässliche Weg.
+- **`WunschkaderDragAndDrop.spec.ts`, vermutlich flaky (beobachtet 2026-08-07, PR #17)**: die `maxScroll`-Sanity-
+  Checks ("ohne echten Scroll-Spielraum würde dieser Test nichts beweisen") in den Tests "Drag funktioniert
+  korrekt, wenn die Seite gescrollt ist" und "Vertikales Wischen auf dem Kartenkörper scrollt weiterhin die Seite"
+  schlugen über drei aufeinanderfolgende CI-Läufe je unterschiedlich fehl — auch auf Commits ohne jede
+  Code-Änderung an Wunschkader. Deutet auf eine Timing-/Render-Race in der mobilen Viewport-Emulation, nicht auf
+  einen echten Drag-Bug. Läufe fanden alle kurz nach einem größeren GitHub-Actions-Ausfall statt (evtl. degradierte
+  Runner-Performance als Mitverursacher, nicht bestätigt). Noch nicht root-caused, kein aktueller Auftrag.
 
 ## Test-Coverage (Audit 2026-08-03)
 
