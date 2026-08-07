@@ -1,5 +1,8 @@
 import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from src import db
 
@@ -8,6 +11,63 @@ def _memory_conn():
     conn = sqlite3.connect(":memory:")
     conn.executescript(db.SCHEMA)
     return conn
+
+
+class ConnectMigratesLegacyOwnSquadSchemaTests(unittest.TestCase):
+    """Regression: eine bereits bestehende data/kickbase.db aus der Zeit vor
+    dem purchase_price-Feld hat own_squad OHNE diese Spalte. CREATE TABLE
+    IF NOT EXISTS aendert das bestehende Schema nicht - ohne einen
+    _ensure_column()-Eintrag crasht replace_own_squad() live mit 'table
+    own_squad has no column named purchase_price', sobald jemand db.connect()
+    gegen eine so alte, lokal liegen gebliebene Datei aufruft (2026-08-07,
+    live in der Sandbox reproduziert)."""
+
+    def test_connect_adds_purchase_price_to_pre_existing_own_squad_table(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            legacy_db_path = Path(tmp_dir) / "kickbase.db"
+            legacy_conn = sqlite3.connect(legacy_db_path)
+            legacy_conn.executescript("""
+                CREATE TABLE own_squad (
+                    fetched_at TEXT NOT NULL,
+                    player_id TEXT NOT NULL,
+                    name TEXT,
+                    position TEXT,
+                    status_code INTEGER,
+                    status_label TEXT,
+                    market_value INTEGER,
+                    market_value_trend INTEGER,
+                    market_value_change_7d INTEGER,
+                    market_value_low_92d INTEGER,
+                    market_value_high_92d INTEGER,
+                    market_value_in_drop_phase INTEGER,
+                    average_points INTEGER,
+                    total_points INTEGER,
+                    team_id TEXT,
+                    team_name TEXT,
+                    starting_rank INTEGER,
+                    PRIMARY KEY (fetched_at, player_id)
+                );
+            """)
+            legacy_conn.commit()
+            legacy_conn.close()
+
+            with patch.object(db, "DB_PATH", legacy_db_path):
+                conn = db.connect()
+                db.replace_own_squad(conn, "2026-08-07", [{
+                    "player_id": "p1", "name": "Foo", "position": "Sturm",
+                    "status_code": 0, "status_label": None, "market_value": 1_000_000,
+                    "market_value_trend": 0, "market_value_change_7d": 50_000,
+                    "market_value_low_92d": 900_000, "market_value_high_92d": 1_100_000,
+                    "market_value_in_drop_phase": 0, "average_points": 100, "total_points": 500,
+                    "team_id": "t1", "team_name": "Bremen", "starting_rank": 1,
+                    "purchase_price": 950_000,
+                }])
+
+                row = conn.execute(
+                    "SELECT purchase_price FROM own_squad WHERE player_id = ?", ("p1",)
+                ).fetchone()
+
+        self.assertEqual(row[0], 950_000)
 
 
 class GetMarketValueHistoryCacheTests(unittest.TestCase):
