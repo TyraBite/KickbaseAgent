@@ -152,6 +152,46 @@ python -m src.player_valuation
 python -m src.main
 ```
 
+## Backend per Docker/Cron betreiben (Raspberry Pi)
+
+Alternative zum stündlichen/täglichen GitHub-Actions-Cron (`dashboard.yml` /
+`dashboard-marktwerte.yml`): dieselben zwei Läufe (Light/Heavy) selbst
+gehostet, per Docker-Container und Host-Crontab. Vorteil gegenüber GitHub
+Actions' `schedule`-Trigger: der läuft nur "best effort" (beobachtete
+Verzögerungen von bis zu ~65 Minuten, gelegentliche mehrstündige
+Komplettausfälle) — echtes Host-Cron auf eigener Hardware feuert exakt zur
+gewählten Minute, inkl. `CRON_TZ` für Europe/Berlin (kein manuelles
+UTC-Offset-Nachrechnen bei der Zeitumstellung mehr nötig).
+
+**Image bauen** (im Repo-Root, dort wo `Dockerfile` liegt):
+
+```bash
+docker build -t kickbaseagent .
+```
+
+**Secrets/Config** — dieselben Werte wie in `.env` lokal (siehe oben,
+`KICKBASE_EMAIL`/`KICKBASE_PASSWORD`/optional `KICKBASE_LEAGUE_*`), als Datei
+direkt auf dem Host, NICHT ins Image gebaut (`.dockerignore` schließt `.env`
+und `firebase-service-account.json` explizit aus). Beide Dateien liegen im
+selben Verzeichnis wie das geklonte Repo, z. B. `~/kickbaseagent/.env` und
+`~/kickbaseagent/firebase-service-account.json`.
+
+**Zwei Crontab-Zeilen** (`crontab -e` auf dem Host), Pfade an das eigene
+Setup anpassen:
+
+```cron
+CRON_TZ=Europe/Berlin
+# Light: stuendlich zur volle Stunde
+0 * * * * cd ~/kickbaseagent && docker run --rm --env-file .env -v "$(pwd)/firebase-service-account.json:/app/firebase-service-account.json:ro" -e FIRESTORE_ENABLED=1 -e GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-service-account.json kickbaseagent >> light.log 2>&1
+
+# Heavy: einmal taeglich, kurz nach Kickbase's Marktwert-Update (~22 Uhr Berlin)
+10 22 * * * cd ~/kickbaseagent && docker run --rm --env-file .env -v "$(pwd)/firebase-service-account.json:/app/firebase-service-account.json:ro" -e FIRESTORE_ENABLED=1 -e GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-service-account.json -e DASHBOARD_MODE=heavy kickbaseagent >> heavy.log 2>&1
+```
+
+**Code-Updates auf dem Pi**: `git pull` im geklonten Repo, danach
+`docker build -t kickbaseagent .` neu ausführen — kein Registry-Umweg, passt
+zum Tempo dieses Hobby-Projekts.
+
 ## Tests
 
 ```bash

@@ -1,0 +1,20 @@
+frontend/
+docs/
+MDs/
+tests/
+.git/
+.github/
+.venv/
+.venv-tuning/
+tuning-results/
+.superpowers/
+.claude/
+node_modules/
+__pycache__/
+*.pyc
+.env
+firebase-service-account.json
+# Nur die SQLite ausschliessen (gitignored, pro Lauf frisch) - data/valuation_k.json
+# und data/ml_prediction_log.jsonl sind committet und werden von player_valuation.py
+# bzw. market_predictor.py zur Laufzeit gelesen, muessen also ins Image.
+data/kickbase.db
